@@ -23,7 +23,7 @@ not talk to banks.
 | Parse SEPA XML back to a typed model (auto-detects message type) | `pain.001` / `pain.008` | ✅ Supported |
 | Read older coexistence versions | `pain.001.001.03`, `pain.008.001.02` | ✅ Supported (read-only) |
 | Validate business rules (IBAN mod-97, EPC charset, exact CtrlSum, dates) | all | ✅ Supported |
-| Validate XML against the official ISO 20022 / EPC XSD | all 7 schemas | ✅ Supported |
+| Validate XML against the official ISO 20022 / EPC XSD | all 6 schemas | ✅ Supported |
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `batchBooking`) | overlay | ✅ Supported |
 | Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
