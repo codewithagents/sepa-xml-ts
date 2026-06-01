@@ -18,6 +18,7 @@ import { parse } from "../src/parser/parser.js";
 import { validateXsd } from "../src/xsd.js";
 import { buildIban } from "../src/model/iban.js";
 import { sanitizeSepa } from "../src/model/charset.js";
+import { buildCreditorId, isValidCreditorId } from "../src/model/creditor-id.js";
 import { euros, formatMoney } from "../src/model/schema.js";
 import type { CreditTransferDocument, AccountParty, Transfer, PaymentBatch } from "../src/model/schema.js";
 import type {
@@ -220,26 +221,22 @@ function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
 // ---------------------------------------------------------------------------
 
 /**
- * Arbitrary for a format-valid SEPA Creditor Identifier.
- * Pattern: 2-letter country code + 2 check digits + 3-char business code + 1..28 char identifier.
- * We use fixed "ZZZ" business code and generate alphanumeric identifier suffix.
- * Full check-digit verification is a follow-up; format is validated by the schema.
+ * Arbitrary for a check-digit-valid SEPA Creditor Identifier.
+ * Uses buildCreditorId to compute the correct check digits, so every generated
+ * value passes the ISO 7064 MOD 97-10 validation wired into CreditorIdSchema.
  */
 function arbCreditorId(): fc.Arbitrary<string> {
   const COUNTRY_CODES = ["DE", "FR", "NL", "AT", "BE", "ES", "IT", "PT", "FI", "LU"];
   const ALPHA_NUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   return fc.record({
     country: fc.constantFrom(...COUNTRY_CODES),
-    // Check digits 01..99 (2 digits, not all are valid per algorithm but format is correct)
-    checkDigit1: fc.integer({ min: 0, max: 9 }),
-    checkDigit2: fc.integer({ min: 1, max: 9 }),
-    // Identifier part: 1..10 alphanumeric chars (keeps total under 35)
-    identifier: fc.stringOf(
+    // National identifier: 1..10 alphanumeric chars (keeps total length under 35)
+    nationalId: fc.stringOf(
       fc.constantFrom(...ALPHA_NUM.split("")),
       { minLength: 1, maxLength: 10 }
     ),
-  }).map(({ country, checkDigit1, checkDigit2, identifier }) =>
-    `${country}${checkDigit1}${checkDigit2}ZZZ${identifier}`
+  }).map(({ country, nationalId }) =>
+    buildCreditorId(country, "ZZZ", nationalId)
   );
 }
 
@@ -771,5 +768,66 @@ describe("Round-trip: pain.008 model -> write -> parse -> deep-equal (numRuns=20
     );
 
     expect(runCount).toBeGreaterThanOrEqual(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Creditor Identifier unit tests
+// ---------------------------------------------------------------------------
+
+describe("isValidCreditorId: SEPA Creditor Identifier ISO 7064 MOD 97-10 check digit", () => {
+  it("accepts the canonical example DE98ZZZ09999999999", () => {
+    expect(isValidCreditorId("DE98ZZZ09999999999")).toBe(true);
+  });
+
+  it("rejects DE98ZZZ09999999999 with wrong check digits (DE97...)", () => {
+    expect(isValidCreditorId("DE97ZZZ09999999999")).toBe(false);
+  });
+
+  it("rejects DE98ZZZ09999999999 with wrong check digits (DE01...)", () => {
+    expect(isValidCreditorId("DE01ZZZ09999999999")).toBe(false);
+  });
+
+  it("accepts AT result produced by buildCreditorId", () => {
+    const built = buildCreditorId("AT", "ZZZ", "00000000001");
+    expect(isValidCreditorId(built)).toBe(true);
+  });
+
+  it("accepts NL result produced by buildCreditorId", () => {
+    const built = buildCreditorId("NL", "ZZZ", "000000001");
+    expect(isValidCreditorId(built)).toBe(true);
+  });
+
+  it("rejects a string that is too short (fewer than 8 chars)", () => {
+    expect(isValidCreditorId("DE98ZZZ")).toBe(false);
+  });
+});
+
+describe("buildCreditorId: computes correct check digits and produces valid output", () => {
+  it("buildCreditorId('DE', 'ZZZ', '09999999999') produces DE98ZZZ09999999999", () => {
+    expect(buildCreditorId("DE", "ZZZ", "09999999999")).toBe("DE98ZZZ09999999999");
+  });
+
+  it("round-trips: buildCreditorId output always passes isValidCreditorId", () => {
+    const cases: Array<[string, string, string]> = [
+      ["DE", "ZZZ", "09999999999"],
+      ["FR", "ZZZ", "12345678"],
+      ["NL", "ABC", "9876543210"],
+      ["AT", "ZZZ", "00000000001"],
+      ["BE", "ZZZ", "695000000008"],
+      ["ES", "ZZZ", "00000001234"],
+      ["IT", "ZZZ", "ABCDE"],
+    ];
+    for (const [country, businessCode, nationalId] of cases) {
+      const id = buildCreditorId(country, businessCode, nationalId);
+      expect(isValidCreditorId(id), `Expected ${id} to be valid`).toBe(true);
+    }
+  });
+
+  it("produces check digits padded to 2 digits", () => {
+    const id = buildCreditorId("BE", "ZZZ", "695000000008");
+    const checkDigits = id.slice(2, 4);
+    expect(checkDigits).toHaveLength(2);
+    expect(/^\d{2}$/.test(checkDigits)).toBe(true);
   });
 });

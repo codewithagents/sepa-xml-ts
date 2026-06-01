@@ -12,6 +12,7 @@ import { z } from "zod";
 import { isValidIban } from "./iban.js";
 import { isSepaCharset } from "./charset.js";
 import { MoneySchema } from "./schema.js";
+import { isValidCreditorId } from "./creditor-id.js";
 
 // ---------------------------------------------------------------------------
 // Internal validators (shared with pain001 but redefined for independence)
@@ -78,11 +79,10 @@ export type LocalInstrument = z.infer<typeof LocalInstrumentSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Validates a SEPA Creditor Identifier (creditorId) by format and length only.
- * A full check-digit verification (Modulo 97-10 on positions 5+) is a documented
- * follow-up item; this regex catches obvious format violations for now.
- * Format: 2 letter country code + 2 check digits + 3 letter creditor business code + up to 28 chars.
+ * Validates a SEPA Creditor Identifier (creditorId) by format and ISO 7064 MOD 97-10 check digit.
+ * Format: 2-letter country code + 2 check digits + 3-char creditor business code + 1..28 alphanumeric chars.
  * Total max 35 chars.
+ * The check digit covers: nationalId + countryCode + checkDigits (business code excluded per spec).
  */
 const CreditorIdSchema = z
   .string()
@@ -91,7 +91,10 @@ const CreditorIdSchema = z
   .regex(
     /^[A-Z]{2}[0-9]{2}[A-Z0-9]{3}[a-zA-Z0-9]{1,28}$/,
     "Invalid SEPA Creditor Identifier format (expected: CC + 2 digits + 3 char business code + identifier)"
-  );
+  )
+  .refine((v) => isValidCreditorId(v), {
+    message: "SEPA Creditor Identifier failed ISO 7064 MOD 97-10 check digit validation",
+  });
 
 /**
  * The party collecting funds via direct debit.
@@ -107,7 +110,7 @@ export const CreditorSchema = z.object({
   /**
    * SEPA Creditor Identifier (CdtrSchmeId/Id/PrvtId/Othr/Id).
    * Written with SchmeNm/Prtry = "SEPA".
-   * Format validated by regex; full check-digit verification is a documented follow-up.
+   * Validated by format regex AND ISO 7064 MOD 97-10 check digit (business code excluded per spec).
    */
   creditorId: CreditorIdSchema,
 });
