@@ -97,7 +97,7 @@ const CreditorIdSchema = z
  * The party collecting funds via direct debit.
  * Lives at document level for naturalness; the writer fans it out into every PmtInf.
  */
-export const CreditorSchema = z.object({
+const CreditorSchema = z.object({
   /** Creditor party name (Cdtr/Nm), max 70 chars, SEPA charset. */
   name: sepaText(70),
   /** Creditor IBAN (CdtrAcct/Id/IBAN), mod-97 validated. */
@@ -121,7 +121,7 @@ export type Creditor = z.infer<typeof CreditorSchema>
 /**
  * Direct debit mandate (maps to DrctDbtTx/MndtRltdInf).
  */
-export const MandateSchema = z.object({
+const MandateSchema = z.object({
   /** Mandate identifier (MndtId), max 35 chars, SEPA charset. */
   id: SepaMax35Text,
   /** Date of signature (DtOfSgntr), YYYY-MM-DD. */
@@ -137,7 +137,7 @@ export type Mandate = z.infer<typeof MandateSchema>
 /**
  * One direct debit transaction (maps to DrctDbtTxInf).
  */
-export const CollectionSchema = z.object({
+const CollectionSchema = z.object({
   /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset. */
   endToEndId: SepaMax35Text,
   /** Amount to collect (InstdAmt Ccy="EUR"). */
@@ -163,7 +163,7 @@ export type Collection = z.infer<typeof CollectionSchema>
 /**
  * A batch of collections on one date with one sequence type (maps to PmtInf).
  */
-export const DirectDebitBatchSchema = z
+const DirectDebitBatchSchema = z
   .object({
     /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset. */
     id: SepaMax35Text,

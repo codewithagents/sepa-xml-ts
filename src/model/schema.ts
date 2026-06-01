@@ -146,7 +146,7 @@ export function formatMoney(m: Money): string {
  * A party (debtor or creditor) tied to a bank account.
  * Groups name, IBAN, and optional BIC as one natural unit.
  */
-export const AccountPartySchema = z.object({
+const AccountPartySchema = z.object({
   /** Party name (max 70 chars, SEPA charset). */
   name: sepaText(70),
   /** IBAN of the account (mod-97 validated). */
@@ -164,7 +164,7 @@ export type AccountParty = z.infer<typeof AccountPartySchema>
 /**
  * One credit transfer transaction (maps to CdtTrfTxInf).
  */
-export const TransferSchema = z.object({
+const TransferSchema = z.object({
   /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset. */
   endToEndId: SepaMax35Text,
   /** Amount: a Money value (euros helper recommended). */
@@ -184,7 +184,7 @@ export type Transfer = z.infer<typeof TransferSchema>
 /**
  * A batch of transfers debited from one account on one date (maps to PmtInf).
  */
-export const PaymentBatchSchema = z
+const PaymentBatchSchema = z
   .object({
     /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset. */
     id: SepaMax35Text,
