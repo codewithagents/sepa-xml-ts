@@ -26,9 +26,9 @@ not talk to banks.
 | Validate XML against the official ISO 20022 / EPC XSD | all 6 schemas | ✅ Supported |
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `batchBooking`) | overlay | ✅ Supported |
+| pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3) | `pain.008` | ✅ Supported |
 | Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
 | Additional named bank profiles | overlay | 🟡 On request |
-| pain.008 B2B specifics and sequence-type cross-field checks | `pain.008` | 🟡 Roadmap |
 | Payment status reports | `pain.002` | ⛔ Out of scope |
 | Account statements and reports | `camt.05x` | ⛔ Out of scope |
 | Bank connectivity and file transmission | EBICS, FinTS/HBCI, Peppol | ⛔ Out of scope |
@@ -188,8 +188,13 @@ const doc: DirectDebitDocument = {
 const xml = writeDirectDebit(doc);
 ```
 
-Note: the `creditorId` is validated for format and length today; the full SEPA Creditor Identifier
-check-digit algorithm is a planned refinement. And `localInstrument` defaults to `CORE` when omitted.
+Note: `localInstrument` defaults to `CORE` when omitted.
+
+`validateDirectDebit` and `writeDirectDebit` enforce three cross-field mandate rules from the SEPA
+rulebook. R1: `mandate.signatureDate` must not be after the batch `collectionDate` (equal dates are
+allowed). R2: a mandate id used in any OOFF batch must appear in exactly one collection across the
+whole document. R3: a mandate id must not appear under both CORE and B2B local instruments in the
+same document.
 
 ## Money
 

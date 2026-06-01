@@ -37,6 +37,7 @@ import {
   emitRmtInf,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
+import { checkDirectDebitRules } from '../model/dd-rules.js'
 
 /**
  * The output schema variant for writeDirectDebit.
@@ -101,6 +102,16 @@ export function writeDirectDebit(
     throw new Error(`Invalid DirectDebitDocument: ${messages}`)
   }
   const doc = parseResult.data
+
+  // Cross-field SEPA rulebook checks (R1 signature<=collection, R2 OOFF single-use, R3 consistent scheme).
+  // Applies to both pain.008.001.08 and pain.008.003.02 since the shared entry point validates before dispatch.
+  const ruleIssues = checkDirectDebitRules(doc)
+  if (ruleIssues.length > 0) {
+    const detail = ruleIssues
+      .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
+      .join('; ')
+    throw new Error(`DirectDebitDocument violates SEPA rules: ${detail}`)
+  }
 
   // Profile check: run after base validation so the doc is known-good
   const profile = options?.profile

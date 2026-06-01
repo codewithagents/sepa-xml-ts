@@ -20,9 +20,9 @@ produces, reads, and validates ISO 20022 SEPA XML. It does not talk to banks.
 | Validate XML against the official ISO 20022 / EPC XSD | all 6 schemas | ✅ Supported |
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `batchBooking`) | overlay | ✅ Supported |
+| pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3) | `pain.008` | ✅ Supported |
 | Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
 | Additional named bank profiles | overlay | 🟡 On request |
-| pain.008 B2B specifics and sequence-type cross-field checks | `pain.008` | 🟡 Roadmap |
 | Payment status reports | `pain.002` | ⛔ Out of scope |
 | Account statements and reports | `camt.05x` | ⛔ Out of scope |
 | Bank connectivity and file transmission | EBICS, FinTS/HBCI, Peppol | ⛔ Out of scope |

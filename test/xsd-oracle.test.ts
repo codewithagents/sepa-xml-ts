@@ -281,7 +281,59 @@ function arbCreditor(): fc.Arbitrary<Creditor> {
     })
 }
 
-function arbCollection(): fc.Arbitrary<Collection> {
+/**
+ * Arbitrary for a Collection belonging to a given batch.
+ *
+ * Two constraints keep generated documents free of R1/R2/R3 violations:
+ *
+ * R1 (signature before collection): signatureDate is derived from collectionDate
+ * so that signatureDate <= collectionDate always holds. The year is drawn from
+ * [2000..collectionYear]; if equal, month is drawn from [1..collectionMonth]; if
+ * equal, day is drawn from [1..collectionDay]. Lexicographic YYYY-MM-DD comparison
+ * is therefore always satisfied.
+ *
+ * R2/R3 (OOFF single-use, consistent scheme): mandate ids are generated with a
+ * minimum length of 10 chars from a 72-char SEPA alphabet (72^10 > 3.7e18
+ * possibilities). The birthday-paradox collision probability for 15 collections
+ * across 3 batches is < 3e-17, i.e. effectively zero. This makes cross-batch
+ * mandate id collisions astronomically unlikely, so R2 and R3 are always satisfied
+ * without requiring stateful id tracking.
+ */
+function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
+  const parts = collectionDate.split('-')
+  const cy = parseInt(parts[0]!, 10)
+  const cm = parseInt(parts[1]!, 10)
+  const cd = parseInt(parts[2]!, 10)
+
+  // Build an arbitrary signatureDate that is always <= collectionDate (R1).
+  const arbSignatureDate: fc.Arbitrary<string> = fc
+    .integer({ min: 2000, max: cy })
+    .chain((yr) => {
+      if (yr < cy) {
+        // Any month/day is guaranteed to be before the collection year.
+        return fc
+          .record({
+            m: fc.integer({ min: 1, max: 12 }),
+            d: fc.integer({ min: 1, max: 28 }),
+          })
+          .map(
+            ({ m, d }) =>
+              `${yr}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+          )
+      }
+      // yr === cy: constrain month <= cm to stay within the same year.
+      return fc.integer({ min: 1, max: cm }).chain((mo) => {
+        // If month is earlier, any day works; if equal month, day must be <= cd.
+        const maxDay = mo < cm ? 28 : cd
+        return fc
+          .integer({ min: 1, max: maxDay })
+          .map(
+            (d) =>
+              `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+          )
+      })
+    })
+
   return fc
     .record({
       endToEndId: arbSepaText(1, 35),
@@ -300,8 +352,9 @@ function arbCollection(): fc.Arbitrary<Collection> {
           return d
         }),
       mandate: fc.record({
-        id: arbSepaText(1, 35),
-        signatureDate: arbDate(),
+        // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).
+        id: arbSepaText(10, 35),
+        signatureDate: arbSignatureDate,
       }),
       remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
     })
@@ -315,16 +368,23 @@ function arbCollection(): fc.Arbitrary<Collection> {
 }
 
 function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
-  return fc.record({
-    id: arbSepaText(1, 35),
-    collectionDate: arbDate(),
-    sequenceType: arbSequenceType(),
-    // Always explicitly set localInstrument for round-trip correctness:
-    // the writer always emits it, so the parser always reads it back.
-    // Generating undefined would cause a round-trip mismatch (undefined -> write "CORE" -> parse "CORE").
-    localInstrument: arbLocalInstrument(),
-    collections: fc.array(arbCollection(), { minLength: 1, maxLength: 5 }),
-  })
+  // Chain from collectionDate so that each Collection's signatureDate can be
+  // constrained to be <= collectionDate (R1 requirement).
+  return fc
+    .record({
+      id: arbSepaText(1, 35),
+      collectionDate: arbDate(),
+      sequenceType: arbSequenceType(),
+      // Always explicitly set localInstrument for round-trip correctness:
+      // the writer always emits it, so the parser always reads it back.
+      // Generating undefined would cause a round-trip mismatch (undefined -> write "CORE" -> parse "CORE").
+      localInstrument: arbLocalInstrument(),
+    })
+    .chain((batchBase) =>
+      fc
+        .array(arbCollection(batchBase.collectionDate), { minLength: 1, maxLength: 5 })
+        .map((collections) => ({ ...batchBase, collections }))
+    )
 }
 
 function arbDirectDebitDocument(): fc.Arbitrary<DirectDebitDocument> {

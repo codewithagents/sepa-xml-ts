@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { CreditTransferDocumentSchema, type CreditTransferDocument } from './schema.js'
 import { DirectDebitDocumentSchema, type DirectDebitDocument } from './pain008.js'
 import type { BankProfile, ProfileIssue } from '../profile/profile.js'
+import { checkDirectDebitRules } from './dd-rules.js'
 
 export type ValidationSuccess = { ok: true; data: CreditTransferDocument }
 export type ValidationFailure = { ok: false; errors: z.ZodIssue[]; profileIssues?: ProfileIssue[] }
@@ -17,6 +18,8 @@ export type DirectDebitValidationFailure = {
   ok: false
   errors: z.ZodIssue[]
   profileIssues?: ProfileIssue[]
+  /** Rule violations from checkDirectDebitRules (R1, R2, R3). Present when rules fail. */
+  ruleIssues?: ProfileIssue[]
 }
 export type DirectDebitValidationResult =
   | DirectDebitValidationSuccess
@@ -79,7 +82,13 @@ export function validateDirectDebit(
     return { ok: false, errors: result.error.issues }
   }
 
-  // Base schema passed; now run profile checks if provided
+  // Run cross-field SEPA rulebook checks (R1 signature<=collection, R2 OOFF single-use, R3 consistent scheme)
+  const ruleIssues = checkDirectDebitRules(result.data)
+  if (ruleIssues.length > 0) {
+    return { ok: false, errors: [], ruleIssues }
+  }
+
+  // Base schema and rules passed; now run profile checks if provided
   const profile = options?.profile
   if (profile?.checkDirectDebit !== undefined) {
     const profileIssues = profile.checkDirectDebit(result.data)

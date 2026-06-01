@@ -129,6 +129,28 @@ automatically when `bic` is absent:
 
 This is handled transparently. You only need to supply `bic` when you know it.
 
+## Sequence-type and mandate rules
+
+`validateDirectDebit` and `writeDirectDebit` enforce three cross-field SEPA rulebook constraints.
+These apply to both CORE and B2B direct debits, and to both the ISO variant and the German DK
+variant.
+
+**R1: signature before collection.** `mandate.signatureDate` must not be after the batch
+`collectionDate`. A collection cannot be initiated on a mandate that has not been signed yet.
+Equal dates are allowed (signing and collecting on the same day is valid).
+
+**R2: OOFF is single-use.** A mandate id used in any batch with `sequenceType: 'OOFF'` must
+appear in exactly one collection across the whole document, and must not also appear under any
+other sequence type. A one-off authorization covers one collection.
+
+**R3: consistent scheme per mandate.** A given mandate id must not appear under both `CORE` and
+`B2B` local instruments in the same document. A CORE mandate and a B2B mandate are distinct
+authorizations. Note that `localInstrument` defaults to `CORE` when omitted, matching the writer
+default.
+
+`validateDirectDebit` returns the violations as `ruleIssues` on the result. `writeDirectDebit`
+throws before emitting any XML when a rule is violated.
+
 ## Variants
 
 To write a German DK pain.008.003.02 file:

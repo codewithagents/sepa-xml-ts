@@ -128,7 +128,11 @@ deep-equal.
   elements on both types, dual validate, fuzz-hardened parse, complete EPC transliteration,
   golden corpus, differential tests vs sepa.js, bank-profile seam + requireBic, DK pain.001.003.03
   write+read variant.
-- ~273 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
-  per type at 200 runs) + 3 parse fuzz suites at 300 runs.
+- pain.008 sequence-type and mandate cross-field validation (R1/R2/R3) ships and is enforced by
+  both validateDirectDebit (returns ruleIssues) and writeDirectDebit (throws before emitting XML).
+  R1: signatureDate <= collectionDate. R2: OOFF mandate appears exactly once. R3: mandate id bound
+  to one scheme (CORE or B2B) per document.
+- ~300+ tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules explicit suite.
 - Profile seam: write/validate take `{ profile, variant }`. variant 'pain.001.003.03' = DK national
   write target (XSD-verified against schemas/dk/).

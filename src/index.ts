@@ -66,6 +66,8 @@ export type {
 export { writeDirectDebit } from './writer/direct-debit.js'
 export type { WriteDirectDebitOptions, DirectDebitVariant } from './writer/direct-debit.js'
 
+export { checkDirectDebitRules } from './model/dd-rules.js'
+
 // ---------------------------------------------------------------------------
 // Shared: parse (auto-detects message type), validate
 // ---------------------------------------------------------------------------
