@@ -19,15 +19,17 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      version: ${{ steps.release.outputs.version }}
+      release_created: ${{ steps.release.outputs.releases_created }}
+      version: ${{ steps.release.outputs['.--version'] }}
     steps:
-      # Single-package mode: release-type node reads the version straight from
-      # package.json. No manifest or config file needed (unlike the glue monorepo).
+      # Manifest mode: .release-please-manifest.json tracks the current version and
+      # release-please-config.json keeps us pre-1.0 (minor bumps on feat, patch on
+      # fix) instead of jumping to 1.0.0. Single package keyed at the repo root ".".
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
-          release-type: node
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   publish:
     name: Publish sepa-xml-ts to npm
