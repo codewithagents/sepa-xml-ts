@@ -34,7 +34,10 @@ jobs:
   publish:
     name: Publish sepa-xml-ts to npm
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created || inputs.publish }}
+    # Compare to the string 'true' explicitly: release-please emits the literal
+    # string "false" when nothing is released, and any non-empty string is truthy
+    # in a GitHub Actions if(), which would otherwise run publish on every push.
+    if: ${{ needs.release-please.outputs.release_created == 'true' || inputs.publish }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
