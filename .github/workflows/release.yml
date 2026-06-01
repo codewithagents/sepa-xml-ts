@@ -1,0 +1,60 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Re-publish sepa-xml-ts (for failed release recovery)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # create tags and releases
+  pull-requests: write # create and update release PRs
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      # Single-package mode: release-type node reads the version straight from
+      # package.json. No manifest or config file needed (unlike the glue monorepo).
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          release-type: node
+
+  publish:
+    name: Publish sepa-xml-ts to npm
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created || inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      # Node 22 ships npm 10.x, which does not implement OIDC Trusted Publishing.
+      # OIDC auth requires npm 11.5.1+, so upgrade to latest before publishing.
+      - name: Upgrade npm to latest (OIDC Trusted Publishing requires >=11.5.1)
+        run: npm install -g npm@latest
+      # setup-node injects NODE_AUTH_TOKEN into .npmrc, which blocks OIDC.
+      # Remove it so npm falls back to the OIDC token exchange.
+      - name: Remove injected auth token (npm will use OIDC Trusted Publishing)
+        run: npm config delete //registry.npmjs.org/:_authToken
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # --provenance adds supply-chain attestation and triggers the OIDC exchange.
+      # Use npm (not pnpm): only the npm CLI implements Trusted Publishing.
+      - run: npm publish --access public --provenance
