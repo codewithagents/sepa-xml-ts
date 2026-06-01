@@ -23,7 +23,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
       - run: pnpm build
-      # The XSD-oracle property suite is the gate: green means every generated
-      # file validated against the official EPC pain.001.001.09 schema.
+      # The XSD-oracle and round-trip property suites are the gate: green means every
+      # generated file validates against the official EPC schema and parses back exactly.
       - run: pnpm test
