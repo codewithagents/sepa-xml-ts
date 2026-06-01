@@ -342,13 +342,30 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
  * a regex. This is more reliable than trying to extract it from the XMLParser
  * output, which may not preserve xmlns as a regular attribute.
  *
+ * This function never throws. All failure modes return { ok: false, error }.
+ *
  * @param xml the XML string to parse
  * @returns ParseResult discriminated union
  */
 export function parse(xml: string): ParseResult {
+  // Runtime type guard: protects against non-string values reaching the parser
+  if (typeof xml !== 'string') {
+    return { ok: false, error: 'Input must be a string' }
+  }
+
+  // Reject empty or whitespace-only input before attempting to parse
+  if (xml.trim() === '') {
+    return { ok: false, error: 'Input is empty or whitespace only' }
+  }
+
   // Detect namespace from raw XML before parsing (regex on string is reliable)
   const nsMatch = xml.match(/xmlns\s*=\s*["']([^"']+)["']/)
   const ns = nsMatch ? (nsMatch[1] ?? null) : null
+
+  // Require an explicit xmlns declaration: no namespace means not a SEPA document
+  if (ns === null) {
+    return { ok: false, error: 'Missing xmlns attribute: not a recognized SEPA document' }
+  }
 
   let parsed: unknown
   try {
@@ -365,8 +382,7 @@ export function parse(xml: string): ParseResult {
       return parsePain008(parsed)
     }
 
-    if (ns === NS_PAIN001 || ns === null) {
-      // Default to pain.001 when namespace matches or is absent (legacy support)
+    if (ns === NS_PAIN001) {
       return parsePain001(parsed)
     }
 
