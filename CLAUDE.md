@@ -61,6 +61,8 @@ official XSD + golden samples. A wrong flavor is worse than none.
 | `Transfer.endToEndId` | `PmtId/EndToEndId` |
 | `Transfer.amount` (`Money`) | `Amt/InstdAmt` (`Ccy="EUR"`) |
 | `Transfer.creditor` (`AccountParty`) | `Cdtr/Nm` + `CdtrAcct/Id/IBAN` + `CdtrAgt/FinInstnId/BICFI` |
+| `Transfer.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
+| `Transfer.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
 | `Transfer.remittanceInfo?` | `RmtInf/Ustrd` |
 
 `AccountParty = { name, iban, bic?, address? }` where `address` is an optional structured
@@ -85,6 +87,8 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 | `DirectDebitBatch.collections[]` (`Collection`) | `DrctDbtTxInf[]` |
 | `Collection.amount` (`Money`) | `InstdAmt` (`Ccy="EUR"`) |
 | `Collection.debtor` (`AccountParty`) | `Dbtr/Nm` + `DbtrAcct/Id/IBAN` + `DbtrAgt/FinInstnId/BICFI` |
+| `Collection.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
+| `Collection.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
 | `Collection.mandate` (`{ id, signatureDate }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` |
 | `Collection.remittanceInfo?` | `RmtInf/Ustrd` |
 
@@ -158,8 +162,16 @@ deep-equal.
   CtrySubDvsn, Ctry, AdrLine), XSD-verified and round-trip tested. Absent address is byte-identical
   to before. Legacy/DK variants throw if an address is present (no silent data loss). EPC makes this
   mandatory on 2026-11-22. Follow-up: emit PstlAdr for the .03/DK variants too (their older
-  PostalAddress types), and add Ultimate parties / Purpose / structured remittance.
-- ~433 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  PostalAddress types), and add Purpose / structured remittance.
+- Ultimate parties (UltmtDbtr / UltmtCdtr) ship for pain.001.001.09 and pain.008.001.08: optional
+  `ultimateDebtor` and `ultimateCreditor` on each Transfer and Collection, name only first cut
+  (UltimateParty = { name }). Emitted at the XSD-correct transaction-level positions
+  (CreditTransferTransaction34: UltmtDbtr after Amt/before CdtrAgt, UltmtCdtr after CdtrAcct;
+  DirectDebitTransactionInformation23: UltmtCdtr after DrctDbtTx/before DbtrAgt, UltmtDbtr after
+  DbtrAcct), XSD-verified and round-trip tested. Absent parties stay structurally identical to
+  before. Legacy/DK variants throw if an ultimate party is present (no silent data loss).
+  Follow-up: add structured identifiers (Id/OrgId/PrvtId) beyond the name-only first cut.
+- ~476 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate

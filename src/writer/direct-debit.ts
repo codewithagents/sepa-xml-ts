@@ -36,6 +36,7 @@ import {
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
   emitRmtInf,
+  emitUltimateParty,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 import { checkDirectDebitRules } from '../model/dd-rules.js'
@@ -143,6 +144,21 @@ export function writeDirectDebit(
     }
   }
 
+  // Ultimate parties are only supported for pain.008.001.08. Fail loud rather than
+  // silently drop ultimate-party data when the DK variant is selected.
+  if (variant !== 'pain.008.001.08') {
+    const hasUltimate = doc.batches.some((batch) =>
+      batch.collections.some(
+        (col) => col.ultimateCreditor !== undefined || col.ultimateDebtor !== undefined
+      )
+    )
+    if (hasUltimate) {
+      throw new Error(
+        `ultimate party is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.008.003.02') {
     return writeDirectDebitDK(doc, profile)
   }
@@ -226,10 +242,14 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
       lines.push(`            <DtOfSgntr>${xe(col.mandate.signatureDate)}</DtOfSgntr>`)
       lines.push(`          </MndtRltdInf>`)
       lines.push(`        </DrctDbtTx>`)
+      // UltmtCdtr: XSD position after DrctDbtTx, before DbtrAgt (DirectDebitTransactionInformation23 sequence)
+      emitUltimateParty(lines, '        ', 'UltmtCdtr', col.ultimateCreditor)
       // DbtrAgt is required in XSD (DirectDebitTransactionInformation23)
       emitAlwaysFinInstnId(lines, '        ', 'DbtrAgt', col.debtor.bic)
       emitPartyWithAddress(lines, '        ', 'Dbtr', col.debtor.name, col.debtor.address)
       emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
+      // UltmtDbtr: XSD position after DbtrAcct, before InstrForCdtrAgt/RmtInf (DirectDebitTransactionInformation23 sequence)
+      emitUltimateParty(lines, '        ', 'UltmtDbtr', col.ultimateDebtor)
       emitRmtInf(lines, col.remittanceInfo)
       lines.push(`      </DrctDbtTxInf>`)
     }

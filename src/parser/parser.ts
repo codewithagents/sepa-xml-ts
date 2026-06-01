@@ -25,6 +25,7 @@ import {
   type PaymentBatch,
   type Money,
   type PostalAddress,
+  type UltimateParty,
 } from '../model/schema.js'
 import {
   DirectDebitDocumentSchema,
@@ -202,6 +203,30 @@ function extractPstlAdr(partyEl: unknown): PostalAddress | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// UltimateParty extractor
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract an UltimateParty from an UltmtDbtr or UltmtCdtr element, if present.
+ * Returns undefined when the element is absent or has no Nm child.
+ * Never returns an empty object, preserving round-trip deep-equality.
+ *
+ * @param txEl - the transaction element (CdtTrfTxInf or DrctDbtTxInf)
+ * @param tag  - the element name to extract ("UltmtDbtr" or "UltmtCdtr")
+ */
+function extractUltimateParty(txEl: unknown, tag: string): UltimateParty | undefined {
+  const el = nav(txEl, tag)
+  if (el === null || el === undefined) {
+    return undefined
+  }
+  const name = str(nav(el, 'Nm'))
+  if (name === null || name === '') {
+    return undefined
+  }
+  return { name }
+}
+
+// ---------------------------------------------------------------------------
 // pain.001 extractor functions
 // ---------------------------------------------------------------------------
 
@@ -260,10 +285,16 @@ function extractTransfer(txEl: unknown): Transfer | null {
   const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
   const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
+  // Optional ultimate parties (name-only, pain.001.001.09 CreditTransferTransaction34).
+  const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
+  const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
+
   return {
     endToEndId,
     amount,
+    ...(ultimateDebtor !== undefined ? { ultimateDebtor } : {}),
     creditor,
+    ...(ultimateCreditor !== undefined ? { ultimateCreditor } : {}),
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
   }
 }
@@ -365,10 +396,16 @@ function extractCollection(txEl: unknown): Collection | null {
   const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
   const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
+  // Optional ultimate parties (name-only, pain.008.001.08 DirectDebitTransactionInformation23).
+  const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
+  const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
+
   return {
     endToEndId,
     amount,
+    ...(ultimateCreditor !== undefined ? { ultimateCreditor } : {}),
     debtor,
+    ...(ultimateDebtor !== undefined ? { ultimateDebtor } : {}),
     mandate,
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
   }

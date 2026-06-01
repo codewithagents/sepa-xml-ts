@@ -32,6 +32,7 @@ not talk to banks.
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `ibanBicCountryMatch`, `batchBooking`) | overlay | ✅ Supported |
 | pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3) | `pain.008` | ✅ Supported |
 | Structured creditor/debtor postal address (`PstlAdr`) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
+| Ultimate creditor/debtor at transaction level (`UltmtCdtr` / `UltmtDbtr`, name only) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
 | Additional named bank profiles | overlay | 🟡 On request |
 | Payment status reports | `pain.002` | ⛔ Out of scope |

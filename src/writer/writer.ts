@@ -38,6 +38,7 @@ import {
   emitDkFinInstnId,
   emitIso03FinInstnId,
   emitRmtInf,
+  emitUltimateParty,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 
@@ -140,6 +141,21 @@ export function writeCreditTransfer(
     }
   }
 
+  // Ultimate parties are only supported for pain.001.001.09. Fail loud rather than
+  // silently drop ultimate-party data when a legacy or DK variant is selected.
+  if (variant !== 'pain.001.001.09') {
+    const hasUltimate = doc.batches.some((batch) =>
+      batch.transfers.some(
+        (tx) => tx.ultimateDebtor !== undefined || tx.ultimateCreditor !== undefined
+      )
+    )
+    if (hasUltimate) {
+      throw new Error(
+        `ultimate party is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.001.001.03') {
     return writeCreditTransfer03(doc, profile)
   }
@@ -208,6 +224,8 @@ function writeCreditTransfer09(
       lines.push(`        <Amt>`)
       lines.push(`          <InstdAmt Ccy="EUR">${formatAmountForXml(tx.amount)}</InstdAmt>`)
       lines.push(`        </Amt>`)
+      // UltmtDbtr: XSD position after Amt (after ChqInstr), before IntrmyAgt1/CdtrAgt (CreditTransferTransaction34 sequence)
+      emitUltimateParty(lines, '        ', 'UltmtDbtr', tx.ultimateDebtor)
       if (tx.creditor.bic !== undefined) {
         lines.push(`        <CdtrAgt>`)
         lines.push(`          <FinInstnId>`)
@@ -217,6 +235,8 @@ function writeCreditTransfer09(
       }
       emitPartyWithAddress(lines, '        ', 'Cdtr', tx.creditor.name, tx.creditor.address)
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
+      // UltmtCdtr: XSD position after CdtrAcct, before InstrForCdtrAgt/RmtInf (CreditTransferTransaction34 sequence)
+      emitUltimateParty(lines, '        ', 'UltmtCdtr', tx.ultimateCreditor)
       emitRmtInf(lines, tx.remittanceInfo)
       lines.push(`      </CdtTrfTxInf>`)
     }

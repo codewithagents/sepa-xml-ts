@@ -151,6 +151,25 @@ default.
 `validateDirectDebit` returns the violations as `ruleIssues` on the result. `writeDirectDebit`
 throws before emitting any XML when a rule is violated.
 
+## Ultimate parties
+
+Each collection accepts an optional `ultimateCreditor` and `ultimateDebtor` (name only), emitted as
+`UltmtCdtr/Nm` and `UltmtDbtr/Nm`. These name the party that really collects or really owes, when it
+differs from the account holder.
+
+```typescript
+const collection = {
+  endToEndId: 'SDD-E2E-001',
+  amount: euros('10.00'),
+  debtor: { name: 'Customer', iban: 'NL91ABNA0417164300' },
+  mandate: { id: 'MAND-001', signatureDate: '2025-01-01' },
+  ultimateDebtor: { name: 'Real Account Holder' },
+}
+```
+
+Supported for `pain.008.001.08` only. The DK variant throws if an ultimate party is present, rather
+than dropping it silently.
+
 ## Variants
 
 To write a German DK pain.008.003.02 file:

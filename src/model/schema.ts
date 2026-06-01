@@ -221,6 +221,29 @@ export const PostalAddressSchema = z
 export type PostalAddress = z.infer<typeof PostalAddressSchema>
 
 // ---------------------------------------------------------------------------
+// UltimateParty: name-only party for UltmtDbtr / UltmtCdtr
+// ---------------------------------------------------------------------------
+
+/**
+ * An ultimate party (UltmtDbtr or UltmtCdtr): identifies the party on whose
+ * behalf a payment is ultimately made or received (common in factoring and
+ * payment-service-provider flows).
+ *
+ * Name-only in this version (max 70 chars, SEPA charset). The XSD allows an
+ * Id sub-element as well, but name-only is always XSD-valid and covers the
+ * common case. Id extension is a follow-up.
+ *
+ * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK
+ * variants will throw a clear error if an ultimate party is present.
+ */
+export const UltimatePartySchema = z.object({
+  /** Party name (max 70 chars, SEPA charset). */
+  name: sepaText(70),
+})
+
+export type UltimateParty = z.infer<typeof UltimatePartySchema>
+
+// ---------------------------------------------------------------------------
 // AccountParty: a party tied to a bank account
 // ---------------------------------------------------------------------------
 
@@ -258,8 +281,18 @@ const TransferSchema = z.object({
   endToEndId: sepaIdentifier(35),
   /** Amount: a Money value (euros helper recommended). */
   amount: MoneySchema,
+  /**
+   * Ultimate debtor (UltmtDbtr): the party on whose behalf the transfer is initiated.
+   * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
+   */
+  ultimateDebtor: UltimatePartySchema.optional(),
   /** Creditor party (Cdtr + CdtrAcct/IBAN + CdtrAgt/BIC). */
   creditor: AccountPartySchema,
+  /**
+   * Ultimate creditor (UltmtCdtr): the party that ultimately receives the funds.
+   * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
+   */
+  ultimateCreditor: UltimatePartySchema.optional(),
   /** Remittance information / payment purpose (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
   remittanceInfo: SepaMax140Text.optional(),
 })

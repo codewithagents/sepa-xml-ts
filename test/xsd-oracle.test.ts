@@ -26,6 +26,7 @@ import type {
   Transfer,
   PaymentBatch,
   PostalAddress,
+  UltimateParty,
 } from '../src/model/schema.js'
 import type {
   DirectDebitDocument,
@@ -205,6 +206,19 @@ function withOptionalAddress<T extends object>(party: T, address: PostalAddress 
 }
 
 /**
+ * Arbitrary for an optional UltimateParty (name only, max 70 chars, SEPA charset).
+ * Uses arbSepaText to guarantee names survive XML round-trip (no trailing whitespace,
+ * SEPA charset only). The fc.option with nil:undefined produces undefined ~50% of
+ * the time so the absent-case is well exercised.
+ */
+function arbUltimateParty(): fc.Arbitrary<UltimateParty | undefined> {
+  return fc.option(
+    arbSepaText(1, 70).map((name) => ({ name })),
+    { nil: undefined }
+  )
+}
+
+/**
  * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
  * All boundary values must be at or below this cap.
  */
@@ -257,15 +271,23 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
     .record({
       endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
+      ultimateDebtor: arbUltimateParty(),
       creditor: arbAccountParty(),
+      ultimateCreditor: arbUltimateParty(),
       remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
     })
     .map((tx) => {
-      if (tx.remittanceInfo === undefined) {
-        const { remittanceInfo: _ri, ...rest } = tx
-        return rest
+      // Strip undefined keys so the generated model matches what the parser returns
+      // (absent ultimate parties must not appear as keys with undefined values).
+      const out: Record<string, unknown> = {
+        endToEndId: tx.endToEndId,
+        amount: tx.amount,
+        creditor: tx.creditor,
       }
-      return tx
+      if (tx.ultimateDebtor !== undefined) out['ultimateDebtor'] = tx.ultimateDebtor
+      if (tx.ultimateCreditor !== undefined) out['ultimateCreditor'] = tx.ultimateCreditor
+      if (tx.remittanceInfo !== undefined) out['remittanceInfo'] = tx.remittanceInfo
+      return out as Transfer
     })
 }
 
@@ -400,6 +422,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
     .record({
       endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
+      ultimateCreditor: arbUltimateParty(),
       debtor: fc
         .record({
           name: arbPartyName(),
@@ -413,6 +436,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
             withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
           return withOptionalAddress(base, address)
         }),
+      ultimateDebtor: arbUltimateParty(),
       mandate: fc.record({
         // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).
         // Mandate id is NOT subject to the slash rule (per the EPC rulebook).
@@ -422,11 +446,18 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
       remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
     })
     .map((col) => {
-      if (col.remittanceInfo === undefined) {
-        const { remittanceInfo: _ri, ...rest } = col
-        return rest
+      // Strip undefined keys so the generated model matches what the parser returns
+      // (absent ultimate parties must not appear as keys with undefined values).
+      const out: Record<string, unknown> = {
+        endToEndId: col.endToEndId,
+        amount: col.amount,
+        debtor: col.debtor,
+        mandate: col.mandate,
       }
-      return col
+      if (col.ultimateCreditor !== undefined) out['ultimateCreditor'] = col.ultimateCreditor
+      if (col.ultimateDebtor !== undefined) out['ultimateDebtor'] = col.ultimateDebtor
+      if (col.remittanceInfo !== undefined) out['remittanceInfo'] = col.remittanceInfo
+      return out as Collection
     })
 }
 

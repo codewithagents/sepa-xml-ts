@@ -11,7 +11,7 @@
 import { z } from 'zod'
 import { isValidIban } from './iban.js'
 import { isSepaCharset } from './charset.js'
-import { MoneySchema, PostalAddressSchema } from './schema.js'
+import { MoneySchema, PostalAddressSchema, UltimatePartySchema } from './schema.js'
 import { isValidCreditorId } from './creditor-id.js'
 
 // ---------------------------------------------------------------------------
@@ -184,6 +184,11 @@ const CollectionSchema = z.object({
   endToEndId: sepaIdentifier(35),
   /** Amount to collect (InstdAmt Ccy="EUR"). */
   amount: MoneySchema,
+  /**
+   * Ultimate creditor (UltmtCdtr): the party that ultimately receives the collected funds.
+   * Optional. Supported for pain.008.001.08 only. Name only in this version (max 70 chars).
+   */
+  ultimateCreditor: UltimatePartySchema.optional(),
   /** Debtor party (Dbtr/Nm + DbtrAcct/Id/IBAN + DbtrAgt/FinInstnId/BICFI). */
   debtor: z.object({
     name: sepaText(70),
@@ -196,6 +201,11 @@ const CollectionSchema = z.object({
      */
     address: PostalAddressSchema.optional(),
   }),
+  /**
+   * Ultimate debtor (UltmtDbtr): the party on whose behalf the collection is made.
+   * Optional. Supported for pain.008.001.08 only. Name only in this version (max 70 chars).
+   */
+  ultimateDebtor: UltimatePartySchema.optional(),
   /** Mandate authorizing this collection. */
   mandate: MandateSchema,
   /** Remittance information (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */

@@ -17,7 +17,7 @@
 
 import { escapeXml } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
-import type { Money, PostalAddress } from '../model/schema.js'
+import type { Money, PostalAddress, UltimateParty } from '../model/schema.js'
 
 /**
  * Escape a value for use in XML text content.
@@ -302,6 +302,33 @@ export function emitIso03FinInstnId(
     // No BIC and required: emit empty FinInstnId (all children are optional in FinancialInstitutionIdentification7)
     lines.push(`${inner}<FinInstnId/>`)
   }
+  lines.push(`${indent}</${tag}>`)
+}
+
+/**
+ * Emit an ultimate party element (UltmtDbtr or UltmtCdtr) containing only a Nm child.
+ *
+ * Used for the name-only first-cut of UltmtDbtr / UltmtCdtr in pain.001.001.09
+ * (CdtTrfTxInf) and pain.008.001.08 (DrctDbtTxInf).
+ *
+ * Nothing is emitted when party is undefined, preserving byte-identical output
+ * for documents that do not use ultimate parties.
+ *
+ * @param indent  - leading spaces for the outer tag (e.g. "        " for 8 spaces)
+ * @param tag     - element name, e.g. "UltmtDbtr" or "UltmtCdtr"
+ * @param party   - optional UltimateParty model value
+ */
+export function emitUltimateParty(
+  lines: string[],
+  indent: string,
+  tag: string,
+  party: UltimateParty | undefined
+): void {
+  if (party === undefined) {
+    return
+  }
+  lines.push(`${indent}<${tag}>`)
+  lines.push(`${indent}  <Nm>${xe(party.name)}</Nm>`)
   lines.push(`${indent}</${tag}>`)
 }
 

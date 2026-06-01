@@ -118,6 +118,27 @@ must be a 2-letter uppercase code. This is supported for `pain.001.001.09` and `
 The legacy and DK variants do not yet emit `PstlAdr`: they throw a clear error if an address is
 present, rather than dropping it silently.
 
+## Ultimate parties
+
+A transfer can name an ultimate debtor and/or ultimate creditor: the party on whose behalf the
+payment is really made, or who really receives it. This is common in factoring and
+payment-service-provider flows where the account holder differs from the economic party. Both are
+optional and set per transfer.
+
+```typescript
+const transfer = {
+  endToEndId: 'INV-1001',
+  amount: euros('123.45'),
+  creditor: { name: 'Factoring GmbH', iban: 'NL91ABNA0417164300' },
+  ultimateCreditor: { name: 'Beispiel AG' },  // UltmtCdtr/Nm: who the money is really for
+  ultimateDebtor: { name: 'ACME Subsidiary' }, // UltmtDbtr/Nm: who really owes it
+}
+```
+
+This first cut carries the name only (the common case). It is supported for `pain.001.001.09` and
+`pain.008.001.08`. The legacy and DK variants throw a clear error if an ultimate party is present,
+rather than dropping it silently.
+
 ## Variants
 
 To write a German DK pain.001.003.03 file, pass `{ variant: 'pain.001.003.03' }`:
