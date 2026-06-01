@@ -20,3 +20,36 @@ Not vendored: `sepa_king`'s `pain.008.003.02.xml` example uses a placeholder Cre
 parse fixture. This is a difference in test-data realism, not a defect in either library. The
 Swiss `.ch` and `.002.03` / `.008.002.02` variants are out of our supported scope and are not
 vendored either.
+
+## Iso20022Net (`iso20022net/`)
+
+Source: https://github.com/Nivaes/Iso20022Net (directory `Iso20022.UnitTest/Resources/Pain/`).
+License: MIT, Copyright (c) Nivaes contributors.
+Reused here under the terms of the MIT License, with attribution.
+
+Files vendored:
+- `pain.001.001.03.xml` (ISO credit transfer sample from the ISO 20022 standards body)
+- `pain.008.001.02.xml` (ISO direct debit sample from the ISO 20022 standards body)
+
+Known quirks: both files are illustrative ISO standard samples, not SEPA-compliant payment files.
+Account identifiers use `Othr/Id` (proprietary account numbers) rather than IBAN, and currencies
+include JPY, USD, and EUR. Our parser requires IBAN for account parties and rejects non-EUR amounts,
+so these files return a documented parse failure rather than a model. The value of including them is
+proving our parser handles non-IBAN accounts gracefully (no crash, structured error) and that it
+correctly identifies and rejects non-SEPA content at the extraction layer.
+
+## pain001 (`pain001/`)
+
+Source: https://github.com/sebastienrousseau/pain001 (directory `pain001/templates/pain.001.001.09/`).
+License: Apache-2.0, Copyright (c) 2022-2023 Sebastien Rousseau.
+Reused here under the terms of the Apache License, Version 2.0, with attribution.
+
+Files vendored:
+- `pain.001.001.09.xml` (pain.001.001.09 template/example file)
+
+Known quirks: the template IBANs (e.g. `DE75512108001245126162`, `DE68210501700024690959`) fail
+the ISO 7064 MOD 97-10 checksum. `NbOfTxs` in the header is `2` but the file contains 5 transactions
+(a known header inconsistency in the source template). `ChrgBr` appears at `PmtInf` level rather than
+per-transaction. Our parser correctly rejects this file with an IBAN checksum validation error, which
+confirms our mod-97 check is functioning. The value of including this fixture is testing that our
+parser returns a specific, documented error for template files with invalid IBANs.
