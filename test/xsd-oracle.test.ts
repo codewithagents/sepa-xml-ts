@@ -1,19 +1,21 @@
 /**
- * XSD-oracle property test for pain.001.001.09.
+ * Tests for sepa-xml-ts 0.2.0.
  *
- * Core guarantee: for any valid model, writeCreditTransfer(model) produces XML
- * that passes XSD validation against the official EPC/ISO 20022 schema.
- *
- * numRuns >= 200
+ * Contains:
+ * 1. Hand-written sample tests (smoke tests, euros/formatMoney helpers)
+ * 2. XSD-oracle property test: for any valid model, write -> XSD-valid XML (numRuns >= 200)
+ * 3. Round-trip property test: for any valid model, parse(write(model)) deep-equals original model (numRuns >= 200)
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
 import * as fc from "fast-check";
 import { writeCreditTransfer } from "../src/writer/writer.js";
+import { parse } from "../src/parser/parser.js";
 import { validateXsd } from "../src/xsd.js";
 import { buildIban } from "../src/model/iban.js";
 import { sanitizeSepa } from "../src/model/charset.js";
-import type { CreditTransferDocument } from "../src/model/schema.js";
+import { euros, formatMoney } from "../src/model/schema.js";
+import type { CreditTransferDocument, AccountParty, Transfer, PaymentBatch } from "../src/model/schema.js";
 
 // ---------------------------------------------------------------------------
 // Helpers: deterministic IBAN generation via mod-97 builder
@@ -47,7 +49,6 @@ function arbIban(): fc.Arbitrary<string> {
       throw new Error(`IBAN_COUNTRIES index out of range: ${idx}`);
     }
     const [country, bbanLen] = entry;
-    // Generate a random all-digit BBAN of the correct length
     return fc
       .array(fc.integer({ min: 0, max: 9 }), { minLength: bbanLen, maxLength: bbanLen })
       .map((digits) => {
@@ -84,10 +85,8 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
 /**
  * Arbitrary for a text string that may contain unicode/extended chars but
  * gets sanitized through sanitizeSepa before use.
- * Tests that sanitization always produces valid SEPA output.
  */
 function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  // Mix of clean SEPA chars and common extended Latin
   const extendedChars = "äöüÄÖÜßàáâèéêìíîòóôùúûñç";
   const mixedCharset = SEPA_CHARSET + extendedChars;
   return fc
@@ -107,13 +106,12 @@ function arbMessageId(): fc.Arbitrary<string> {
   return arbSepaText(1, 35);
 }
 
-function arbCreationDateTime(): fc.Arbitrary<string> {
-  // Generate a valid ISO 8601 datetime
+function arbCreatedAt(): fc.Arbitrary<string> {
   return fc
     .record({
       year: fc.integer({ min: 2020, max: 2035 }),
       month: fc.integer({ min: 1, max: 12 }),
-      day: fc.integer({ min: 1, max: 28 }), // use 28 max to avoid month-end edge cases
+      day: fc.integer({ min: 1, max: 28 }),
       hour: fc.integer({ min: 0, max: 23 }),
       minute: fc.integer({ min: 0, max: 59 }),
       second: fc.integer({ min: 0, max: 59 }),
@@ -138,188 +136,242 @@ function arbExecutionDate(): fc.Arbitrary<string> {
     );
 }
 
-function arbParty(): fc.Arbitrary<{ name: string }> {
-  // Mix clean and sanitized names to stress-test the charset handling
+function arbPartyName(): fc.Arbitrary<string> {
   return fc.oneof(
-    arbSepaText(1, 70).map((name) => ({ name })),
-    arbSanitizedSepaText(1, 70).map((name) => ({ name }))
+    arbSepaText(1, 70),
+    arbSanitizedSepaText(1, 70)
   );
 }
 
-function arbAmountMinorUnits(): fc.Arbitrary<bigint> {
-  return fc.oneof(
-    // Boundary: minimum (0.01 EUR = 1 cent)
-    fc.constant(1n),
-    // Boundary: exactly 1 EUR
-    fc.constant(100n),
-    // Boundary: large batch amounts
-    fc.constant(999_999_999n),
-    // Random amounts between 1 cent and 1 million EUR
-    fc.bigInt({ min: 1n, max: 100_000_000n })
+function arbBic(): fc.Arbitrary<string> {
+  return fc.constantFrom(
+    "COBADEFFXXX",
+    "BNPAFRPPXXX",
+    "DEUTDEDBFRA",
+    "INGBNL2AXXX",
+    "BSCHESMMXXX"
   );
 }
 
-function arbTransaction(): fc.Arbitrary<{
-  endToEndId: string;
-  amountMinorUnits: bigint;
-  creditor: { name: string };
-  creditorIban: string;
-}> {
+function arbAccountParty(): fc.Arbitrary<AccountParty> {
   return fc.record({
-    endToEndId: arbSepaText(1, 35),
-    amountMinorUnits: arbAmountMinorUnits(),
-    creditor: arbParty(),
-    creditorIban: arbIban(),
+    name: arbPartyName(),
+    iban: arbIban(),
+    bic: fc.option(arbBic(), { nil: undefined }),
+  }).map((p) => {
+    if (p.bic === undefined) {
+      const { bic: _bic, ...rest } = p;
+      return rest;
+    }
+    return p;
   });
 }
 
-function arbPaymentInstruction(): fc.Arbitrary<{
-  paymentInfoId: string;
-  requestedExecutionDate: string;
-  debtor: { name: string };
-  debtorIban: string;
-  debtorAgent: { bic?: string };
-  transactions: Array<{
-    endToEndId: string;
-    amountMinorUnits: bigint;
-    creditor: { name: string };
-    creditorIban: string;
-  }>;
-}> {
+function arbMoney(): fc.Arbitrary<{ currencyCode: "EUR"; minorUnits: bigint }> {
+  return fc.oneof(
+    // Boundary: minimum (0.01 EUR = 1 cent)
+    fc.constant({ currencyCode: "EUR" as const, minorUnits: 1n }),
+    // Boundary: exactly 1 EUR
+    fc.constant({ currencyCode: "EUR" as const, minorUnits: 100n }),
+    // Boundary: large amount
+    fc.constant({ currencyCode: "EUR" as const, minorUnits: 999_999_999n }),
+    // Random amounts between 1 cent and 1 million EUR
+    fc.bigInt({ min: 1n, max: 100_000_000n }).map((n) => ({ currencyCode: "EUR" as const, minorUnits: n }))
+  );
+}
+
+function arbTransfer(): fc.Arbitrary<Transfer> {
   return fc.record({
-    paymentInfoId: arbSepaText(1, 35),
-    requestedExecutionDate: arbExecutionDate(),
-    debtor: arbParty(),
-    debtorIban: arbIban(),
-    // Sometimes include a BIC, sometimes leave empty (both are valid per XSD)
-    debtorAgent: fc.oneof(
-      fc.constant<{ bic?: string }>({}),
-      fc.constant<{ bic?: string }>({ bic: "COBADEFFXXX" }),
-      fc.constant<{ bic?: string }>({ bic: "BNPAFRPPXXX" }),
-      fc.constant<{ bic?: string }>({ bic: "DEUTDEDBFRA" })
-    ),
-    // 1 to 5 transactions per payment instruction
-    transactions: fc.array(arbTransaction(), { minLength: 1, maxLength: 5 }),
+    endToEndId: arbSepaText(1, 35),
+    amount: arbMoney(),
+    creditor: arbAccountParty(),
+    remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+  }).map((tx) => {
+    if (tx.remittanceInfo === undefined) {
+      const { remittanceInfo: _ri, ...rest } = tx;
+      return rest;
+    }
+    return tx;
+  });
+}
+
+function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
+  return fc.record({
+    id: arbSepaText(1, 35),
+    executionDate: arbExecutionDate(),
+    debtor: arbAccountParty(),
+    transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
   });
 }
 
 function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
   return fc.record({
-    groupHeader: fc.record({
-      messageId: arbMessageId(),
-      creationDateTime: arbCreationDateTime(),
-      initiatingParty: arbParty(),
-    }),
-    // 1 to 3 payment instructions
-    paymentInstructions: fc.array(arbPaymentInstruction(), {
-      minLength: 1,
-      maxLength: 3,
-    }),
+    messageId: arbMessageId(),
+    createdAt: arbCreatedAt(),
+    initiatingParty: arbPartyName(),
+    batches: fc.array(arbPaymentBatch(), { minLength: 1, maxLength: 3 }),
   });
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Hand-written sample tests
 // ---------------------------------------------------------------------------
 
-describe("XSD Oracle: pain.001.001.09", () => {
-  // Smoke test: hand-built known-good model validates
-  it("validates a hand-built sample model against the XSD", async () => {
-    const doc: CreditTransferDocument = {
-      groupHeader: {
-        messageId: "SMOKE-TEST-001",
-        creationDateTime: "2024-06-01T09:00:00Z",
-        initiatingParty: { name: "Test Company GmbH" },
-      },
-      paymentInstructions: [
-        {
-          paymentInfoId: "PI-001",
-          requestedExecutionDate: "2024-06-05",
-          debtor: { name: "Test Company GmbH" },
-          debtorIban: "DE89370400440532013000",
-          debtorAgent: { bic: "COBADEFFXXX" },
-          transactions: [
-            {
-              endToEndId: "E2E-0001",
-              amountMinorUnits: 1n, // 0.01 EUR - minimum
-              creditor: { name: "Supplier One" },
-              creditorIban: "DE65200400300234567000",
-            },
-          ],
+describe("euros() and formatMoney() helpers", () => {
+  it("euros('0.01') produces minorUnits = 1n", () => {
+    const m = euros("0.01");
+    expect(m.currencyCode).toBe("EUR");
+    expect(m.minorUnits).toBe(1n);
+  });
+
+  it("euros('123.45') produces minorUnits = 12345n", () => {
+    const m = euros("123.45");
+    expect(m.minorUnits).toBe(12345n);
+  });
+
+  it("euros('123.4') treats single decimal as x0 (1240n)", () => {
+    const m = euros("123.4");
+    expect(m.minorUnits).toBe(12340n);
+  });
+
+  it("euros('123') treats integer string as whole euros (12300n)", () => {
+    const m = euros("123");
+    expect(m.minorUnits).toBe(12300n);
+  });
+
+  it("euros('0.00') throws because amount is below minimum", () => {
+    expect(() => euros("0.00")).toThrow();
+  });
+
+  it("euros('') throws on empty string", () => {
+    expect(() => euros("")).toThrow();
+  });
+
+  it("euros('1.234') throws on more than 2 decimal places", () => {
+    expect(() => euros("1.234")).toThrow();
+  });
+
+  it("euros('-1.00') throws on negative string", () => {
+    expect(() => euros("-1.00")).toThrow();
+  });
+
+  it("euros('abc') throws on non-numeric string", () => {
+    expect(() => euros("abc")).toThrow();
+  });
+
+  it("formatMoney round-trips with euros()", () => {
+    const m = euros("50.75");
+    expect(formatMoney(m)).toBe("50.75");
+  });
+
+  it("formatMoney always produces exactly 2 decimal places", () => {
+    const m = euros("100");
+    expect(formatMoney(m)).toBe("100.00");
+  });
+
+  it("formatMoney on minimum amount produces '0.01'", () => {
+    const m = euros("0.01");
+    expect(formatMoney(m)).toBe("0.01");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hand-written sample: model -> write -> XSD-valid AND parse -> deep-equal
+// ---------------------------------------------------------------------------
+
+describe("Sample model: write XSD validity and parse round-trip", () => {
+  const sampleDoc: CreditTransferDocument = {
+    messageId: "MSG-SAMPLE-001",
+    createdAt: "2024-06-01T09:00:00Z",
+    initiatingParty: "Test Company GmbH",
+    batches: [
+      {
+        id: "BATCH-001",
+        executionDate: "2024-06-05",
+        debtor: {
+          name: "Test Company GmbH",
+          iban: "DE89370400440532013000",
+          bic: "COBADEFFXXX",
         },
-      ],
-    };
+        transfers: [
+          {
+            endToEndId: "E2E-0001",
+            amount: euros("0.01"),
+            creditor: {
+              name: "Supplier One",
+              iban: "DE65200400300234567000",
+            },
+          },
+          {
+            endToEndId: "E2E-0002",
+            amount: euros("123.45"),
+            creditor: {
+              name: "Supplier Two",
+              iban: "DE65200400300234567000",
+              bic: "DEUTDEDBFRA",
+            },
+            remittanceInfo: "Invoice 2024/42",
+          },
+        ],
+      },
+      {
+        id: "BATCH-002",
+        executionDate: "2024-06-10",
+        debtor: {
+          name: "Test Company GmbH",
+          iban: "DE89370400440532013000",
+        },
+        transfers: [
+          {
+            endToEndId: "E2E-0003",
+            amount: euros("999.99"),
+            creditor: {
+              name: "Large Vendor",
+              iban: "FR7630006000011234567890189",
+            },
+            remittanceInfo: "Payment for services",
+          },
+        ],
+      },
+    ],
+  };
 
-    const xml = writeCreditTransfer(doc);
+  it("write produces XSD-valid XML", async () => {
+    const xml = writeCreditTransfer(sampleDoc);
     const result = await validateXsd(xml);
-
     expect(result.valid, `XSD errors: ${result.errors.join(", ")}`).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
 
-  it("validates a large-batch sample (10 transactions, 2 payment instructions)", async () => {
-    const doc: CreditTransferDocument = {
-      groupHeader: {
-        messageId: "BATCH-TEST-001",
-        creationDateTime: "2024-06-01T12:00:00Z",
-        initiatingParty: { name: "Bulk Payer Corp" },
-      },
-      paymentInstructions: [
-        {
-          paymentInfoId: "PI-BATCH-001",
-          requestedExecutionDate: "2024-06-10",
-          debtor: { name: "Bulk Payer Corp" },
-          debtorIban: "DE89370400440532013000",
-          debtorAgent: {},
-          transactions: Array.from({ length: 5 }, (_, i) => ({
-            endToEndId: `E2E-BATCH-00${i + 1}`,
-            amountMinorUnits: BigInt((i + 1) * 100),
-            creditor: { name: `Creditor ${i + 1}` },
-            creditorIban: "DE65200400300234567000",
-          })),
-        },
-        {
-          paymentInfoId: "PI-BATCH-002",
-          requestedExecutionDate: "2024-06-11",
-          debtor: { name: "Bulk Payer Corp" },
-          debtorIban: "DE89370400440532013000",
-          debtorAgent: { bic: "DEUTDEDBFRA" },
-          transactions: Array.from({ length: 5 }, (_, i) => ({
-            endToEndId: `E2E-BATCH-00${i + 6}`,
-            amountMinorUnits: 999_999_99n,
-            creditor: { name: `Large Payee ${i + 1}` },
-            creditorIban: "DE65200400300234567000",
-          })),
-        },
-      ],
-    };
-
-    const xml = writeCreditTransfer(doc);
-    const result = await validateXsd(xml);
-
-    expect(result.valid, `XSD errors: ${result.errors.join(", ")}`).toBe(true);
+  it("parse(write(model)) deep-equals the original model", () => {
+    const xml = writeCreditTransfer(sampleDoc);
+    const parsed = parse(xml);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("parse failed: " + (parsed as { error: string }).error);
+    expect(parsed.data).toEqual(sampleDoc);
   });
 
   it("sanitizes unicode names and still produces valid XSD output", async () => {
     const doc: CreditTransferDocument = {
-      groupHeader: {
-        messageId: "UNICODE-TEST-01",
-        creationDateTime: "2024-06-01T09:00:00Z",
-        initiatingParty: { name: sanitizeSepa("Müller & Söhne GmbH") },
-      },
-      paymentInstructions: [
+      messageId: "UNICODE-TEST-01",
+      createdAt: "2024-06-01T09:00:00Z",
+      initiatingParty: sanitizeSepa("Müller und Söhne GmbH"),
+      batches: [
         {
-          paymentInfoId: "PI-UNICODE-01",
-          requestedExecutionDate: "2024-07-01",
-          debtor: { name: sanitizeSepa("Schröder Überweisungen AG") },
-          debtorIban: "DE89370400440532013000",
-          debtorAgent: {},
-          transactions: [
+          id: "PI-UNICODE-01",
+          executionDate: "2024-07-01",
+          debtor: {
+            name: sanitizeSepa("Schroeder Ueberweisungen AG"),
+            iban: "DE89370400440532013000",
+          },
+          transfers: [
             {
               endToEndId: "E2E-UNICODE",
-              amountMinorUnits: 5000n,
-              creditor: { name: sanitizeSepa("Café Résumé Ñoño") },
-              creditorIban: "DE65200400300234567000",
+              amount: euros("50.00"),
+              creditor: {
+                name: sanitizeSepa("Cafe Resume Nonyo"),
+                iban: "DE65200400300234567000",
+              },
             },
           ],
         },
@@ -328,11 +380,15 @@ describe("XSD Oracle: pain.001.001.09", () => {
 
     const xml = writeCreditTransfer(doc);
     const result = await validateXsd(xml);
-
     expect(result.valid, `XSD errors: ${result.errors.join(", ")}`).toBe(true);
   });
+});
 
-  // The core oracle property: every valid model produces XSD-valid XML
+// ---------------------------------------------------------------------------
+// XSD Oracle property test
+// ---------------------------------------------------------------------------
+
+describe("XSD Oracle: pain.001.001.09", () => {
   it("property: forAll valid models, writeCreditTransfer produces XSD-valid XML (numRuns=200)", async () => {
     const failures: string[] = [];
     let runCount = 0;
@@ -354,7 +410,6 @@ describe("XSD Oracle: pain.001.001.09", () => {
       {
         numRuns: 200,
         verbose: false,
-        // Report counterexamples clearly
         reporter: ({ failed, counterexample, error }) => {
           if (failed) {
             throw new Error(
@@ -370,7 +425,40 @@ describe("XSD Oracle: pain.001.001.09", () => {
       }
     );
 
-    // Confirm the property ran at least 200 times
+    expect(runCount).toBeGreaterThanOrEqual(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-trip property test: model -> write -> parse -> deep-equal
+// ---------------------------------------------------------------------------
+
+describe("Round-trip: model -> write -> parse -> deep-equal (numRuns=200)", () => {
+  it("property: forAll valid models, parse(writeCreditTransfer(model)) deep-equals original (numRuns=200)", () => {
+    let runCount = 0;
+
+    fc.assert(
+      fc.property(arbCreditTransferDocument(), (doc) => {
+        runCount++;
+        const xml = writeCreditTransfer(doc);
+        const result = parse(xml);
+
+        if (!result.ok) {
+          throw new Error(
+            `parse() failed on valid model at run ${runCount}: ${result.error}\nXML:\n${xml.slice(0, 500)}`
+          );
+        }
+
+        // Deep-equal check
+        expect(result.data).toEqual(doc);
+        return true;
+      }),
+      {
+        numRuns: 200,
+        verbose: false,
+      }
+    );
+
     expect(runCount).toBeGreaterThanOrEqual(200);
   });
 });

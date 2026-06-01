@@ -7,13 +7,14 @@
  * Design invariants:
  * - Validates the model before writing (throws on invalid input)
  * - CtrlSum uses exact bigint arithmetic, never floating-point
- * - All string values are SEPA-charset sanitized and XML-escaped
+ * - All string values are XML-escaped (SEPA charset enforced by the schema)
  * - ReqdExctnDt is emitted as Dt (date only), never DtTm
+ * - RmtInf/Ustrd is emitted when remittanceInfo is present on a Transfer
  */
 
 import { CreditTransferDocumentSchema, type CreditTransferDocument } from "../model/schema.js";
 import { escapeXml } from "../model/charset.js";
-import { formatAmount, sumAmounts } from "../model/amount.js";
+import { formatAmountForXml, sumMoney } from "../model/amount.js";
 
 const XMLNS = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.09";
 
@@ -43,12 +44,12 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
   }
   const doc = parseResult.data;
 
-  // Compute NbOfTxs and CtrlSum across all payment instructions
-  const allTxAmounts = doc.paymentInstructions.flatMap((pmtInf) =>
-    pmtInf.transactions.map((tx) => tx.amountMinorUnits)
+  // Compute NbOfTxs and CtrlSum across all batches
+  const allAmounts = doc.batches.flatMap((batch) =>
+    batch.transfers.map((tx) => tx.amount)
   );
-  const totalTxCount = allTxAmounts.length;
-  const totalCtrlSum = sumAmounts(allTxAmounts);
+  const totalTxCount = allAmounts.length;
+  const totalCtrlSum = sumMoney(allAmounts);
 
   const lines: string[] = [];
 
@@ -58,64 +59,76 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
 
   // Group Header
   lines.push(`    <GrpHdr>`);
-  lines.push(`      <MsgId>${xe(doc.groupHeader.messageId)}</MsgId>`);
-  lines.push(`      <CreDtTm>${xe(doc.groupHeader.creationDateTime)}</CreDtTm>`);
+  lines.push(`      <MsgId>${xe(doc.messageId)}</MsgId>`);
+  lines.push(`      <CreDtTm>${xe(doc.createdAt)}</CreDtTm>`);
   lines.push(`      <NbOfTxs>${totalTxCount}</NbOfTxs>`);
-  lines.push(`      <CtrlSum>${formatAmount(totalCtrlSum)}</CtrlSum>`);
+  lines.push(`      <CtrlSum>${formatAmountForXml({ currencyCode: "EUR", minorUnits: totalCtrlSum })}</CtrlSum>`);
   lines.push(`      <InitgPty>`);
-  lines.push(`        <Nm>${xe(doc.groupHeader.initiatingParty.name)}</Nm>`);
+  lines.push(`        <Nm>${xe(doc.initiatingParty)}</Nm>`);
   lines.push(`      </InitgPty>`);
   lines.push(`    </GrpHdr>`);
 
-  // Payment Instructions
-  for (const pmtInf of doc.paymentInstructions) {
-    const pmtTxAmounts = pmtInf.transactions.map((tx) => tx.amountMinorUnits);
-    const pmtNbOfTxs = pmtTxAmounts.length;
-    const pmtCtrlSum = sumAmounts(pmtTxAmounts);
+  // Payment Batches (PmtInf)
+  for (const batch of doc.batches) {
+    const batchAmounts = batch.transfers.map((tx) => tx.amount);
+    const batchNbOfTxs = batchAmounts.length;
+    const batchCtrlSum = sumMoney(batchAmounts);
 
     lines.push(`    <PmtInf>`);
-    lines.push(`      <PmtInfId>${xe(pmtInf.paymentInfoId)}</PmtInfId>`);
+    lines.push(`      <PmtInfId>${xe(batch.id)}</PmtInfId>`);
     lines.push(`      <PmtMtd>TRF</PmtMtd>`);
-    lines.push(`      <NbOfTxs>${pmtNbOfTxs}</NbOfTxs>`);
-    lines.push(`      <CtrlSum>${formatAmount(pmtCtrlSum)}</CtrlSum>`);
+    lines.push(`      <NbOfTxs>${batchNbOfTxs}</NbOfTxs>`);
+    lines.push(`      <CtrlSum>${formatAmountForXml({ currencyCode: "EUR", minorUnits: batchCtrlSum })}</CtrlSum>`);
     lines.push(`      <ReqdExctnDt>`);
-    lines.push(`        <Dt>${xe(pmtInf.requestedExecutionDate)}</Dt>`);
+    lines.push(`        <Dt>${xe(batch.executionDate)}</Dt>`);
     lines.push(`      </ReqdExctnDt>`);
     lines.push(`      <Dbtr>`);
-    lines.push(`        <Nm>${xe(pmtInf.debtor.name)}</Nm>`);
+    lines.push(`        <Nm>${xe(batch.debtor.name)}</Nm>`);
     lines.push(`      </Dbtr>`);
     lines.push(`      <DbtrAcct>`);
     lines.push(`        <Id>`);
-    lines.push(`          <IBAN>${xe(pmtInf.debtorIban)}</IBAN>`);
+    lines.push(`          <IBAN>${xe(batch.debtor.iban)}</IBAN>`);
     lines.push(`        </Id>`);
     lines.push(`      </DbtrAcct>`);
     lines.push(`      <DbtrAgt>`);
     lines.push(`        <FinInstnId>`);
-    if (pmtInf.debtorAgent.bic !== undefined) {
-      lines.push(`          <BICFI>${xe(pmtInf.debtorAgent.bic)}</BICFI>`);
+    if (batch.debtor.bic !== undefined) {
+      lines.push(`          <BICFI>${xe(batch.debtor.bic)}</BICFI>`);
     }
     lines.push(`        </FinInstnId>`);
     lines.push(`      </DbtrAgt>`);
 
     // Credit Transfer Transactions
-    for (const tx of pmtInf.transactions) {
+    for (const tx of batch.transfers) {
       lines.push(`      <CdtTrfTxInf>`);
       lines.push(`        <PmtId>`);
       lines.push(`          <EndToEndId>${xe(tx.endToEndId)}</EndToEndId>`);
       lines.push(`        </PmtId>`);
       lines.push(`        <Amt>`);
       lines.push(
-        `          <InstdAmt Ccy="EUR">${formatAmount(tx.amountMinorUnits)}</InstdAmt>`
+        `          <InstdAmt Ccy="EUR">${formatAmountForXml(tx.amount)}</InstdAmt>`
       );
       lines.push(`        </Amt>`);
+      if (tx.creditor.bic !== undefined) {
+        lines.push(`        <CdtrAgt>`);
+        lines.push(`          <FinInstnId>`);
+        lines.push(`            <BICFI>${xe(tx.creditor.bic)}</BICFI>`);
+        lines.push(`          </FinInstnId>`);
+        lines.push(`        </CdtrAgt>`);
+      }
       lines.push(`        <Cdtr>`);
       lines.push(`          <Nm>${xe(tx.creditor.name)}</Nm>`);
       lines.push(`        </Cdtr>`);
       lines.push(`        <CdtrAcct>`);
       lines.push(`          <Id>`);
-      lines.push(`            <IBAN>${xe(tx.creditorIban)}</IBAN>`);
+      lines.push(`            <IBAN>${xe(tx.creditor.iban)}</IBAN>`);
       lines.push(`          </Id>`);
       lines.push(`        </CdtrAcct>`);
+      if (tx.remittanceInfo !== undefined) {
+        lines.push(`        <RmtInf>`);
+        lines.push(`          <Ustrd>${xe(tx.remittanceInfo)}</Ustrd>`);
+        lines.push(`        </RmtInf>`);
+      }
       lines.push(`      </CdtTrfTxInf>`);
     }
 
