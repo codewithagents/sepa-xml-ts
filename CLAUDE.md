@@ -16,9 +16,11 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
 ## Scope
 
 - Write + parse + validate + XSD-validate: `pain.001.001.09` + `pain.008.001.08` (modern ISO),
-  plus the German DK national variants `pain.001.003.03` + `pain.008.003.02`
+  plus the German DK national variants `pain.001.003.03` + `pain.008.003.02`, plus the legacy ISO
+  `pain.001.001.03` credit-transfer write target
   (writeCreditTransfer/writeDirectDebit take `{ variant }`). `parse` auto-detects the message type.
-- Read-only coexistence: parse `pain.001.001.03` and `pain.008.001.02`; `validateXsd` covers all six schemas.
+- Read-only coexistence: parse `pain.008.001.02` (write not supported); `validateXsd` covers all six schemas.
+  Note `pain.001.001.03` is now a write target (see above), not read-only.
 - SEPA Creditor Identifier check digits validated (ISO 7064 MOD 97-10, strict). Full EPC 217-08
   charset transliteration. SvcLvl/Cd=SEPA + ChrgBr=SLEV emitted on both message types.
 - DK variant `pain.001.003.03` ships with XSD oracle at schemas/dk/ (DFU-Abkommen Anlage 3 v2.7).
@@ -132,7 +134,12 @@ deep-equal.
   both validateDirectDebit (returns ruleIssues) and writeDirectDebit (throws before emitting XML).
   R1: signatureDate <= collectionDate. R2: OOFF mandate appears exactly once. R3: mandate id bound
   to one scheme (CORE or B2B) per document.
-- ~300+ tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
-  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules explicit suite.
+- Legacy ISO `pain.001.001.03` credit-transfer WRITE variant ships, XSD-verified against
+  schemas/iso20022/pain.001.001.03.xsd (the same XSD already vendored for the read path), with
+  XSD-oracle + round-trip property suites. Deltas vs .09: plain ReqdExctnDt, BIC not BICFI, debtor
+  FinInstnId emitted (empty when no BIC). Teed up so CouponDude can later swap its hand-rolled .03
+  string-building for the property-tested writer with no wire-format change.
+- ~370 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant suites.
 - Profile seam: write/validate take `{ profile, variant }`. variant 'pain.001.003.03' = DK national
   write target (XSD-verified against schemas/dk/).

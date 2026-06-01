@@ -90,6 +90,25 @@ console.log(xsdResult.valid) // true
 `parse()` reads a DK direct debit file into a `DirectDebitDocument`. The returned `parsed.type`
 is `'pain.008'` in both cases.
 
+## Legacy ISO format: pain.001.001.03
+
+`pain.001.001.03` is not a national variant, it is the older ISO 20022 credit transfer format
+(pre-2014 EPC). It is exposed through the same `variant` option for systems that still require
+`.03` on the wire (for example an existing bank integration that has not moved to `.09`).
+
+```typescript
+import { writeCreditTransfer } from 'sepa-xml-ts'
+
+const xml = writeCreditTransfer(doc, { variant: 'pain.001.001.03' })
+// <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">...
+```
+
+The model input is the same `CreditTransferDocument` as for `.09`. Structural differences from
+`pain.001.001.09`: a plain `ReqdExctnDt` element (no `Dt` wrapper), the `BIC` element instead of
+`BICFI`, and a debtor `FinInstnId` that is emitted (empty when no BIC is set). The output is
+verified against the official `schemas/iso20022/pain.001.001.03.xsd` and round-trips through
+`parse()`. By default `writeCreditTransfer` still emits the modern `pain.001.001.09`.
+
 ## Combining variant and profile
 
 The `variant` and `profile` options are independent and work together:

@@ -1,16 +1,20 @@
 /**
- * XML writer for pain.001.001.09 (CustomerCreditTransferInitiation) and the
- * German DK national variant pain.001.003.03.
+ * XML writer for pain.001 credit transfer documents.
  *
- * Produces a UTF-8 XML string conforming to the selected schema:
+ * Supported output variants:
  * - pain.001.001.09 (default): urn:iso:std:iso:20022:tech:xsd:pain.001.001.09
- * - pain.001.003.03 (DK variant): urn:iso:std:iso:20022:tech:xsd:pain.001.003.03
+ * - pain.001.001.03 (legacy ISO): urn:iso:std:iso:20022:tech:xsd:pain.001.001.03
+ * - pain.001.003.03 (German DK): urn:iso:std:iso:20022:tech:xsd:pain.001.003.03
  *
  * Design invariants:
  * - Validates the model before writing (throws on invalid input)
  * - CtrlSum uses exact bigint arithmetic, never floating-point
  * - All string values are XML-escaped (SEPA charset enforced by the schema)
  * - pain.001.001.09: ReqdExctnDt is emitted as Dt (date only), never DtTm
+ * - pain.001.001.03: ReqdExctnDt is a plain ISODate (no Dt wrapper, per .03 XSD)
+ * - pain.001.001.03: FinInstnId uses BIC element (not BICFI, per FinancialInstitutionIdentification7)
+ * - pain.001.001.03: DbtrAgt required; emits empty FinInstnId when no BIC (all children optional in XSD)
+ * - pain.001.001.03: CdtrAgt is optional; omitted when creditor.bic is absent
  * - pain.001.003.03: ReqdExctnDt is a plain ISODate (no Dt wrapper)
  * - pain.001.003.03: FinInstnId uses BIC element (not BICFI)
  * - pain.001.003.03: DbtrAgt is required; emits NOTPROVIDED when no BIC is set
@@ -31,6 +35,7 @@ import {
   emitIbanAcct,
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
+  emitIso03FinInstnId,
   emitRmtInf,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
@@ -38,17 +43,22 @@ import type { BankProfile } from '../profile/profile.js'
 /**
  * The output schema variant for writeCreditTransfer.
  * - 'pain.001.001.09': the modern SEPA SCT schema (default, unchanged behavior)
+ * - 'pain.001.001.03': the legacy ISO credit transfer format (for systems still requiring .03 on the wire)
  * - 'pain.001.003.03': the German DK national variant (different namespace and structure)
  */
-export type CreditTransferVariant = 'pain.001.001.09' | 'pain.001.003.03'
+export type CreditTransferVariant = 'pain.001.001.09' | 'pain.001.001.03' | 'pain.001.003.03'
 
 /** Options accepted by writeCreditTransfer. */
 export interface WriteCreditTransferOptions {
   /**
    * The output schema variant. Defaults to 'pain.001.001.09'.
-   * Use 'pain.001.003.03' to emit the German DK national variant, which uses a
-   * different namespace and structural shape (plain ReqdExctnDt, BIC not BICFI,
-   * NOTPROVIDED fallback for DbtrAgt). The model input is the same for both variants.
+   * - 'pain.001.001.03': the legacy ISO credit transfer format, for systems that still require
+   *   the older wire format. Uses plain ReqdExctnDt (no Dt wrapper), BIC element (not BICFI),
+   *   and empty FinInstnId fallback for DbtrAgt when no BIC is set. XSD-verified against
+   *   schemas/iso20022/pain.001.001.03.xsd.
+   * - 'pain.001.003.03': the German DK national variant, which uses a different namespace and
+   *   structural shape (plain ReqdExctnDt, BIC not BICFI, NOTPROVIDED fallback for DbtrAgt).
+   * The model input is the same CreditTransferDocument for all variants.
    */
   variant?: CreditTransferVariant
   /**
@@ -61,6 +71,7 @@ export interface WriteCreditTransferOptions {
 }
 
 const XMLNS_09 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
+const XMLNS_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
 const XMLNS_DK = 'urn:iso:std:iso:20022:tech:xsd:pain.001.003.03'
 
 // Keep the old constant name as an alias to avoid changing the serialization path below.
@@ -112,6 +123,10 @@ export function writeCreditTransfer(
   }
 
   const variant = options?.variant ?? 'pain.001.001.09'
+
+  if (variant === 'pain.001.001.03') {
+    return writeCreditTransfer03(doc, profile)
+  }
 
   if (variant === 'pain.001.003.03') {
     return writeCreditTransferDK(doc, profile)
@@ -184,6 +199,92 @@ function writeCreditTransfer09(
         lines.push(`          </FinInstnId>`)
         lines.push(`        </CdtrAgt>`)
       }
+      emitNmElement(lines, '        ', 'Cdtr', tx.creditor.name)
+      emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
+      emitRmtInf(lines, tx.remittanceInfo)
+      lines.push(`      </CdtTrfTxInf>`)
+    }
+
+    lines.push(`    </PmtInf>`)
+  }
+
+  lines.push(`  </CstmrCdtTrfInitn>`)
+  lines.push(`</Document>`)
+
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// pain.001.001.03 writer (legacy ISO format)
+//
+// Structural deltas vs pain.001.001.09 (derived from schemas/iso20022/pain.001.001.03.xsd):
+// 1. Namespace: urn:iso:std:iso:20022:tech:xsd:pain.001.001.03
+// 2. ReqdExctnDt is a plain ISODate (no DateAndDateTime2Choice, no <Dt> wrapper).
+//    XSD: PaymentInstructionInformation3/ReqdExctnDt type ISODate.
+// 3. FinInstnId uses <BIC> element (not <BICFI>).
+//    XSD: FinancialInstitutionIdentification7 has optional <BIC type="BICIdentifier">.
+// 4. DbtrAgt (PmtInf level) is REQUIRED (no minOccurs=0 in PaymentInstructionInformation3).
+//    When debtor.bic is absent, emits <DbtrAgt><FinInstnId/></DbtrAgt> (empty FinInstnId
+//    is valid because all FinancialInstitutionIdentification7 children are optional).
+// 5. CdtrAgt (CdtTrfTxInf level) is OPTIONAL (minOccurs=0). Omitted when creditor.bic absent.
+//    This matches pain.001.001.09 behavior.
+// ---------------------------------------------------------------------------
+
+function writeCreditTransfer03(
+  doc: CreditTransferDocument,
+  profile: BankProfile | undefined
+): string {
+  // Compute NbOfTxs and CtrlSum across all batches
+  const allAmounts = doc.batches.flatMap((batch) => batch.transfers.map((tx) => tx.amount))
+  const { txCount: totalTxCount, ctrlSum: totalCtrlSum } = computeTotals(allAmounts)
+
+  const lines: string[] = []
+
+  lines.push(`<?xml version="1.0" encoding="UTF-8"?>`)
+  lines.push(`<Document xmlns="${XMLNS_03}">`)
+  lines.push(`  <CstmrCdtTrfInitn>`)
+
+  // Group Header (same structure as .09)
+  emitGrpHdr(lines, doc.messageId, doc.createdAt, totalTxCount, totalCtrlSum, doc.initiatingParty)
+
+  // Payment Batches (PmtInf)
+  for (const batch of doc.batches) {
+    const batchAmounts = batch.transfers.map((tx) => tx.amount)
+    const batchNbOfTxs = batchAmounts.length
+    const batchCtrlSum = sumMoney(batchAmounts)
+
+    emitPmtInfHeader(
+      lines,
+      batch.id,
+      'TRF',
+      batchNbOfTxs,
+      batchCtrlSum,
+      profile?.output?.batchBooking
+    )
+    // PmtTpInf/SvcLvl/Cd=SEPA: same as .09 (XSD position: after CtrlSum, before ReqdExctnDt)
+    lines.push(`      <PmtTpInf>`)
+    emitSvcLvl(lines)
+    lines.push(`      </PmtTpInf>`)
+    // Delta 1: ReqdExctnDt is a plain ISODate (no <Dt> wrapper)
+    lines.push(`      <ReqdExctnDt>${xe(batch.executionDate)}</ReqdExctnDt>`)
+    emitNmElement(lines, '      ', 'Dbtr', batch.debtor.name)
+    emitIbanAcct(lines, '      ', 'DbtrAcct', batch.debtor.iban)
+    // Delta 2: DbtrAgt required; BIC element (not BICFI); empty FinInstnId when no BIC
+    emitIso03FinInstnId(lines, '      ', 'DbtrAgt', batch.debtor.bic, true)
+    // ChrgBr=SLEV: SEPA rulebook requirement (XSD position: after DbtrAgt, before CdtTrfTxInf)
+    lines.push(`      <ChrgBr>SLEV</ChrgBr>`)
+
+    // Credit Transfer Transactions
+    for (const tx of batch.transfers) {
+      lines.push(`      <CdtTrfTxInf>`)
+      lines.push(`        <PmtId>`)
+      lines.push(`          <EndToEndId>${xe(tx.endToEndId)}</EndToEndId>`)
+      lines.push(`        </PmtId>`)
+      lines.push(`        <Amt>`)
+      lines.push(`          <InstdAmt Ccy="EUR">${formatAmountForXml(tx.amount)}</InstdAmt>`)
+      lines.push(`        </Amt>`)
+      // Delta 3: CdtrAgt optional; BIC element (not BICFI); omitted when no BIC
+      emitIso03FinInstnId(lines, '        ', 'CdtrAgt', tx.creditor.bic, false)
       emitNmElement(lines, '        ', 'Cdtr', tx.creditor.name)
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
       emitRmtInf(lines, tx.remittanceInfo)

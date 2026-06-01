@@ -197,6 +197,46 @@ export function emitRmtInf(lines: string[], remittanceInfo: string | undefined):
 }
 
 /**
+ * Emit a FinInstnId wrapper element for the ISO pain.001.001.03 variant.
+ *
+ * The .001.03 XSD uses FinancialInstitutionIdentification7, which has a <BIC>
+ * element (not <BICFI>) and all children are optional (minOccurs=0). This means:
+ *   - When bic is present: emit <tag><FinInstnId><BIC>...</BIC></FinInstnId></tag>
+ *   - When bic is absent and required is true: emit <tag><FinInstnId/></tag>
+ *     (empty is XSD-valid because all children are optional)
+ *   - When bic is absent and required is false: omit the element entirely
+ *
+ * @param indent   - leading spaces for the outer agent tag
+ * @param tag      - element name, e.g. "DbtrAgt" or "CdtrAgt"
+ * @param bic      - optional BIC string (will be XML-escaped if present)
+ * @param required - when true and bic is absent, emit an empty FinInstnId element
+ */
+export function emitIso03FinInstnId(
+  lines: string[],
+  indent: string,
+  tag: string,
+  bic: string | undefined,
+  required: boolean
+): void {
+  if (bic === undefined && !required) {
+    // Optional element with no BIC: omit entirely (e.g. CdtrAgt at tx level)
+    return
+  }
+  const inner = `${indent}  `
+  const bicIndent = `${indent}    `
+  lines.push(`${indent}<${tag}>`)
+  if (bic !== undefined) {
+    lines.push(`${inner}<FinInstnId>`)
+    lines.push(`${bicIndent}<BIC>${xe(bic)}</BIC>`)
+    lines.push(`${inner}</FinInstnId>`)
+  } else {
+    // No BIC and required: emit empty FinInstnId (all children are optional in FinancialInstitutionIdentification7)
+    lines.push(`${inner}<FinInstnId/>`)
+  }
+  lines.push(`${indent}</${tag}>`)
+}
+
+/**
  * Emit a FinInstnId wrapper element for the DK pain.001.003.03 variant.
  *
  * The DK XSD uses:

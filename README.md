@@ -20,8 +20,9 @@ not talk to banks.
 | Write direct debits to SEPA XML | `pain.008.001.08` | ✅ Supported |
 | Write German DK credit transfers | `pain.001.003.03` | ✅ Supported |
 | Write German DK direct debits | `pain.008.003.02` | ✅ Supported |
+| Write legacy ISO credit transfers | `pain.001.001.03` | ✅ Supported |
 | Parse SEPA XML back to a typed model (auto-detects message type) | `pain.001` / `pain.008` | ✅ Supported |
-| Read older coexistence versions | `pain.001.001.03`, `pain.008.001.02` | ✅ Supported (read-only) |
+| Read older coexistence direct debits | `pain.008.001.02` | ✅ Supported (read-only) |
 | Validate business rules (IBAN mod-97, EPC charset, exact CtrlSum, dates) | all | ✅ Supported |
 | Validate XML against the official ISO 20022 / EPC XSD | all 6 schemas | ✅ Supported |
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
@@ -438,10 +439,10 @@ Internal helpers (IBAN, SEPA charset, XML escaping) are intentionally not export
 
 ## Scope
 
-- **Supported write+read+XSD-validate:** `pain.001.001.09`, `pain.001.003.03` (German DK CT
-  variant), `pain.008.001.08`, and `pain.008.003.02` (German DK SDD variant).
-- **Read-only (coexistence):** `pain.001.001.03` and `pain.008.001.02`.
-- **Planned:** the full SEPA Creditor Identifier check-digit algorithm.
+- **Supported write+read+XSD-validate:** `pain.001.001.09`, `pain.001.001.03` (legacy ISO CT),
+  `pain.001.003.03` (German DK CT variant), `pain.008.001.08`, and `pain.008.003.02` (German DK
+  SDD variant).
+- **Read-only (coexistence):** `pain.008.001.02`.
 - **Out of scope:** bank connectivity / transmission (EBICS, FinTS, Peppol). This is a file library.
 
 ## License

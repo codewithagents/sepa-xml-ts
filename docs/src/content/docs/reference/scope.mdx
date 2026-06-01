@@ -14,8 +14,9 @@ produces, reads, and validates ISO 20022 SEPA XML. It does not talk to banks.
 | Write direct debits to SEPA XML | `pain.008.001.08` | ✅ Supported |
 | Write German DK credit transfers | `pain.001.003.03` | ✅ Supported |
 | Write German DK direct debits | `pain.008.003.02` | ✅ Supported |
+| Write legacy ISO credit transfers | `pain.001.001.03` | ✅ Supported |
 | Parse SEPA XML back to a typed model (auto-detects message type) | `pain.001` / `pain.008` | ✅ Supported |
-| Read older coexistence versions | `pain.001.001.03`, `pain.008.001.02` | ✅ Supported (read-only) |
+| Read older coexistence direct debits | `pain.008.001.02` | ✅ Supported (read-only) |
 | Validate business rules (IBAN mod-97, EPC charset, exact CtrlSum, dates) | all | ✅ Supported |
 | Validate XML against the official ISO 20022 / EPC XSD | all 6 schemas | ✅ Supported |
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
@@ -40,22 +41,26 @@ samples, because a wrong flavor is worse than none.
 | Schema | Description |
 |---|---|
 | `pain.001.001.09` | SEPA Credit Transfer Initiation (modern ISO 20022) |
+| `pain.001.001.03` | Legacy ISO 20022 Credit Transfer (pre-2014 EPC format) |
 | `pain.001.003.03` | German DK Credit Transfer variant (DFU agreement Anlage 3) |
 | `pain.008.001.08` | SEPA Direct Debit Initiation (modern ISO 20022) |
 | `pain.008.003.02` | German DK Direct Debit variant (DFU agreement Anlage 3) |
+
+`pain.001.001.03` is a write target via `writeCreditTransfer(model, { variant: 'pain.001.001.03' })`,
+for systems that still require the older wire format. By default `writeCreditTransfer` emits the
+modern `pain.001.001.09`.
 
 ### Read-only coexistence (parse + XSD validate only)
 
 | Schema | Description |
 |---|---|
-| `pain.001.001.03` | Older ISO 20022 Credit Transfer (pre-2014 EPC format) |
 | `pain.008.001.02` | Older ISO 20022 Direct Debit (pre-2014 EPC format) |
 
 Parsing `pain.001.001.03` returns a `CreditTransferDocument` (type `'pain.001'`).
 Parsing `pain.008.001.02` returns a `DirectDebitDocument` (type `'pain.008'`).
 
-These older schemas are supported for reading files from legacy systems. The library does not
-write them: new output always targets the modern schemas.
+`pain.008.001.02` is supported for reading files from legacy systems only. The library does not
+write it: new direct-debit output always targets the modern `pain.008.001.08` or the DK variant.
 
 ## XSD coverage
 

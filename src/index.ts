@@ -5,7 +5,8 @@
  * - CreditTransferDocumentSchema: Zod schema
  * - Types: CreditTransferDocument, PaymentBatch, Transfer, AccountParty, Money
  * - Helpers: euros, formatMoney
- * - writeCreditTransfer: model -> pain.001.001.09 XML
+ * - writeCreditTransfer: model -> pain.001 XML (variant selects schema:
+ *   'pain.001.001.09' default, 'pain.001.001.03' legacy ISO, 'pain.001.003.03' DK)
  *
  * pain.008 (Direct Debit):
  * - DirectDebitDocumentSchema: Zod schema
