@@ -34,6 +34,25 @@ function sepaText(maxLen: number) {
     })
 }
 
+/**
+ * A SEPA identifier field (MsgId, PmtInfId, EndToEndId): SEPA charset PLUS
+ * EPC slash rules: must not start or end with '/', must not contain '//'.
+ * Scoped to identifier elements per the EPC rulebook. Party names and mandate
+ * ids are NOT subject to this rule.
+ */
+function sepaIdentifier(maxLen: number) {
+  return sepaText(maxLen)
+    .refine((v) => !v.startsWith('/'), {
+      message: 'Identifier must not start with a slash (EPC slash rule)',
+    })
+    .refine((v) => !v.endsWith('/'), {
+      message: 'Identifier must not end with a slash (EPC slash rule)',
+    })
+    .refine((v) => !v.includes('//'), {
+      message: 'Identifier must not contain consecutive slashes (EPC slash rule)',
+    })
+}
+
 /** Max35Text with SEPA charset validation */
 const SepaMax35Text = sepaText(35)
 
@@ -71,11 +90,14 @@ const BICSchema = z
 // Money
 // ---------------------------------------------------------------------------
 
-/** Minimum allowed amount in minor units (0.01 EUR = 1 cent). */
+/** Minimum allowed amount in minor units (0.01 EUR = 1 cent). EPC AT-06 floor. */
 const MIN_AMOUNT_MINOR = 1n
 
-/** Maximum amount in minor units (matches XSD decimal precision). */
-const MAX_AMOUNT_MINOR = 999_999_999_999_999_99n
+/**
+ * Maximum allowed amount in minor units. EPC AT-06 cap: 999,999,999.99 EUR.
+ * That is 99,999,999,999 cents (99_999_999_999n).
+ */
+const MAX_AMOUNT_MINOR = 99_999_999_999n
 
 /**
  * Money is a first-class value. SEPA is EUR-only.
@@ -86,7 +108,10 @@ export const MoneySchema = z.object({
   minorUnits: z
     .bigint()
     .min(MIN_AMOUNT_MINOR, 'Amount must be at least 0.01 EUR (1 cent)')
-    .max(MAX_AMOUNT_MINOR, 'Amount exceeds maximum allowed value'),
+    .max(
+      MAX_AMOUNT_MINOR,
+      'Amount exceeds the EPC per-transaction cap of 999,999,999.99 EUR (AT-06)'
+    ),
 })
 
 export type Money = z.infer<typeof MoneySchema>
@@ -117,7 +142,9 @@ export function euros(amount: string): Money {
     throw new Error(`euros(): amount "${amount}" is below the minimum (0.01 EUR)`)
   }
   if (minorUnits > MAX_AMOUNT_MINOR) {
-    throw new Error(`euros(): amount "${amount}" exceeds the maximum allowed value`)
+    throw new Error(
+      `euros(): amount "${amount}" exceeds the EPC per-transaction cap of 999,999,999.99 EUR (AT-06)`
+    )
   }
   return { currencyCode: 'EUR', minorUnits }
 }
@@ -165,8 +192,8 @@ export type AccountParty = z.infer<typeof AccountPartySchema>
  * One credit transfer transaction (maps to CdtTrfTxInf).
  */
 const TransferSchema = z.object({
-  /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset. */
-  endToEndId: SepaMax35Text,
+  /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
+  endToEndId: sepaIdentifier(35),
   /** Amount: a Money value (euros helper recommended). */
   amount: MoneySchema,
   /** Creditor party (Cdtr + CdtrAcct/IBAN + CdtrAgt/BIC). */
@@ -186,8 +213,8 @@ export type Transfer = z.infer<typeof TransferSchema>
  */
 const PaymentBatchSchema = z
   .object({
-    /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset. */
-    id: SepaMax35Text,
+    /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset, EPC slash rules. */
+    id: sepaIdentifier(35),
     /** Requested execution date (ReqdExctnDt), YYYY-MM-DD. Emitted as Dt (not DtTm). */
     executionDate: ISODateSchema,
     /** Debtor party (Dbtr + DbtrAcct/IBAN + DbtrAgt/BIC). */
@@ -213,8 +240,8 @@ export type PaymentBatch = z.infer<typeof PaymentBatchSchema>
  */
 export const CreditTransferDocumentSchema = z
   .object({
-    /** Message ID (GrpHdr/MsgId), max 35 chars, SEPA charset. */
-    messageId: SepaMax35Text,
+    /** Message ID (GrpHdr/MsgId), max 35 chars, SEPA charset, EPC slash rules. */
+    messageId: sepaIdentifier(35),
     /** Creation date-time (GrpHdr/CreDtTm), ISO 8601 datetime. */
     createdAt: ISODateTimeSchema,
     /** Initiating party name (GrpHdr/InitgPty/Nm), max 70 chars, SEPA charset. */

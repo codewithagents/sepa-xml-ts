@@ -381,6 +381,17 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
     .filter((s) => s.length >= minLen)
 }
 
+// Identifier fields (MsgId, PmtInfId, EndToEndId) must not start/end with '/'
+// nor contain '//' per the EPC slash rule, so strip those from generated ids.
+function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<string> {
+  return arbSepaText(minLen, maxLen)
+    // Strip leading/trailing/double slashes, then trim again: removing an outer
+    // slash can expose leading/trailing whitespace, which would not survive the
+    // XML round-trip.
+    .map((s) => s.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\/{2,}/g, '/').trim())
+    .filter((s) => s.length >= minLen)
+}
+
 function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   const extendedLatin = 'äöüÄÖÜßàáâãåæèéêëìíîïðñòóôõøùúûýÿÀÁÂÃÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕØÙÚÛÝþÞçÇ'
   const droppedSamples = '🎉🥳🌍你好مرحباПривет'
@@ -430,7 +441,7 @@ function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100n }),
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100_000n }),
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 999_999_999n }),
-    fc.bigInt({ min: 1n, max: 100_000_000_000n })
+    fc.bigInt({ min: 1n, max: 99_999_999_999n })
       .map((n) => ({ currencyCode: 'EUR' as const, minorUnits: n }))
   )
 }
@@ -451,7 +462,7 @@ function arbAccountParty() {
 
 function arbTransfer() {
   return fc.record({
-    endToEndId: arbSepaText(1, 35),
+    endToEndId: arbSepaIdentifier(1, 35),
     amount: arbMoney(),
     creditor: arbAccountParty(),
     remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
@@ -466,7 +477,7 @@ function arbTransfer() {
 
 function arbPaymentBatch() {
   return fc.record({
-    id: arbSepaText(1, 35),
+    id: arbSepaIdentifier(1, 35),
     executionDate: arbDate(),
     debtor: arbAccountParty(),
     transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
@@ -475,7 +486,7 @@ function arbPaymentBatch() {
 
 function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
   return fc.record({
-    messageId: arbSepaText(1, 35),
+    messageId: arbSepaIdentifier(1, 35),
     createdAt: arbCreatedAt(),
     initiatingParty: arbPartyName(),
     batches: fc.array(arbPaymentBatch(), { minLength: 1, maxLength: 3 }),

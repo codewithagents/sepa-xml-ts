@@ -94,9 +94,13 @@ deep-equal.
 
 - No float money: amounts are `bigint` minor units. CtrlSum = exact sum, zero rounding tolerance.
 - Amount format: exactly 2 decimals, dot separator, no grouping, `Ccy="EUR"`.
+- Amount range (EPC AT-06): 0.01 to 999,999,999.99 EUR per transaction, i.e. 1n to 99_999_999_999n minor units.
+- Identifier slash rules: MsgId, PmtInfId, EndToEndId must not start/end with `/` nor contain `//` (NOT applied to mandate id or party names, per the EPC scope).
 - SEPA charset EPC217-08 (a-z A-Z 0-9 space `/ - ? : ( ) . , ' +`), separate from XML escaping.
 - IBAN by mod-97 checksum. BIC by format when present.
+- SEPA Creditor Identifier: ISO 7064 MOD 97-10 with the business code (positions 5-7) EXCLUDED from the check (verified by test); German `DE` ids must be exactly 18 chars.
 - Dates not datetimes for execution date.
+- IBAN<->BIC country consistency is an OPT-IN profile (`ibanBicCountryMatch`), not a core rule, because the territory-exception list (French DOM-TOM, Channel Islands) would otherwise risk false positives.
 
 ## Testing strategy (the reputation lives here)
 
@@ -139,7 +143,18 @@ deep-equal.
   XSD-oracle + round-trip property suites. Deltas vs .09: plain ReqdExctnDt, BIC not BICFI, debtor
   FinInstnId emitted (empty when no BIC). Teed up so CouponDude can later swap its hand-rolled .03
   string-building for the property-tested writer with no wire-format change.
-- ~370 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
-  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant suites.
+- Standards-derived refinements ship (re-derived from the EPC rulebook, no third-party code copied):
+  EPC AT-06 amount cap/floor on MoneySchema, identifier slash rules on MsgId/PmtInfId/EndToEndId,
+  German DE Creditor Identifier = 18 chars, and a new opt-in `ibanBicCountryMatch` bank profile with
+  a documented territory-exception table. A test proves the creditor-id check excludes the business
+  code (positions 5-7) per EPC262-08. Deliberately NOT added: a "FRST before RCUR" rule (the SDD Core
+  Rulebook made FRST optional in v9.1, so requiring it would be stricter than the standard).
+- Next planned feature: structured postal address (PstlAdr) for .09/.08, which EPC makes mandatory
+  on 2026-11-22 (the model carries no address yet). Tracked as a Roadmap row in the matrix.
+- ~427 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
+  validation-rules + creditor-id suites. Property arbitraries are constrained to satisfy the new
+  rules by construction (amount cap, slash-free identifiers, globally-unique mandate ids), and the
+  suite has been stress-run 15x with zero flakes.
 - Profile seam: write/validate take `{ profile, variant }`. variant 'pain.001.003.03' = DK national
-  write target (XSD-verified against schemas/dk/).
+  write target (XSD-verified against schemas/dk/). Built-in profiles: `requireBic`, `ibanBicCountryMatch`.

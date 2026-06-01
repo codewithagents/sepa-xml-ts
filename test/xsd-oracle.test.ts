@@ -91,6 +91,17 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
 }
 
 /**
+ * Arbitrary for a SEPA identifier string: SEPA charset PLUS EPC slash rules.
+ * Must not start or end with '/' and must not contain '//'.
+ * Used for MsgId, PmtInfId, and EndToEndId fields.
+ */
+function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<string> {
+  return arbSepaText(minLen, maxLen).filter(
+    (s) => !s.startsWith('/') && !s.endsWith('/') && !s.includes('//')
+  )
+}
+
+/**
  * Arbitrary for text that may contain unicode/extended chars but
  * gets sanitized through sanitizeSepa before use.
  *
@@ -154,6 +165,12 @@ function arbBic(): fc.Arbitrary<string> {
   return fc.constantFrom('COBADEFFXXX', 'BNPAFRPPXXX', 'DEUTDEDBFRA', 'INGBNL2AXXX', 'BSCHESMMXXX')
 }
 
+/**
+ * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
+ * All boundary values must be at or below this cap.
+ */
+const MAX_AMOUNT_MINOR = 99_999_999_999n
+
 function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
   return fc.oneof(
     // Boundary: minimum (0.01 EUR = 1 cent)
@@ -166,13 +183,13 @@ function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100_000n }),
     // Boundary: large amount (near float precision boundary for naive implementations)
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 999_999_999n }),
-    // Boundary: very large (10^13 region, about 100 billion EUR)
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 10_000_000_000_000n }),
-    // Boundary: 10^13 + 99 (tests final two digits across boundary)
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 10_000_000_000_099n }),
-    // Random amounts between 1 cent and 1 billion EUR
+    // Boundary: at the EPC AT-06 cap (999,999,999.99 EUR)
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: MAX_AMOUNT_MINOR }),
+    // Boundary: one cent below the cap
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: MAX_AMOUNT_MINOR - 1n }),
+    // Random amounts between 1 cent and the EPC AT-06 cap
     fc
-      .bigInt({ min: 1n, max: 100_000_000_000n })
+      .bigInt({ min: 1n, max: MAX_AMOUNT_MINOR })
       .map((n) => ({ currencyCode: 'EUR' as const, minorUnits: n }))
   )
 }
@@ -200,7 +217,7 @@ function arbAccountParty(): fc.Arbitrary<AccountParty> {
 function arbTransfer(): fc.Arbitrary<Transfer> {
   return fc
     .record({
-      endToEndId: arbSepaText(1, 35),
+      endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
       creditor: arbAccountParty(),
       remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
@@ -216,7 +233,7 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
 
 function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
   return fc.record({
-    id: arbSepaText(1, 35),
+    id: arbSepaIdentifier(1, 35),
     executionDate: arbDate(),
     debtor: arbAccountParty(),
     transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
@@ -225,7 +242,7 @@ function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
 
 function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
   return fc.record({
-    messageId: arbSepaText(1, 35),
+    messageId: arbSepaIdentifier(1, 35),
     createdAt: arbCreatedAt(),
     initiatingParty: arbPartyName(),
     batches: fc.array(arbPaymentBatch(), { minLength: 1, maxLength: 3 }),
@@ -240,20 +257,28 @@ function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
  * Arbitrary for a check-digit-valid SEPA Creditor Identifier.
  * Uses buildCreditorId to compute the correct check digits, so every generated
  * value passes the ISO 7064 MOD 97-10 validation wired into CreditorIdSchema.
+ *
+ * DE creditor identifiers must be exactly 18 chars: 2 (DE) + 2 (check) + 3 (biz) + 11 (national).
+ * Other countries use 1..10 char national IDs (total stays under 35).
  */
 function arbCreditorId(): fc.Arbitrary<string> {
-  const COUNTRY_CODES = ['DE', 'FR', 'NL', 'AT', 'BE', 'ES', 'IT', 'PT', 'FI', 'LU']
+  // Non-DE countries: any 1..10 char national ID
+  const NON_DE_COUNTRIES = ['FR', 'NL', 'AT', 'BE', 'ES', 'IT', 'PT', 'FI', 'LU']
   const ALPHA_NUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  return fc
+  const nonDeArb = fc
     .record({
-      country: fc.constantFrom(...COUNTRY_CODES),
-      // National identifier: 1..10 alphanumeric chars (keeps total length under 35)
+      country: fc.constantFrom(...NON_DE_COUNTRIES),
       nationalId: fc.stringOf(fc.constantFrom(...ALPHA_NUM.split('')), {
         minLength: 1,
         maxLength: 10,
       }),
     })
     .map(({ country, nationalId }) => buildCreditorId(country, 'ZZZ', nationalId))
+  // DE: national ID must be exactly 11 chars so total length is exactly 18
+  const deArb = fc
+    .stringOf(fc.constantFrom(...ALPHA_NUM.split('')), { minLength: 11, maxLength: 11 })
+    .map((nationalId) => buildCreditorId('DE', 'ZZZ', nationalId))
+  return fc.oneof(nonDeArb, deArb)
 }
 
 function arbSequenceType(): fc.Arbitrary<SequenceType> {
@@ -336,7 +361,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
 
   return fc
     .record({
-      endToEndId: arbSepaText(1, 35),
+      endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
       debtor: fc
         .record({
@@ -353,6 +378,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
         }),
       mandate: fc.record({
         // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).
+        // Mandate id is NOT subject to the slash rule (per the EPC rulebook).
         id: arbSepaText(10, 35),
         signatureDate: arbSignatureDate,
       }),
@@ -372,7 +398,7 @@ function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
   // constrained to be <= collectionDate (R1 requirement).
   return fc
     .record({
-      id: arbSepaText(1, 35),
+      id: arbSepaIdentifier(1, 35),
       collectionDate: arbDate(),
       sequenceType: arbSequenceType(),
       // Always explicitly set localInstrument for round-trip correctness:
@@ -388,13 +414,34 @@ function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
 }
 
 function arbDirectDebitDocument(): fc.Arbitrary<DirectDebitDocument> {
-  return fc.record({
-    messageId: arbSepaText(1, 35),
-    createdAt: arbCreatedAt(),
-    initiatingParty: arbPartyName(),
-    creditor: arbCreditor(),
-    batches: fc.array(arbDirectDebitBatch(), { minLength: 1, maxLength: 3 }),
-  })
+  return fc
+    .record({
+      messageId: arbSepaIdentifier(1, 35),
+      createdAt: arbCreatedAt(),
+      initiatingParty: arbPartyName(),
+      creditor: arbCreditor(),
+      batches: fc.array(arbDirectDebitBatch(), { minLength: 1, maxLength: 3 }),
+    })
+    .map((doc) => {
+      // Rewrite every mandate id to a globally unique value so the document
+      // always satisfies R2 (OOFF single-use) and R3 (one scheme per mandate)
+      // by construction. This removes the rule-violation throw path so the
+      // round-trip property only exercises genuine serialize/parse fidelity,
+      // and the shrinker cannot manufacture a misleading mandate-collision case.
+      const batches = doc.batches.map((batch, bIdx) => ({
+        ...batch,
+        collections: batch.collections.map((col, cIdx) => ({
+          ...col,
+          // Slice to 35, then strip any trailing space the slice may have exposed
+          // mid-content (a trailing space would not survive the XML round-trip).
+          mandate: {
+            ...col.mandate,
+            id: `MND-${bIdx}-${cIdx}-${col.mandate.id}`.slice(0, 35).replace(/\s+$/, ''),
+          },
+        })),
+      }))
+      return { ...doc, batches }
+    })
 }
 
 // ---------------------------------------------------------------------------

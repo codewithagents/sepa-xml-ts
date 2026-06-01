@@ -15,9 +15,15 @@ model. It enforces all semantic constraints:
 - IBAN mod-97 checksum
 - BIC format (when provided)
 - SEPA charset EPC217-08 on all string fields
-- Amount constraints (positive, max 2 decimal places)
+- Amount constraints: max 2 decimal places, and the EPC AT-06 range of 0.01 to 999,999,999.99 EUR per transaction
+- Identifier slash rules: MsgId, PmtInfId, and EndToEndId must not start or end with `/` and must not contain `//`
 - Date format `YYYY-MM-DD` for execution and collection dates
-- SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10, strict)
+- SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10, strict), with German `DE` identifiers required to be exactly 18 characters
+
+These refinements live on the Zod schema, so they apply to every entry point: `validate*`, the
+writers (which validate before emitting), and `parse` (which validates what it reads). The amount
+cap and identifier rules are derived from the EPC implementation guidelines, not copied from any
+third-party library.
 
 ### `validate(input)`
 

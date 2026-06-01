@@ -98,4 +98,4 @@ export type {
 // ---------------------------------------------------------------------------
 
 export type { BankProfile, ProfileIssue } from './profile/profile.js'
-export { requireBic } from './profile/profiles.js'
+export { requireBic, ibanBicCountryMatch } from './profile/profiles.js'

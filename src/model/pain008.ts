@@ -31,6 +31,25 @@ function sepaText(maxLen: number) {
     })
 }
 
+/**
+ * A SEPA identifier field (MsgId, PmtInfId, EndToEndId): SEPA charset PLUS
+ * EPC slash rules: must not start or end with '/', must not contain '//'.
+ * Scoped to identifier elements per the EPC rulebook. Party names and mandate
+ * ids are NOT subject to this rule.
+ */
+function sepaIdentifier(maxLen: number) {
+  return sepaText(maxLen)
+    .refine((v) => !v.startsWith('/'), {
+      message: 'Identifier must not start with a slash (EPC slash rule)',
+    })
+    .refine((v) => !v.endsWith('/'), {
+      message: 'Identifier must not end with a slash (EPC slash rule)',
+    })
+    .refine((v) => !v.includes('//'), {
+      message: 'Identifier must not contain consecutive slashes (EPC slash rule)',
+    })
+}
+
 const SepaMax35Text = sepaText(35)
 const SepaMax140Text = sepaText(140)
 
@@ -92,6 +111,23 @@ const CreditorIdSchema = z
   .refine((v) => isValidCreditorId(v), {
     message: 'SEPA Creditor Identifier failed ISO 7064 MOD 97-10 check digit validation',
   })
+  .refine(
+    (v) => {
+      // German creditor identifiers are exactly 18 characters:
+      // 2 (country DE) + 2 (check digits) + 3 (business code) + 11 (national identifier).
+      // This matches the Bundesbank specification for DE creditor IDs.
+      const cc = v.slice(0, 2).toUpperCase()
+      if (cc === 'DE') {
+        return v.length === 18
+      }
+      return true
+    },
+    {
+      message:
+        'German (DE) SEPA Creditor Identifier must be exactly 18 characters ' +
+        '(2 country + 2 check digits + 3 business code + 11 national identifier)',
+    }
+  )
 
 /**
  * The party collecting funds via direct debit.
@@ -138,8 +174,8 @@ export type Mandate = z.infer<typeof MandateSchema>
  * One direct debit transaction (maps to DrctDbtTxInf).
  */
 const CollectionSchema = z.object({
-  /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset. */
-  endToEndId: SepaMax35Text,
+  /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
+  endToEndId: sepaIdentifier(35),
   /** Amount to collect (InstdAmt Ccy="EUR"). */
   amount: MoneySchema,
   /** Debtor party (Dbtr/Nm + DbtrAcct/Id/IBAN + DbtrAgt/FinInstnId/BICFI). */
@@ -165,8 +201,8 @@ export type Collection = z.infer<typeof CollectionSchema>
  */
 const DirectDebitBatchSchema = z
   .object({
-    /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset. */
-    id: SepaMax35Text,
+    /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset, EPC slash rules. */
+    id: sepaIdentifier(35),
     /** Requested collection date (ReqdColltnDt), YYYY-MM-DD. */
     collectionDate: ISODateSchema,
     /** Sequence type (PmtTpInf/SeqTp). */
@@ -194,8 +230,8 @@ export type DirectDebitBatch = z.infer<typeof DirectDebitBatchSchema>
  */
 export const DirectDebitDocumentSchema = z
   .object({
-    /** Message ID (GrpHdr/MsgId), max 35 chars, SEPA charset. */
-    messageId: SepaMax35Text,
+    /** Message ID (GrpHdr/MsgId), max 35 chars, SEPA charset, EPC slash rules. */
+    messageId: sepaIdentifier(35),
     /** Creation date-time (GrpHdr/CreDtTm), ISO 8601 datetime. */
     createdAt: ISODateTimeSchema,
     /** Initiating party name (GrpHdr/InitgPty/Nm), max 70 chars, SEPA charset. */

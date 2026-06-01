@@ -63,6 +63,27 @@ const result = validateDirectDebit(doc, { profile: requireBic })
 const xml = writeDirectDebit(doc, { profile: requireBic })
 ```
 
+## The `ibanBicCountryMatch` profile
+
+When a party has both an IBAN and a BIC, the IBAN country (chars 1-2) and the BIC country
+(chars 5-6) normally match, and a mismatch often signals a data-entry error. The built-in
+`ibanBicCountryMatch` profile checks this for every party (debtor, creditor, and per-transaction
+parties) on both message types.
+
+```typescript
+import { validateCreditTransfer, writeDirectDebit, ibanBicCountryMatch } from 'sepa-xml-ts'
+
+const result = validateCreditTransfer(doc, { profile: ibanBicCountryMatch })
+const xml = writeDirectDebit(ddDoc, { profile: ibanBicCountryMatch })
+```
+
+This is shipped as an opt-in profile, not a core rule, on purpose. Some legitimate cases have a
+mismatched IBAN and BIC country, for example French overseas territories (GP, GF, MQ, RE, YT, PM,
+BL, MF) that use FR-registered BICs, and the Channel Islands / Isle of Man that use GB BICs. The
+profile carries a documented exception table for these. Encoding this as a core rule would risk
+rejecting valid files, and a false positive is worse than no check, so you enable it only when you
+know your bank performs the same check.
+
 ## Output options: batchBooking
 
 Profiles can request minor output tweaks via `output`. The `batchBooking` option emits
