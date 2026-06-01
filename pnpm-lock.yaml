@@ -24,6 +24,9 @@ importers:
       fast-check:
         specifier: ^3.23.0
         version: 3.23.2
+      sepa:
+        specifier: ^3.0.0
+        version: 3.0.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -456,6 +459,9 @@ packages:
     resolution: {integrity: sha512-WHeFSbZYsPu3+bLoNRUuAO+wavNlocOPf3wSHTP7hcFKVnJeWsYlCDbr3mTS14FCizf9ccIxXA8sGL8zKeQN3g==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
+
+  sepa@3.0.0:
+    resolution: {integrity: sha512-xa5F5judwzVacerYeADrAPLnhc5c3CmuonolPLWYcUI+ipJyVHeNWjF3t5bWEM4KFP54jJF7C+JMAF+zvXcoQw==}
 
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
@@ -902,6 +908,8 @@ snapshots:
       '@rollup/rollup-win32-x64-gnu': 4.60.4
       '@rollup/rollup-win32-x64-msvc': 4.60.4
       fsevents: 2.3.3
+
+  sepa@3.0.0: {}
 
   siginfo@2.0.0: {}
 
