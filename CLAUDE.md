@@ -15,8 +15,10 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
 
 ## Scope
 
-- Now: `pain.001.001.09` (SEPA Credit Transfer Initiation). Parse, write, validate, XSD-validate.
-- Planned: `pain.008` (direct debit, needs mandate sequence FRST/RCUR/OOFF/FNAL), reading older `pain.001.001.03`.
+- Now: `pain.001.001.09` (credit transfer) and `pain.008.001.08` (direct debit). Parse, write,
+  validate, XSD-validate. `parse` auto-detects the message type (discriminated union by namespace).
+- Planned: full SEPA Creditor Identifier check-digit validation (currently format-only), reading
+  older coexistence versions `pain.001.001.03` / `pain.008.001.02`.
 - Out: bank connectivity / transmission (EBICS, FinTS, Peppol).
 
 ## Architecture
@@ -49,6 +51,29 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
 `AccountParty = { name, iban, bic? }`. `Money = { currencyCode: "EUR", minorUnits: bigint }`,
 built with `euros("123.45")`, formatted with `formatMoney`. Derived by the writer (not model
 fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
+
+### pain.008 direct debit (the reverse: one creditor collects from many debtors)
+
+| Model | XSD |
+|---|---|
+| `DirectDebitDocument` | `Document/CstmrDrctDbtInitn` |
+| `.creditor` (`Creditor`, document-level; writer fans out into every PmtInf) | `Cdtr/Nm` + `CdtrAcct/Id/IBAN` + `CdtrAgt/FinInstnId/BICFI` + `CdtrSchmeId/Id/PrvtId/Othr/Id` (+ `SchmeNm/Prtry=SEPA`) |
+| `Creditor.creditorId` | SEPA Creditor Identifier (format-validated only, check-digit is a TODO) |
+| `.batches[]` (`DirectDebitBatch`) | `PmtInf[]` |
+| `DirectDebitBatch.collectionDate` | `ReqdColltnDt/Dt` |
+| `DirectDebitBatch.sequenceType` (FRST/RCUR/OOFF/FNAL) | `PmtTpInf/SeqTp` |
+| `DirectDebitBatch.localInstrument?` (CORE/B2B, default CORE) | `PmtTpInf/LclInstrm/Cd` |
+| `DirectDebitBatch.collections[]` (`Collection`) | `DrctDbtTxInf[]` |
+| `Collection.amount` (`Money`) | `InstdAmt` (`Ccy="EUR"`) |
+| `Collection.debtor` (`AccountParty`) | `Dbtr/Nm` + `DbtrAcct/Id/IBAN` + `DbtrAgt/FinInstnId/BICFI` |
+| `Collection.mandate` (`{ id, signatureDate }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` |
+| `Collection.remittanceInfo?` | `RmtInf/Ustrd` |
+
+Writer-derived for pain.008: `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=DD`, `PmtTpInf/SvcLvl/Cd=SEPA`,
+`ChrgBr=SLEV` (SEPA rulebook, optional in XSD). pain.008 gotchas: `CdtrAgt` (PmtInf) and `DbtrAgt`
+(per tx) are STRUCTURALLY REQUIRED, so emit `<CdtrAgt><FinInstnId/></CdtrAgt>` even without a BIC.
+`localInstrument` defaults to CORE on write, so arbitraries must set it explicitly to keep round-trip
+deep-equal.
 
 ## Invariants (enforced as Zod refinements / internal helpers)
 
@@ -86,5 +111,8 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 ## Current state
 
 - 0.1.0 published to npm (write + validate, XSD-verified).
-- 0.2.0 (local, unpushed): natural model redesign (Money, AccountParty, batches/transfers,
-  remittanceInfo) + parse + round-trip property test.
+- Local, unpushed (working locally until mature; will be 0.2.0): natural model redesign (Money,
+  AccountParty, batches/transfers, remittanceInfo), parse with model round-trip, and full
+  pain.008 direct debit (model, writeDirectDebit, parse auto-detect, XSD-oracle + round-trip).
+- 25 tests green: euros/formatMoney units, pain.001 + pain.008 sample tests, and four 200-run
+  property tests (XSD-oracle + round-trip for each message type).

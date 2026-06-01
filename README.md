@@ -1,13 +1,14 @@
 # sepa-xml-ts
 
 Type-safe SEPA payment files for TypeScript. **Parse, write, and validate** ISO 20022
-`pain.001` credit transfers behind a model that abstracts the XML, with **every generated
-file validated against the official EPC/ISO 20022 XSD in CI**.
+`pain.001` credit transfers and `pain.008` direct debits behind a model that abstracts the
+XML, with **every generated file validated against the official EPC/ISO 20022 XSD in CI**.
 
 [![npm](https://img.shields.io/npm/v/sepa-xml-ts.svg)](https://www.npmjs.com/package/sepa-xml-ts)
 
-> Status: early (`0.x`). The public API may still change before `1.0`. Today's scope is
-> `pain.001.001.09` (SEPA Credit Transfer Initiation).
+> Status: early (`0.x`). The public API may still change before `1.0`. Scope today is
+> `pain.001.001.09` (SEPA Credit Transfer Initiation) and `pain.008.001.08` (SEPA Direct
+> Debit Initiation).
 
 ## Why this exists
 
@@ -90,26 +91,76 @@ if (!result.ok) {
 
 ## Parse
 
-`parse` turns a `pain.001.001.09` XML string back into the same model, including reconstructing
-`Money` from the formatted amount. It returns a typed result and never throws on malformed input.
+`parse` turns SEPA XML back into a model, reconstructing `Money` from the formatted amount. It
+**auto-detects the message type** and returns a discriminated union, and never throws on malformed
+input.
 
 ```ts
 import { parse } from "sepa-xml-ts";
 
 const parsed = parse(xml);
-if (parsed.ok) {
+if (!parsed.ok) {
+  console.error(parsed.error);
+} else if (parsed.type === "pain.001") {
+  // parsed.data is a CreditTransferDocument
   const total = parsed.data.batches
     .flatMap((b) => b.transfers)
     .reduce((sum, t) => sum + t.amount.minorUnits, 0n);
-  console.log("total minor units:", total);
+  console.log("credit transfer total:", total);
 } else {
-  console.error(parsed.error);
+  // parsed.type === "pain.008" -> parsed.data is a DirectDebitDocument
+  console.log("collections:", parsed.data.batches.flatMap((b) => b.collections).length);
 }
 ```
 
 The round-trip is anchored on the model: for any valid model,
-`parse(writeCreditTransfer(model))` deep-equals the original. This is verified as a property
-test over thousands of generated inputs.
+`parse(write(model))` deep-equals the original. This is verified as a property test over thousands
+of generated inputs, for both message types.
+
+## Direct debit (pain.008)
+
+Direct debit is the reverse of a credit transfer: one **creditor** collects money from many
+**debtors**, each authorized by a **mandate**. The model mirrors that, and `writeDirectDebit`
+emits valid `pain.008.001.08` XML (deriving `NbOfTxs`, `CtrlSum`, and fanning the creditor and
+its SEPA Creditor Identifier into each batch for you).
+
+```ts
+import { euros, writeDirectDebit, type DirectDebitDocument } from "sepa-xml-ts";
+
+const doc: DirectDebitDocument = {
+  messageId: "DD-2026-0001",
+  createdAt: "2026-06-01T09:00:00Z",
+  initiatingParty: "ACME GmbH",
+  creditor: {
+    name: "ACME GmbH",
+    iban: "DE89370400440532013000",
+    bic: "COBADEFFXXX",
+    creditorId: "DE98ZZZ09999999999", // SEPA Creditor Identifier
+  },
+  batches: [
+    {
+      id: "BATCH-001",
+      collectionDate: "2026-06-10", // a date
+      sequenceType: "FRST", // FRST | RCUR | OOFF | FNAL
+      localInstrument: "CORE", // CORE | B2B (defaults to CORE)
+      collections: [
+        {
+          endToEndId: "SUB-1001",
+          amount: euros("49.99"),
+          debtor: { name: "Kunde Eins", iban: "NL91ABNA0417164300" },
+          mandate: { id: "MND-001", signatureDate: "2026-01-15" },
+          remittanceInfo: "Subscription June",
+        },
+      ],
+    },
+  ],
+};
+
+const xml = writeDirectDebit(doc);
+```
+
+Note: the `creditorId` is validated for format and length today; the full SEPA Creditor Identifier
+check-digit algorithm is a planned refinement. And `localInstrument` defaults to `CORE` when omitted.
 
 ## Money
 
@@ -150,13 +201,15 @@ From `sepa-xml-ts`:
 
 | Export | Description |
 |---|---|
-| `CreditTransferDocument`, `PaymentBatch`, `Transfer`, `AccountParty`, `Money` | Model types |
-| `CreditTransferDocumentSchema` | The Zod schema (single source of truth) |
+| `CreditTransferDocument`, `PaymentBatch`, `Transfer`, `AccountParty`, `Money` | pain.001 model types |
+| `DirectDebitDocument`, `DirectDebitBatch`, `Collection`, `Creditor`, `Mandate`, `SequenceType`, `LocalInstrument` | pain.008 model types |
+| `CreditTransferDocumentSchema`, `DirectDebitDocumentSchema` | The Zod schemas (single source of truth) |
 | `euros(amount: string): Money` | Build a `Money` value safely |
 | `formatMoney(m: Money): string` | Format a `Money` value to `"123.45"` |
 | `writeCreditTransfer(model): string` | Model to `pain.001` XML |
-| `parse(xml: string): ParseResult` | `pain.001` XML to model |
-| `validate(input: unknown): ValidationResult` | Validate against the schema |
+| `writeDirectDebit(model): string` | Model to `pain.008` XML |
+| `parse(xml: string): ParseResult` | SEPA XML to model, auto-detecting message type |
+| `validate(input: unknown): ValidationResult` | Validate a credit-transfer model against the schema |
 
 From `sepa-xml-ts/xsd`:
 
@@ -168,8 +221,10 @@ Internal helpers (IBAN, SEPA charset, XML escaping) are intentionally not export
 
 ## Scope
 
-- **Supported:** `pain.001.001.09` (SEPA Credit Transfer Initiation): parse, write, validate.
-- **Planned:** `pain.008` (direct debit), and reading older `pain.001.001.03`.
+- **Supported:** `pain.001.001.09` (SEPA Credit Transfer Initiation) and `pain.008.001.08`
+  (SEPA Direct Debit Initiation): parse, write, validate.
+- **Planned:** the full SEPA Creditor Identifier check-digit, and reading the older
+  `pain.001.001.03` / `pain.008.001.02` coexistence versions.
 - **Out of scope:** bank connectivity / transmission (EBICS, FinTS, Peppol). This is a file library.
 
 ## License
