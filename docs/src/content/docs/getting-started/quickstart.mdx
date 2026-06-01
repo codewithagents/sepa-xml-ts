@@ -23,16 +23,16 @@ XML, and parse it back into the original model.
 
    const doc: CreditTransferDocument = {
      messageId: 'MSG-2026-0001',
-     createdAt: '2026-06-01T10:30:00Z',   // ISO 8601 datetime
+     createdAt: '2026-06-01T10:30:00Z', // ISO 8601 datetime
      initiatingParty: 'ACME GmbH',
      batches: [
        {
          id: 'BATCH-001',
-         executionDate: '2026-06-03',       // YYYY-MM-DD, never a datetime
+         executionDate: '2026-06-03', // YYYY-MM-DD, never a datetime
          debtor: {
            name: 'ACME GmbH',
            iban: 'DE89370400440532013000',
-           bic: 'COBADEFFXXX',              // optional since 2016 SEPA rulebook
+           bic: 'COBADEFFXXX', // optional since 2016 SEPA rulebook
          },
          transfers: [
            {
@@ -122,6 +122,6 @@ For a direct-debit equivalent, replace `CreditTransferDocument` with `DirectDebi
 full model and writer API.
 
 <Aside type="tip">
-The `parse` function handles both message types. You do not need separate parsers for pain.001 and
-pain.008: check `parsed.type` to branch.
+  The `parse` function handles both message types. You do not need separate parsers for pain.001 and
+  pain.008: check `parsed.type` to branch.
 </Aside>

@@ -124,9 +124,9 @@ describe('Purpose codes in pain.008.001.08', () => {
 
 describe('Purpose codes fail-loud on unsupported variants', () => {
   it('throws for pain.001.001.03 when a purpose is present', () => {
-    expect(() => writeCreditTransfer(baseCt({ purpose: 'SUPP' }), { variant: 'pain.001.001.03' })).toThrow(
-      /purpose codes? .*not supported/
-    )
+    expect(() =>
+      writeCreditTransfer(baseCt({ purpose: 'SUPP' }), { variant: 'pain.001.001.03' })
+    ).toThrow(/purpose codes? .*not supported/)
   })
 
   it('throws for pain.001.003.03 when a categoryPurpose is present', () => {
@@ -136,8 +136,8 @@ describe('Purpose codes fail-loud on unsupported variants', () => {
   })
 
   it('throws for pain.008.003.02 when a purpose is present', () => {
-    expect(() => writeDirectDebit(baseDd({ purpose: 'GDDS' }), { variant: 'pain.008.003.02' })).toThrow(
-      /purpose codes? .*not supported/
-    )
+    expect(() =>
+      writeDirectDebit(baseDd({ purpose: 'GDDS' }), { variant: 'pain.008.003.02' })
+    ).toThrow(/purpose codes? .*not supported/)
   })
 })

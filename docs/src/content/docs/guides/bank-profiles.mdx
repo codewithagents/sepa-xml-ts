@@ -26,9 +26,9 @@ German DK pain.001.003.03), use the `variant` option, not a profile. See
 [National variants](/guides/national-variants).
 
 <Aside type="caution">
-A wrong bank profile is worse than none: it might suppress a rejection that would have caught an
-error early. Never ship a speculative profile. Only create a profile when you have verified the
-bank's actual requirements.
+  A wrong bank profile is worse than none: it might suppress a rejection that would have caught an
+  error early. Never ship a speculative profile. Only create a profile when you have verified the
+  bank's actual requirements.
 </Aside>
 
 ## The `requireBic` profile
@@ -37,16 +37,12 @@ Some banks reject IBAN-only files even though the SEPA rulebook and the XSD make
 since 2016. The built-in `requireBic` profile catches this at validation time.
 
 ```typescript
-import {
-  writeCreditTransfer,
-  validateCreditTransfer,
-  requireBic,
-} from 'sepa-xml-ts'
+import { writeCreditTransfer, validateCreditTransfer, requireBic } from 'sepa-xml-ts'
 
 // Validate with the profile
 const result = validateCreditTransfer(doc, { profile: requireBic })
 if (!result.ok) {
-  console.error(result.errors)       // base Zod issues
+  console.error(result.errors) // base Zod issues
   console.error(result.profileIssues) // requireBic issues (missing BIC)
 }
 

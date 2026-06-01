@@ -53,9 +53,6 @@ function sepaIdentifier(maxLen: number) {
     })
 }
 
-/** Max35Text with SEPA charset validation */
-const SepaMax35Text = sepaText(35)
-
 /** Max140Text with SEPA charset validation */
 const SepaMax140Text = sepaText(140)
 
@@ -232,7 +229,10 @@ export const PostalAddressSchema = z
         (a.addressLines !== undefined && a.addressLines.length > 0)
       )
     },
-    { message: 'PostalAddress must have at least one field set (empty address object is not allowed)' }
+    {
+      message:
+        'PostalAddress must have at least one field set (empty address object is not allowed)',
+    }
   )
 
 export type PostalAddress = z.infer<typeof PostalAddressSchema>
@@ -306,44 +306,41 @@ export type AccountParty = z.infer<typeof AccountPartySchema>
  * Mutually exclusive with remittanceInfo (unstructured Ustrd). Having neither
  * is fine; having exactly one is required by the SEPA rulebook.
  */
-export const StructuredRemittanceSchema = z
-  .object({
-    /**
-     * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, SEPA charset.
-     * If the trimmed value starts with "RF" (uppercase), ISO 11649 check digits
-     * are validated. All other values pass through without check-digit validation.
-     */
-    creditorReference: sepaText(35).refine(
-      (v) => {
-        // Only validate check digits for ISO 11649 RF references.
-        if (v.trimStart().startsWith('RF')) {
-          return isValidIso11649Ref(v.trim())
-        }
-        return true
-      },
-      {
-        message:
-          'Creditor reference starting with "RF" must have valid ISO 11649 check digits (MOD 97-10)',
+export const StructuredRemittanceSchema = z.object({
+  /**
+   * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, SEPA charset.
+   * If the trimmed value starts with "RF" (uppercase), ISO 11649 check digits
+   * are validated. All other values pass through without check-digit validation.
+   */
+  creditorReference: sepaText(35).refine(
+    (v) => {
+      // Only validate check digits for ISO 11649 RF references.
+      if (v.trimStart().startsWith('RF')) {
+        return isValidIso11649Ref(v.trim())
       }
-    ),
-    /**
-     * Reference type code (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry/Cd).
-     *
-     * Constrained to the ISO 20022 DocumentType3Code enumeration, because the XSD
-     * types this element as that enum: any other value would produce an
-     * XSD-invalid file. For a SEPA structured creditor reference this is "SCOR"
-     * (the default on write when omitted). Proprietary (Prtry) reference types
-     * are not yet modelled.
-     */
-    referenceType: z
-      .enum(['RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR'])
-      .optional(),
-    /**
-     * Issuer of the reference type (RmtInf/Strd/CdtrRefInf/Tp/Issr).
-     * Emitted only when present. Max 35 chars, SEPA charset.
-     */
-    issuer: sepaText(35).optional(),
-  })
+      return true
+    },
+    {
+      message:
+        'Creditor reference starting with "RF" must have valid ISO 11649 check digits (MOD 97-10)',
+    }
+  ),
+  /**
+   * Reference type code (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry/Cd).
+   *
+   * Constrained to the ISO 20022 DocumentType3Code enumeration, because the XSD
+   * types this element as that enum: any other value would produce an
+   * XSD-invalid file. For a SEPA structured creditor reference this is "SCOR"
+   * (the default on write when omitted). Proprietary (Prtry) reference types
+   * are not yet modelled.
+   */
+  referenceType: z.enum(['RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR']).optional(),
+  /**
+   * Issuer of the reference type (RmtInf/Strd/CdtrRefInf/Tp/Issr).
+   * Emitted only when present. Max 35 chars, SEPA charset.
+   */
+  issuer: sepaText(35).optional(),
+})
 
 export type StructuredRemittance = z.infer<typeof StructuredRemittanceSchema>
 
@@ -390,13 +387,10 @@ const TransferSchema = z
      */
     purpose: PurposeCodeSchema.optional(),
   })
-  .refine(
-    (tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined),
-    {
-      message:
-        'A transfer must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
-    }
-  )
+  .refine((tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined), {
+    message:
+      'A transfer must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
+  })
 
 export type Transfer = z.infer<typeof TransferSchema>
 

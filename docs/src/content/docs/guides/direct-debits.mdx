@@ -31,9 +31,9 @@ const doc: DirectDebitDocument = {
   batches: [
     {
       id: 'BATCH-001',
-      collectionDate: '2026-06-10',    // ReqdColltnDt/Dt: YYYY-MM-DD
-      sequenceType: 'FRST',            // FRST | RCUR | OOFF | FNAL
-      localInstrument: 'CORE',         // CORE | B2B (defaults to CORE)
+      collectionDate: '2026-06-10', // ReqdColltnDt/Dt: YYYY-MM-DD
+      sequenceType: 'FRST', // FRST | RCUR | OOFF | FNAL
+      localInstrument: 'CORE', // CORE | B2B (defaults to CORE)
 
       collections: [
         {
@@ -57,23 +57,23 @@ const doc: DirectDebitDocument = {
 
 ## Model types
 
-| Type | XSD element |
-|---|---|
-| `DirectDebitDocument` | `Document/CstmrDrctDbtInitn` |
-| `Creditor` | `Cdtr` + `CdtrAcct` + `CdtrAgt` + `CdtrSchmeId` |
-| `DirectDebitBatch` | `PmtInf` |
-| `Collection` | `DrctDbtTxInf` |
-| `Mandate` | `DrctDbtTx/MndtRltdInf` |
-| `SequenceType` | `PmtTpInf/SeqTp` |
-| `LocalInstrument` | `PmtTpInf/LclInstrm/Cd` |
+| Type                  | XSD element                                     |
+| --------------------- | ----------------------------------------------- |
+| `DirectDebitDocument` | `Document/CstmrDrctDbtInitn`                    |
+| `Creditor`            | `Cdtr` + `CdtrAcct` + `CdtrAgt` + `CdtrSchmeId` |
+| `DirectDebitBatch`    | `PmtInf`                                        |
+| `Collection`          | `DrctDbtTxInf`                                  |
+| `Mandate`             | `DrctDbtTx/MndtRltdInf`                         |
+| `SequenceType`        | `PmtTpInf/SeqTp`                                |
+| `LocalInstrument`     | `PmtTpInf/LclInstrm/Cd`                         |
 
 ## Sequence types
 
-| Value | Meaning |
-|---|---|
-| `FRST` | First collection under a mandate |
-| `RCUR` | Recurring collection |
-| `OOFF` | One-off collection (mandate used once) |
+| Value  | Meaning                                     |
+| ------ | ------------------------------------------- |
+| `FRST` | First collection under a mandate            |
+| `RCUR` | Recurring collection                        |
+| `OOFF` | One-off collection (mandate used once)      |
 | `FNAL` | Final collection, mandate will be cancelled |
 
 ## SEPA Creditor Identifier
@@ -83,6 +83,7 @@ The library validates the check digits strictly using ISO 7064 MOD 97-10, the sa
 IBAN validation. An incorrect check digit is caught at validation time before the file is written.
 
 The structure is:
+
 - 2-letter country code
 - 2 check digits (ISO 7064 MOD 97-10)
 - 3-char creditor business code (e.g. `ZZZ`)
@@ -106,16 +107,16 @@ invalid.
 
 The writer derives the following fields. You do not supply them:
 
-| Field | How it is derived |
-|---|---|
-| `GrpHdr/NbOfTxs` | Total count of all collections across all batches |
-| `GrpHdr/CtrlSum` | Sum of all collection amounts (exact `bigint` addition) |
-| `PmtInf/NbOfTxs` | Count of collections in this batch |
-| `PmtInf/CtrlSum` | Sum of collection amounts in this batch |
-| `PmtInf/PmtMtd` | Always `DD` |
-| `PmtInf/PmtTpInf/SvcLvl/Cd` | Always `SEPA` |
-| `PmtInf/ChrgBr` | Always `SLEV` |
-| `CdtrSchmeId/.../SchmeNm/Prtry` | Always `SEPA` |
+| Field                           | How it is derived                                       |
+| ------------------------------- | ------------------------------------------------------- |
+| `GrpHdr/NbOfTxs`                | Total count of all collections across all batches       |
+| `GrpHdr/CtrlSum`                | Sum of all collection amounts (exact `bigint` addition) |
+| `PmtInf/NbOfTxs`                | Count of collections in this batch                      |
+| `PmtInf/CtrlSum`                | Sum of collection amounts in this batch                 |
+| `PmtInf/PmtMtd`                 | Always `DD`                                             |
+| `PmtInf/PmtTpInf/SvcLvl/Cd`     | Always `SEPA`                                           |
+| `PmtInf/ChrgBr`                 | Always `SLEV`                                           |
+| `CdtrSchmeId/.../SchmeNm/Prtry` | Always `SEPA`                                           |
 
 ### Structural gotchas
 
@@ -234,14 +235,16 @@ Each collection can carry a purpose code (`Purp/Cd`), and each batch a category 
 ```typescript
 const batch = {
   // ...
-  categoryPurpose: 'SUPP',   // batch level
-  collections: [{
-    endToEndId: 'SDD-E2E-001',
-    amount: euros('10.00'),
-    debtor: { name: 'Customer', iban: 'NL91ABNA0417164300' },
-    mandate: { id: 'MAND-001', signatureDate: '2025-01-01' },
-    purpose: 'GDDS',         // collection level
-  }],
+  categoryPurpose: 'SUPP', // batch level
+  collections: [
+    {
+      endToEndId: 'SDD-E2E-001',
+      amount: euros('10.00'),
+      debtor: { name: 'Customer', iban: 'NL91ABNA0417164300' },
+      mandate: { id: 'MAND-001', signatureDate: '2025-01-01' },
+      purpose: 'GDDS', // collection level
+    },
+  ],
 }
 ```
 
@@ -259,6 +262,6 @@ const xml = writeDirectDebit(doc, { variant: 'pain.008.003.02' })
 See [National variants](/guides/national-variants) for the structural differences and XSD details.
 
 <Aside type="note">
-`localInstrument` defaults to `CORE` on write. Arbitraries and round-trip tests must set it
-explicitly to keep `parse(write(model))` deep-equal.
+  `localInstrument` defaults to `CORE` on write. Arbitraries and round-trip tests must set it
+  explicitly to keep `parse(write(model))` deep-equal.
 </Aside>

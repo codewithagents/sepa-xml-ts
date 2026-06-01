@@ -357,8 +357,16 @@ describe('pain.001.001.03 golden snapshot', () => {
 // ---------------------------------------------------------------------------
 
 const IBAN_COUNTRIES: Array<[string, number]> = [
-  ['DE', 18], ['FR', 23], ['NL', 14], ['ES', 20], ['IT', 23],
-  ['AT', 16], ['BE', 12], ['PT', 21], ['FI', 14], ['LU', 16],
+  ['DE', 18],
+  ['FR', 23],
+  ['NL', 14],
+  ['ES', 20],
+  ['IT', 23],
+  ['AT', 16],
+  ['BE', 12],
+  ['PT', 21],
+  ['FI', 14],
+  ['LU', 16],
 ]
 
 function arbIban(): fc.Arbitrary<string> {
@@ -384,12 +392,20 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
 // Identifier fields (MsgId, PmtInfId, EndToEndId) must not start/end with '/'
 // nor contain '//' per the EPC slash rule, so strip those from generated ids.
 function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  return arbSepaText(minLen, maxLen)
-    // Strip leading/trailing/double slashes, then trim again: removing an outer
-    // slash can expose leading/trailing whitespace, which would not survive the
-    // XML round-trip.
-    .map((s) => s.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\/{2,}/g, '/').trim())
-    .filter((s) => s.length >= minLen)
+  return (
+    arbSepaText(minLen, maxLen)
+      // Strip leading/trailing/double slashes, then trim again: removing an outer
+      // slash can expose leading/trailing whitespace, which would not survive the
+      // XML round-trip.
+      .map((s) =>
+        s
+          .replace(/^\/+/, '')
+          .replace(/\/+$/, '')
+          .replace(/\/{2,}/g, '/')
+          .trim()
+      )
+      .filter((s) => s.length >= minLen)
+  )
 }
 
 function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
@@ -397,33 +413,42 @@ function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<stri
   const droppedSamples = '🎉🥳🌍你好مرحباПривет'
   const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
   return fc
-    .stringOf(fc.constantFrom(...[...mixedCharset]), { minLength: minLen + 5, maxLength: maxLen + 20 })
+    .stringOf(fc.constantFrom(...[...mixedCharset]), {
+      minLength: minLen + 5,
+      maxLength: maxLen + 20,
+    })
     .map((s) => sanitizeSepa(s))
     .filter((s) => s.length >= minLen && s.length <= maxLen)
 }
 
 function arbCreatedAt(): fc.Arbitrary<string> {
-  return fc.record({
-    year: fc.integer({ min: 2020, max: 2035 }),
-    month: fc.integer({ min: 1, max: 12 }),
-    day: fc.integer({ min: 1, max: 28 }),
-    hour: fc.integer({ min: 0, max: 23 }),
-    minute: fc.integer({ min: 0, max: 59 }),
-    second: fc.integer({ min: 0, max: 59 }),
-  }).map(({ year, month, day, hour, minute, second }) =>
-    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` +
-    `T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}Z`
-  )
+  return fc
+    .record({
+      year: fc.integer({ min: 2020, max: 2035 }),
+      month: fc.integer({ min: 1, max: 12 }),
+      day: fc.integer({ min: 1, max: 28 }),
+      hour: fc.integer({ min: 0, max: 23 }),
+      minute: fc.integer({ min: 0, max: 59 }),
+      second: fc.integer({ min: 0, max: 59 }),
+    })
+    .map(
+      ({ year, month, day, hour, minute, second }) =>
+        `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` +
+        `T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}Z`
+    )
 }
 
 function arbDate(): fc.Arbitrary<string> {
-  return fc.record({
-    year: fc.integer({ min: 2024, max: 2035 }),
-    month: fc.integer({ min: 1, max: 12 }),
-    day: fc.integer({ min: 1, max: 28 }),
-  }).map(({ year, month, day }) =>
-    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-  )
+  return fc
+    .record({
+      year: fc.integer({ min: 2024, max: 2035 }),
+      month: fc.integer({ min: 1, max: 12 }),
+      day: fc.integer({ min: 1, max: 28 }),
+    })
+    .map(
+      ({ year, month, day }) =>
+        `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    )
 }
 
 function arbPartyName(): fc.Arbitrary<string> {
@@ -441,7 +466,8 @@ function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100n }),
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100_000n }),
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 999_999_999n }),
-    fc.bigInt({ min: 1n, max: 99_999_999_999n })
+    fc
+      .bigInt({ min: 1n, max: 99_999_999_999n })
       .map((n) => ({ currencyCode: 'EUR' as const, minorUnits: n }))
   )
 }
@@ -478,33 +504,37 @@ function arbPostalAddress6(): fc.Arbitrary<PostalAddress> {
 }
 
 function arbAccountParty() {
-  return fc.record({
-    name: arbPartyName(),
-    iban: arbIban(),
-    bic: fc.option(arbBic(), { nil: undefined }),
-    address: fc.option(arbPostalAddress6(), { nil: undefined }),
-  }).map((p) => {
-    const { address, ...rest } = p
-    const base: Record<string, unknown> = { ...rest }
-    if (base['bic'] === undefined) delete base['bic']
-    if (address !== undefined) base['address'] = address
-    return base
-  })
+  return fc
+    .record({
+      name: arbPartyName(),
+      iban: arbIban(),
+      bic: fc.option(arbBic(), { nil: undefined }),
+      address: fc.option(arbPostalAddress6(), { nil: undefined }),
+    })
+    .map((p) => {
+      const { address, ...rest } = p
+      const base: Record<string, unknown> = { ...rest }
+      if (base['bic'] === undefined) delete base['bic']
+      if (address !== undefined) base['address'] = address
+      return base
+    })
 }
 
 function arbTransfer() {
-  return fc.record({
-    endToEndId: arbSepaIdentifier(1, 35),
-    amount: arbMoney(),
-    creditor: arbAccountParty(),
-    remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
-  }).map((tx) => {
-    if (tx.remittanceInfo === undefined) {
-      const { remittanceInfo: _ri, ...rest } = tx
-      return rest
-    }
-    return tx
-  })
+  return fc
+    .record({
+      endToEndId: arbSepaIdentifier(1, 35),
+      amount: arbMoney(),
+      creditor: arbAccountParty(),
+      remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+    })
+    .map((tx) => {
+      if (tx.remittanceInfo === undefined) {
+        const { remittanceInfo: _ri, ...rest } = tx
+        return rest
+      }
+      return tx
+    })
 }
 
 function arbPaymentBatch() {
