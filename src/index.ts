@@ -31,7 +31,14 @@
 // pain.001 exports
 // ---------------------------------------------------------------------------
 
-export { CreditTransferDocumentSchema, PostalAddressSchema, UltimatePartySchema, euros, formatMoney } from './model/schema.js'
+export {
+  CreditTransferDocumentSchema,
+  PostalAddressSchema,
+  UltimatePartySchema,
+  StructuredRemittanceSchema,
+  euros,
+  formatMoney,
+} from './model/schema.js'
 
 export type {
   CreditTransferDocument,
@@ -40,6 +47,7 @@ export type {
   AccountParty,
   PostalAddress,
   UltimateParty,
+  StructuredRemittance,
   Money,
 } from './model/schema.js'
 

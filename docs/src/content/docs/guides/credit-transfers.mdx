@@ -139,6 +139,39 @@ This first cut carries the name only (the common case). It is supported for `pai
 `pain.008.001.08`. The legacy and DK variants throw a clear error if an ultimate party is present,
 rather than dropping it silently.
 
+## Remittance information
+
+A transfer carries remittance information in one of two mutually exclusive forms (the SEPA rulebook
+allows only one per transaction):
+
+- `remittanceInfo` (a free-text string) maps to the unstructured `RmtInf/Ustrd`.
+- `structuredRemittance` maps to a structured creditor reference at `RmtInf/Strd/CdtrRefInf`.
+
+```typescript
+const transfer = {
+  endToEndId: 'INV-1001',
+  amount: euros('123.45'),
+  creditor: { name: 'Beispiel AG', iban: 'NL91ABNA0417164300' },
+  structuredRemittance: {
+    creditorReference: 'RF18539007547034', // RmtInf/Strd/CdtrRefInf/Ref
+    referenceType: 'SCOR',                 // CdtrRefInf/Tp/CdOrPrtry/Cd, defaults to SCOR
+    issuer: 'ISO',                         // CdtrRefInf/Tp/Issr, optional
+  },
+}
+```
+
+`referenceType` is restricted to the ISO 20022 code list (`RADM`, `RPIN`, `FXDR`, `DISP`, `PUOR`,
+`SCOR`), since the XSD types that element as an enumeration. For a SEPA structured creditor reference
+it is `SCOR`. Setting both `remittanceInfo` and `structuredRemittance` on the same transfer is
+rejected at validation.
+
+The reference value is validated for SEPA charset and length. If it starts with the uppercase `RF`
+prefix (declaring itself an ISO 11649 creditor reference), its check digits are validated with the
+ISO 7064 MOD 97-10 algorithm and a broken reference is rejected. National or proprietary references
+that do not use the `RF` prefix pass through unchecked, so a legitimate national format is never
+falsely rejected. Structured remittance is supported for `pain.001.001.09` and `pain.008.001.08`; the
+legacy and DK variants throw rather than dropping it silently.
+
 ## Variants
 
 To write a German DK pain.001.003.03 file, pass `{ variant: 'pain.001.003.03' }`:

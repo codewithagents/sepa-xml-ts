@@ -11,7 +11,7 @@
 import { z } from 'zod'
 import { isValidIban } from './iban.js'
 import { isSepaCharset } from './charset.js'
-import { MoneySchema, PostalAddressSchema, UltimatePartySchema } from './schema.js'
+import { MoneySchema, PostalAddressSchema, UltimatePartySchema, StructuredRemittanceSchema } from './schema.js'
 import { isValidCreditorId } from './creditor-id.js'
 
 // ---------------------------------------------------------------------------
@@ -179,38 +179,52 @@ export type Mandate = z.infer<typeof MandateSchema>
 /**
  * One direct debit transaction (maps to DrctDbtTxInf).
  */
-const CollectionSchema = z.object({
-  /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
-  endToEndId: sepaIdentifier(35),
-  /** Amount to collect (InstdAmt Ccy="EUR"). */
-  amount: MoneySchema,
-  /**
-   * Ultimate creditor (UltmtCdtr): the party that ultimately receives the collected funds.
-   * Optional. Supported for pain.008.001.08 only. Name only in this version (max 70 chars).
-   */
-  ultimateCreditor: UltimatePartySchema.optional(),
-  /** Debtor party (Dbtr/Nm + DbtrAcct/Id/IBAN + DbtrAgt/FinInstnId/BICFI). */
-  debtor: z.object({
-    name: sepaText(70),
-    iban: IBANSchema,
-    bic: BICSchema.optional(),
+const CollectionSchema = z
+  .object({
+    /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
+    endToEndId: sepaIdentifier(35),
+    /** Amount to collect (InstdAmt Ccy="EUR"). */
+    amount: MoneySchema,
     /**
-     * Structured postal address (PstlAdr), optional.
-     * Emitted for pain.008.001.08 only.
-     * EPC mandates this from 2026-11-22.
+     * Ultimate creditor (UltmtCdtr): the party that ultimately receives the collected funds.
+     * Optional. Supported for pain.008.001.08 only. Name only in this version (max 70 chars).
      */
-    address: PostalAddressSchema.optional(),
-  }),
-  /**
-   * Ultimate debtor (UltmtDbtr): the party on whose behalf the collection is made.
-   * Optional. Supported for pain.008.001.08 only. Name only in this version (max 70 chars).
-   */
-  ultimateDebtor: UltimatePartySchema.optional(),
-  /** Mandate authorizing this collection. */
-  mandate: MandateSchema,
-  /** Remittance information (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
-  remittanceInfo: SepaMax140Text.optional(),
-})
+    ultimateCreditor: UltimatePartySchema.optional(),
+    /** Debtor party (Dbtr/Nm + DbtrAcct/Id/IBAN + DbtrAgt/FinInstnId/BICFI). */
+    debtor: z.object({
+      name: sepaText(70),
+      iban: IBANSchema,
+      bic: BICSchema.optional(),
+      /**
+       * Structured postal address (PstlAdr), optional.
+       * Emitted for pain.008.001.08 only.
+       * EPC mandates this from 2026-11-22.
+       */
+      address: PostalAddressSchema.optional(),
+    }),
+    /**
+     * Ultimate debtor (UltmtDbtr): the party on whose behalf the collection is made.
+     * Optional. Supported for pain.008.001.08 only. Name only in this version (max 70 chars).
+     */
+    ultimateDebtor: UltimatePartySchema.optional(),
+    /** Mandate authorizing this collection. */
+    mandate: MandateSchema,
+    /** Remittance information (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
+    remittanceInfo: SepaMax140Text.optional(),
+    /**
+     * Structured remittance information (RmtInf/Strd/CdtrRefInf).
+     * Mutually exclusive with remittanceInfo. Supported for pain.008.001.08 ONLY.
+     * Legacy and DK variants throw if this field is set.
+     */
+    structuredRemittance: StructuredRemittanceSchema.optional(),
+  })
+  .refine(
+    (col) => !(col.remittanceInfo !== undefined && col.structuredRemittance !== undefined),
+    {
+      message:
+        'A collection must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
+    }
+  )
 
 export type Collection = z.infer<typeof CollectionSchema>
 

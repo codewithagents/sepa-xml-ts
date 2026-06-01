@@ -47,6 +47,30 @@ export function isValidIban(iban: string): boolean {
 }
 
 /**
+ * Validates an ISO 11649 creditor reference (Structured Creditor Reference).
+ *
+ * The algorithm is the same family as IBAN mod-97:
+ * - Move the first 4 characters (the "RF" prefix + 2 check digits) to the end.
+ * - Replace each letter A-Z with its two-digit value (A=10 ... Z=35).
+ * - Interpret the result as a big integer and compute mod 97.
+ * - Valid if and only if the remainder equals 1.
+ *
+ * Only call this function when the reference starts with the uppercase prefix "RF".
+ * References that do not start with "RF" are national or proprietary references
+ * and must NOT be checked with this algorithm.
+ *
+ * @param ref the full ISO 11649 reference string (e.g. "RF18539007547034")
+ * @returns true if the check digits are valid, false otherwise
+ */
+export function isValidIso11649Ref(ref: string): boolean {
+  if (ref.length < 5) {
+    return false
+  }
+  // Rearrange: move first 4 chars (RF + 2 check digits) to the end, same as IBAN
+  return mod97(ibanToNumeric(ref)) === 1
+}
+
+/**
  * Generates a valid IBAN checksum for a country code and BBAN.
  * Used in tests / arbitraries to create valid IBANs.
  *

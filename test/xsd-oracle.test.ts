@@ -27,6 +27,7 @@ import type {
   PaymentBatch,
   PostalAddress,
   UltimateParty,
+  StructuredRemittance,
 } from '../src/model/schema.js'
 import type {
   DirectDebitDocument,
@@ -219,6 +220,60 @@ function arbUltimateParty(): fc.Arbitrary<UltimateParty | undefined> {
 }
 
 /**
+ * Known-valid ISO 11649 creditor references (RF + check digits). These satisfy
+ * the MOD 97-10 check, so they exercise the RF validation path without flaking.
+ * RF18539007547034 is the canonical ISO 11649 example.
+ */
+const VALID_RF_REFS = ['RF18539007547034']
+
+/**
+ * Arbitrary for a StructuredRemittance value (RmtInf/Strd/CdtrRefInf).
+ *
+ * Two constraints keep this round-trip-safe:
+ * 1. The creditorReference is EITHER a non-RF reference (so the conditional ISO 11649
+ *    check never triggers) OR one of the known-valid RF references above. We never
+ *    generate "RF" + random digits, which would fail the check digit.
+ * 2. referenceType is ALWAYS set explicitly. The writer defaults an omitted
+ *    referenceType to "SCOR", so the parser would read back "SCOR" and break
+ *    deep-equal. Setting it explicitly avoids that asymmetry (the omitted-default
+ *    behavior is pinned in the structured-remittance unit test instead).
+ */
+function arbStructuredRemittanceValue(): fc.Arbitrary<StructuredRemittance> {
+  const arbRef = fc.oneof(
+    arbSepaText(1, 35).filter((s) => !s.trimStart().startsWith('RF')),
+    fc.constantFrom(...VALID_RF_REFS)
+  )
+  return fc
+    .record({
+      creditorReference: arbRef,
+      // Cd is the DocumentType3Code enum in the XSD: only these values are valid.
+      referenceType: fc.constantFrom('RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR'),
+      issuer: fc.option(arbSepaText(1, 35), { nil: undefined }),
+    })
+    .map((sr) => {
+      const out: Record<string, unknown> = {
+        creditorReference: sr.creditorReference,
+        referenceType: sr.referenceType,
+      }
+      if (sr.issuer !== undefined) out['issuer'] = sr.issuer
+      return out as StructuredRemittance
+    })
+}
+
+/**
+ * Arbitrary for the remittance fields of a Transfer / Collection, respecting the
+ * SEPA mutual-exclusion rule: at most ONE of remittanceInfo (Ustrd) or
+ * structuredRemittance (Strd). Returns an object to spread onto the model.
+ */
+function arbRemittance(): fc.Arbitrary<Record<string, unknown>> {
+  return fc.oneof(
+    fc.constant<Record<string, unknown>>({}),
+    arbSepaText(1, 140).map((r) => ({ remittanceInfo: r })),
+    arbStructuredRemittanceValue().map((sr) => ({ structuredRemittance: sr }))
+  )
+}
+
+/**
  * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
  * All boundary values must be at or below this cap.
  */
@@ -274,7 +329,7 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
       ultimateDebtor: arbUltimateParty(),
       creditor: arbAccountParty(),
       ultimateCreditor: arbUltimateParty(),
-      remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+      remittance: arbRemittance(),
     })
     .map((tx) => {
       // Strip undefined keys so the generated model matches what the parser returns
@@ -286,7 +341,8 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
       }
       if (tx.ultimateDebtor !== undefined) out['ultimateDebtor'] = tx.ultimateDebtor
       if (tx.ultimateCreditor !== undefined) out['ultimateCreditor'] = tx.ultimateCreditor
-      if (tx.remittanceInfo !== undefined) out['remittanceInfo'] = tx.remittanceInfo
+      // remittance is {} | { remittanceInfo } | { structuredRemittance } (mutually exclusive).
+      Object.assign(out, tx.remittance)
       return out as Transfer
     })
 }
@@ -443,7 +499,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
         id: arbSepaText(10, 35),
         signatureDate: arbSignatureDate,
       }),
-      remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+      remittance: arbRemittance(),
     })
     .map((col) => {
       // Strip undefined keys so the generated model matches what the parser returns
@@ -456,7 +512,8 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
       }
       if (col.ultimateCreditor !== undefined) out['ultimateCreditor'] = col.ultimateCreditor
       if (col.ultimateDebtor !== undefined) out['ultimateDebtor'] = col.ultimateDebtor
-      if (col.remittanceInfo !== undefined) out['remittanceInfo'] = col.remittanceInfo
+      // remittance is {} | { remittanceInfo } | { structuredRemittance } (mutually exclusive).
+      Object.assign(out, col.remittance)
       return out as Collection
     })
 }

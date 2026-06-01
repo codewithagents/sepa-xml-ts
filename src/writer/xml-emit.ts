@@ -17,7 +17,7 @@
 
 import { escapeXml } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
-import type { Money, PostalAddress, UltimateParty } from '../model/schema.js'
+import type { Money, PostalAddress, UltimateParty, StructuredRemittance } from '../model/schema.js'
 
 /**
  * Escape a value for use in XML text content.
@@ -263,6 +263,46 @@ export function emitRmtInf(lines: string[], remittanceInfo: string | undefined):
     lines.push(`          <Ustrd>${xe(remittanceInfo)}</Ustrd>`)
     lines.push(`        </RmtInf>`)
   }
+}
+
+/**
+ * Emit a conditional RmtInf/Strd/CdtrRefInf element at 8-space indent.
+ * Used in CdtTrfTxInf (pain.001.001.09) and DrctDbtTxInf (pain.008.001.08).
+ *
+ * XSD element ordering (confirmed against both XSDs):
+ *   RemittanceInformation16: Ustrd before Strd
+ *   StructuredRemittanceInformation16: CdtrRefInf (optional)
+ *   CreditorReferenceInformation2: Tp (optional) before Ref (optional)
+ *   CreditorReferenceType2: CdOrPrtry (required) before Issr (optional)
+ *   CreditorReferenceType1Choice: Cd or Prtry
+ *
+ * referenceType defaults to "SCOR" when absent. issuer is emitted only when present.
+ *
+ * @param structuredRemittance - optional structured remittance; nothing emitted if undefined
+ */
+export function emitStructuredRmtInf(
+  lines: string[],
+  structuredRemittance: StructuredRemittance | undefined
+): void {
+  if (structuredRemittance === undefined) {
+    return
+  }
+  const refType = structuredRemittance.referenceType ?? 'SCOR'
+  lines.push(`        <RmtInf>`)
+  lines.push(`          <Strd>`)
+  lines.push(`            <CdtrRefInf>`)
+  lines.push(`              <Tp>`)
+  lines.push(`                <CdOrPrtry>`)
+  lines.push(`                  <Cd>${xe(refType)}</Cd>`)
+  lines.push(`                </CdOrPrtry>`)
+  if (structuredRemittance.issuer !== undefined) {
+    lines.push(`                <Issr>${xe(structuredRemittance.issuer)}</Issr>`)
+  }
+  lines.push(`              </Tp>`)
+  lines.push(`              <Ref>${xe(structuredRemittance.creditorReference)}</Ref>`)
+  lines.push(`            </CdtrRefInf>`)
+  lines.push(`          </Strd>`)
+  lines.push(`        </RmtInf>`)
 }
 
 /**

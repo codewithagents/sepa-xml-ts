@@ -36,6 +36,7 @@ import {
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
   emitRmtInf,
+  emitStructuredRmtInf,
   emitUltimateParty,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
@@ -159,6 +160,19 @@ export function writeDirectDebit(
     }
   }
 
+  // Structured remittance is only supported for pain.008.001.08. Fail loud rather
+  // than silently drop structured remittance data when the DK variant is selected.
+  if (variant !== 'pain.008.001.08') {
+    const hasStructuredRemittance = doc.batches.some((batch) =>
+      batch.collections.some((col) => col.structuredRemittance !== undefined)
+    )
+    if (hasStructuredRemittance) {
+      throw new Error(
+        `structured remittance is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.008.003.02') {
     return writeDirectDebitDK(doc, profile)
   }
@@ -250,7 +264,12 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
       emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
       // UltmtDbtr: XSD position after DbtrAcct, before InstrForCdtrAgt/RmtInf (DirectDebitTransactionInformation23 sequence)
       emitUltimateParty(lines, '        ', 'UltmtDbtr', col.ultimateDebtor)
-      emitRmtInf(lines, col.remittanceInfo)
+      // Emit either unstructured or structured remittance (never both, enforced by model validation)
+      if (col.structuredRemittance !== undefined) {
+        emitStructuredRmtInf(lines, col.structuredRemittance)
+      } else {
+        emitRmtInf(lines, col.remittanceInfo)
+      }
       lines.push(`      </DrctDbtTxInf>`)
     }
 

@@ -38,6 +38,7 @@ import {
   emitDkFinInstnId,
   emitIso03FinInstnId,
   emitRmtInf,
+  emitStructuredRmtInf,
   emitUltimateParty,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
@@ -156,6 +157,19 @@ export function writeCreditTransfer(
     }
   }
 
+  // Structured remittance is only supported for pain.001.001.09. Fail loud rather
+  // than silently drop structured remittance data when a legacy or DK variant is selected.
+  if (variant !== 'pain.001.001.09') {
+    const hasStructuredRemittance = doc.batches.some((batch) =>
+      batch.transfers.some((tx) => tx.structuredRemittance !== undefined)
+    )
+    if (hasStructuredRemittance) {
+      throw new Error(
+        `structured remittance is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.001.001.03') {
     return writeCreditTransfer03(doc, profile)
   }
@@ -237,7 +251,12 @@ function writeCreditTransfer09(
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
       // UltmtCdtr: XSD position after CdtrAcct, before InstrForCdtrAgt/RmtInf (CreditTransferTransaction34 sequence)
       emitUltimateParty(lines, '        ', 'UltmtCdtr', tx.ultimateCreditor)
-      emitRmtInf(lines, tx.remittanceInfo)
+      // Emit either unstructured or structured remittance (never both, enforced by model validation)
+      if (tx.structuredRemittance !== undefined) {
+        emitStructuredRmtInf(lines, tx.structuredRemittance)
+      } else {
+        emitRmtInf(lines, tx.remittanceInfo)
+      }
       lines.push(`      </CdtTrfTxInf>`)
     }
 

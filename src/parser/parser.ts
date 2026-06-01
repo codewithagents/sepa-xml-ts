@@ -26,6 +26,7 @@ import {
   type Money,
   type PostalAddress,
   type UltimateParty,
+  type StructuredRemittance,
 } from '../model/schema.js'
 import {
   DirectDebitDocumentSchema,
@@ -227,6 +228,50 @@ function extractUltimateParty(txEl: unknown, tag: string): UltimateParty | undef
 }
 
 // ---------------------------------------------------------------------------
+// StructuredRemittance extractor
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract structured remittance information from a transaction element.
+ *
+ * Reads RmtInf/Strd/CdtrRefInf:
+ *   creditorReference <- Ref
+ *   referenceType     <- Tp/CdOrPrtry/Cd
+ *   issuer            <- Tp/Issr
+ *
+ * Returns undefined when absent so round-trip deep-equal holds for documents
+ * without structured remittance. The Ustrd path is handled separately.
+ *
+ * @param txEl - the transaction element (CdtTrfTxInf or DrctDbtTxInf)
+ */
+function extractStructuredRemittance(txEl: unknown): StructuredRemittance | undefined {
+  const cdtrRefInfEl = nav(txEl, 'RmtInf', 'Strd', 'CdtrRefInf')
+  if (cdtrRefInfEl === null || cdtrRefInfEl === undefined) {
+    return undefined
+  }
+
+  const creditorReference = str(nav(cdtrRefInfEl, 'Ref'))
+  if (creditorReference === null || creditorReference === '') {
+    return undefined
+  }
+
+  // Tp/CdOrPrtry/Cd is the reference type code (e.g. "SCOR")
+  const referenceType = str(nav(cdtrRefInfEl, 'Tp', 'CdOrPrtry', 'Cd')) ?? undefined
+  // Tp/Issr is the issuer (optional)
+  const issuer = str(nav(cdtrRefInfEl, 'Tp', 'Issr')) ?? undefined
+
+  const result: StructuredRemittance = { creditorReference }
+  // Cd is the DocumentType3Code enum. We cast the raw string here; if the XML
+  // carried an out-of-enum value, post-parse model validation rejects it rather
+  // than silently accepting an invalid reference type.
+  if (referenceType !== undefined) {
+    result.referenceType = referenceType as StructuredRemittance['referenceType']
+  }
+  if (issuer !== undefined) result.issuer = issuer
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // pain.001 extractor functions
 // ---------------------------------------------------------------------------
 
@@ -285,6 +330,10 @@ function extractTransfer(txEl: unknown): Transfer | null {
   const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
   const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
+  // Optional structured remittance (RmtInf/Strd/CdtrRefInf). Absent when the
+  // document uses unstructured remittance or no remittance at all.
+  const structuredRemittance = extractStructuredRemittance(txEl)
+
   // Optional ultimate parties (name-only, pain.001.001.09 CreditTransferTransaction34).
   const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
   const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
@@ -296,6 +345,7 @@ function extractTransfer(txEl: unknown): Transfer | null {
     creditor,
     ...(ultimateCreditor !== undefined ? { ultimateCreditor } : {}),
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
+    ...(structuredRemittance !== undefined ? { structuredRemittance } : {}),
   }
 }
 
@@ -396,6 +446,10 @@ function extractCollection(txEl: unknown): Collection | null {
   const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
   const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
+  // Optional structured remittance (RmtInf/Strd/CdtrRefInf). Absent when the
+  // document uses unstructured remittance or no remittance at all.
+  const structuredRemittance = extractStructuredRemittance(txEl)
+
   // Optional ultimate parties (name-only, pain.008.001.08 DirectDebitTransactionInformation23).
   const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
   const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
@@ -408,6 +462,7 @@ function extractCollection(txEl: unknown): Collection | null {
     ...(ultimateDebtor !== undefined ? { ultimateDebtor } : {}),
     mandate,
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
+    ...(structuredRemittance !== undefined ? { structuredRemittance } : {}),
   }
 }
 

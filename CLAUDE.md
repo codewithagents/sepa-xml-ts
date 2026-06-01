@@ -64,6 +64,7 @@ official XSD + golden samples. A wrong flavor is worse than none.
 | `Transfer.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
 | `Transfer.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
 | `Transfer.remittanceInfo?` | `RmtInf/Ustrd` |
+| `Transfer.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` (`Ref` + `Tp/CdOrPrtry/Cd` + `Tp/Issr?`) |
 
 `AccountParty = { name, iban, bic?, address? }` where `address` is an optional structured
 `PostalAddress` (`PstlAdr`, PostalAddress24): `{ streetName?, buildingNumber?, postCode?, townName?,
@@ -89,6 +90,7 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 | `Collection.debtor` (`AccountParty`) | `Dbtr/Nm` + `DbtrAcct/Id/IBAN` + `DbtrAgt/FinInstnId/BICFI` |
 | `Collection.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
 | `Collection.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
+| `Collection.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` |
 | `Collection.mandate` (`{ id, signatureDate }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` |
 | `Collection.remittanceInfo?` | `RmtInf/Ustrd` |
 
@@ -162,7 +164,7 @@ deep-equal.
   CtrySubDvsn, Ctry, AdrLine), XSD-verified and round-trip tested. Absent address is byte-identical
   to before. Legacy/DK variants throw if an address is present (no silent data loss). EPC makes this
   mandatory on 2026-11-22. Follow-up: emit PstlAdr for the .03/DK variants too (their older
-  PostalAddress types), and add Purpose / structured remittance.
+  PostalAddress types), and add Purpose codes.
 - Ultimate parties (UltmtDbtr / UltmtCdtr) ship for pain.001.001.09 and pain.008.001.08: optional
   `ultimateDebtor` and `ultimateCreditor` on each Transfer and Collection, name only first cut
   (UltimateParty = { name }). Emitted at the XSD-correct transaction-level positions
@@ -171,7 +173,20 @@ deep-equal.
   DbtrAcct), XSD-verified and round-trip tested. Absent parties stay structurally identical to
   before. Legacy/DK variants throw if an ultimate party is present (no silent data loss).
   Follow-up: add structured identifiers (Id/OrgId/PrvtId) beyond the name-only first cut.
-- ~476 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+- Structured remittance (RmtInf/Strd/CdtrRefInf) ships for pain.001.001.09 and pain.008.001.08:
+  optional `structuredRemittance` ({ creditorReference, referenceType?, issuer? }) on each Transfer
+  and Collection, mutually exclusive with the unstructured `remittanceInfo` (the SEPA rulebook allows
+  only one Ustrd OR Strd per transaction, enforced by a Zod refinement). `referenceType` is a Zod
+  enum constrained to DocumentType3Code (RADM, RPIN, FXDR, DISP, PUOR, SCOR), defaulting to SCOR on
+  write, because the XSD types CdtrRefInf/Tp/CdOrPrtry/Cd as that enumeration (a free-text value would
+  emit an XSD-invalid file). Reference validation is CONDITIONAL ISO 11649: always SEPA charset + max
+  35 chars, plus MOD 97-10 check digits ONLY when the trimmed reference starts with the uppercase "RF"
+  prefix. National/proprietary references (no RF prefix) pass through unchecked to avoid false
+  positives. isValidIso11649Ref reuses the IBAN mod-97 machinery in src/model/iban.ts. XSD-verified
+  via the oracle suite and round-trip tested; absent structured remittance stays structurally
+  identical. Legacy/DK variants throw if present. Follow-up: proprietary reference types via Prtry,
+  and the richer Strd sub-elements (RfrdDocInf, RfrdDocAmt) if demand appears.
+- ~494 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate

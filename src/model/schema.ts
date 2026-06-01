@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod'
-import { isValidIban } from './iban.js'
+import { isValidIban, isValidIso11649Ref } from './iban.js'
 import { isSepaCharset } from './charset.js'
 
 // ---------------------------------------------------------------------------
@@ -270,32 +270,107 @@ const AccountPartySchema = z.object({
 export type AccountParty = z.infer<typeof AccountPartySchema>
 
 // ---------------------------------------------------------------------------
+// StructuredRemittance: structured creditor reference (ISO 11649 or national)
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured remittance information with a creditor reference.
+ *
+ * Maps to RmtInf/Strd/CdtrRefInf in the XML output.
+ *
+ * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK
+ * variants will throw a clear error if this field is present.
+ *
+ * Conditional ISO 11649 check: if creditorReference (trimmed) starts with "RF"
+ * (uppercase), its check digits are validated using ISO 7064 MOD 97-10. This
+ * catches definitively-broken RF references while passing through legitimate
+ * national or proprietary references that do not use the RF prefix.
+ *
+ * Mutually exclusive with remittanceInfo (unstructured Ustrd). Having neither
+ * is fine; having exactly one is required by the SEPA rulebook.
+ */
+export const StructuredRemittanceSchema = z
+  .object({
+    /**
+     * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, SEPA charset.
+     * If the trimmed value starts with "RF" (uppercase), ISO 11649 check digits
+     * are validated. All other values pass through without check-digit validation.
+     */
+    creditorReference: sepaText(35).refine(
+      (v) => {
+        // Only validate check digits for ISO 11649 RF references.
+        if (v.trimStart().startsWith('RF')) {
+          return isValidIso11649Ref(v.trim())
+        }
+        return true
+      },
+      {
+        message:
+          'Creditor reference starting with "RF" must have valid ISO 11649 check digits (MOD 97-10)',
+      }
+    ),
+    /**
+     * Reference type code (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry/Cd).
+     *
+     * Constrained to the ISO 20022 DocumentType3Code enumeration, because the XSD
+     * types this element as that enum: any other value would produce an
+     * XSD-invalid file. For a SEPA structured creditor reference this is "SCOR"
+     * (the default on write when omitted). Proprietary (Prtry) reference types
+     * are not yet modelled.
+     */
+    referenceType: z
+      .enum(['RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR'])
+      .optional(),
+    /**
+     * Issuer of the reference type (RmtInf/Strd/CdtrRefInf/Tp/Issr).
+     * Emitted only when present. Max 35 chars, SEPA charset.
+     */
+    issuer: sepaText(35).optional(),
+  })
+
+export type StructuredRemittance = z.infer<typeof StructuredRemittanceSchema>
+
+// ---------------------------------------------------------------------------
 // Transfer: one credit transfer transaction
 // ---------------------------------------------------------------------------
 
 /**
  * One credit transfer transaction (maps to CdtTrfTxInf).
  */
-const TransferSchema = z.object({
-  /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
-  endToEndId: sepaIdentifier(35),
-  /** Amount: a Money value (euros helper recommended). */
-  amount: MoneySchema,
-  /**
-   * Ultimate debtor (UltmtDbtr): the party on whose behalf the transfer is initiated.
-   * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
-   */
-  ultimateDebtor: UltimatePartySchema.optional(),
-  /** Creditor party (Cdtr + CdtrAcct/IBAN + CdtrAgt/BIC). */
-  creditor: AccountPartySchema,
-  /**
-   * Ultimate creditor (UltmtCdtr): the party that ultimately receives the funds.
-   * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
-   */
-  ultimateCreditor: UltimatePartySchema.optional(),
-  /** Remittance information / payment purpose (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
-  remittanceInfo: SepaMax140Text.optional(),
-})
+const TransferSchema = z
+  .object({
+    /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
+    endToEndId: sepaIdentifier(35),
+    /** Amount: a Money value (euros helper recommended). */
+    amount: MoneySchema,
+    /**
+     * Ultimate debtor (UltmtDbtr): the party on whose behalf the transfer is initiated.
+     * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
+     */
+    ultimateDebtor: UltimatePartySchema.optional(),
+    /** Creditor party (Cdtr + CdtrAcct/IBAN + CdtrAgt/BIC). */
+    creditor: AccountPartySchema,
+    /**
+     * Ultimate creditor (UltmtCdtr): the party that ultimately receives the funds.
+     * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
+     */
+    ultimateCreditor: UltimatePartySchema.optional(),
+    /** Remittance information / payment purpose (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
+    remittanceInfo: SepaMax140Text.optional(),
+    /**
+     * Structured remittance information (RmtInf/Strd/CdtrRefInf).
+     * Mutually exclusive with remittanceInfo. Supported for pain.001.001.09 ONLY.
+     * Legacy and DK variants throw if this field is set.
+     */
+    structuredRemittance: StructuredRemittanceSchema.optional(),
+  })
+  .refine(
+    (tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined),
+    {
+      message:
+        'A transfer must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
+    }
+  )
 
 export type Transfer = z.infer<typeof TransferSchema>
 

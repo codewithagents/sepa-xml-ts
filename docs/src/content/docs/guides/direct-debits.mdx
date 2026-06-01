@@ -170,6 +170,27 @@ const collection = {
 Supported for `pain.008.001.08` only. The DK variant throws if an ultimate party is present, rather
 than dropping it silently.
 
+## Remittance information
+
+Each collection carries remittance information in one of two mutually exclusive forms: a free-text
+`remittanceInfo` (unstructured `RmtInf/Ustrd`), or a `structuredRemittance` creditor reference
+(`RmtInf/Strd/CdtrRefInf`).
+
+```typescript
+const collection = {
+  endToEndId: 'SDD-E2E-001',
+  amount: euros('10.00'),
+  debtor: { name: 'Customer', iban: 'NL91ABNA0417164300' },
+  mandate: { id: 'MAND-001', signatureDate: '2025-01-01' },
+  structuredRemittance: { creditorReference: 'RF18539007547034' },
+}
+```
+
+`referenceType` defaults to `SCOR` and is restricted to the ISO 20022 code list. A reference starting
+with the uppercase `RF` prefix has its ISO 11649 check digits validated; non-RF national references
+pass through unchecked. Supported for `pain.008.001.08` only; the DK variant throws if present. See
+the [credit transfers guide](/guides/credit-transfers) for the full validation policy.
+
 ## Variants
 
 To write a German DK pain.008.003.02 file:
