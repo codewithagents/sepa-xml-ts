@@ -14,7 +14,9 @@
  *
  * Shared:
  * - parse: auto-detects pain.001 or pain.008 and returns a discriminated union
- * - validate: validate an unknown input against the pain.001 document schema
+ * - validateCreditTransfer: validate an unknown input against the pain.001 document schema
+ * - validateDirectDebit: validate an unknown input against the pain.008 document schema
+ * - validate: alias for validateCreditTransfer (backward compatibility)
  *
  * Internal helpers (IBAN validation, SEPA charset, XML escaping) are NOT re-exported.
  * Import from "sepa-xml-ts/xsd" for XSD schema validation.
@@ -71,5 +73,12 @@ export type {
   ParseFailure,
 } from './parser/parser.js'
 
-export { validate } from './model/validate.js'
-export type { ValidationResult, ValidationSuccess, ValidationFailure } from './model/validate.js'
+export { validate, validateCreditTransfer, validateDirectDebit } from './model/validate.js'
+export type {
+  ValidationResult,
+  ValidationSuccess,
+  ValidationFailure,
+  DirectDebitValidationResult,
+  DirectDebitValidationSuccess,
+  DirectDebitValidationFailure,
+} from './model/validate.js'
