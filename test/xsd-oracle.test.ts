@@ -93,14 +93,20 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
 /**
  * Arbitrary for text that may contain unicode/extended chars but
  * gets sanitized through sanitizeSepa before use.
+ *
+ * Uses a wider character set including full Latin-1 Supplement, emoji, and
+ * a small CJK sample to stress the drop-and-transliterate path.
  */
 function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  const extendedChars = 'äöüÄÖÜßàáâèéêìíîòóôùúûñç'
-  const mixedCharset = SEPA_CHARSET + extendedChars
+  // Extended characters: full Latin-1 Supplement accented letters plus
+  // some emoji and CJK samples that will be dropped by sanitizeSepa.
+  const extendedLatin = 'äöüÄÖÜßàáâãåæèéêëìíîïðñòóôõøùúûýÿÀÁÂÃÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕØÙÚÛÝþÞçÇ'
+  const droppedSamples = '🎉🥳🌍你好مرحباПривет'
+  const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
   return fc
-    .stringOf(fc.constantFrom(...mixedCharset.split('')), {
-      minLength: minLen + 2,
-      maxLength: maxLen + 10,
+    .stringOf(fc.constantFrom(...[...mixedCharset]), {
+      minLength: minLen + 5,
+      maxLength: maxLen + 20,
     })
     .map((s) => sanitizeSepa(s))
     .filter((s) => s.length >= minLen && s.length <= maxLen)
@@ -152,13 +158,21 @@ function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
   return fc.oneof(
     // Boundary: minimum (0.01 EUR = 1 cent)
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 1n }),
+    // Boundary: just below 1 EUR
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 99n }),
     // Boundary: exactly 1 EUR
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100n }),
-    // Boundary: large amount
+    // Boundary: 1000 EUR
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100_000n }),
+    // Boundary: large amount (near float precision boundary for naive implementations)
     fc.constant({ currencyCode: 'EUR' as const, minorUnits: 999_999_999n }),
-    // Random amounts between 1 cent and 1 million EUR
+    // Boundary: very large (10^13 region, about 100 billion EUR)
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 10_000_000_000_000n }),
+    // Boundary: 10^13 + 99 (tests final two digits across boundary)
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 10_000_000_000_099n }),
+    // Random amounts between 1 cent and 1 billion EUR
     fc
-      .bigInt({ min: 1n, max: 100_000_000n })
+      .bigInt({ min: 1n, max: 100_000_000_000n })
       .map((n) => ({ currencyCode: 'EUR' as const, minorUnits: n }))
   )
 }

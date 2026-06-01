@@ -14,9 +14,24 @@ export function isSepaCharset(value: string): boolean {
   return SEPA_ALLOWED.test(value)
 }
 
-/** Transliteration table for common extended Latin characters to ASCII equivalents. */
+/**
+ * Transliteration table for extended Latin characters to the SEPA basic character set.
+ *
+ * Mapping source: EPC217-08 "Guidance on the Use of the SEPA Basic Character Set"
+ * and the de-facto best practices followed by major European banks.
+ *
+ * Conventions applied:
+ * - German umlauts: ae/oe/ue (Ä -> Ae, Ö -> Oe, Ü -> Ue; lowercase ae/oe/ue)
+ * - German sharp-s: ss (ß -> ss)
+ * - All other accented/modified Latin letters: map to the unaccented base letter
+ * - Ligatures: ae (Æ/æ -> AE/ae)
+ * - Nordic eth (Ð/ð) -> D/d; thorn (Þ/þ) -> TH/th
+ * - Characters with no mapping are silently dropped by sanitizeSepa
+ *
+ * Complete coverage of Latin-1 Supplement (U+00C0-U+00FF) except × and ÷ (operators).
+ */
 const TRANSLITERATION_MAP: Record<string, string> = {
-  // German
+  // German umlauts and sharp-s (ae/oe/ue convention per EPC217-08 guidance)
   ä: 'ae',
   ö: 'oe',
   ü: 'ue',
@@ -24,61 +39,70 @@ const TRANSLITERATION_MAP: Record<string, string> = {
   Ö: 'Oe',
   Ü: 'Ue',
   ß: 'ss',
-  // French / other accented
+  // Accented A (grave, acute, circumflex, tilde, ring) -> base letter
   à: 'a',
   á: 'a',
   â: 'a',
   ã: 'a',
   å: 'a',
-  æ: 'ae',
-  ç: 'c',
-  è: 'e',
-  é: 'e',
-  ê: 'e',
-  ë: 'e',
-  ì: 'i',
-  í: 'i',
-  î: 'i',
-  ï: 'i',
-  ð: 'd',
-  ñ: 'n',
-  ò: 'o',
-  ó: 'o',
-  ô: 'o',
-  õ: 'o',
-  ø: 'o',
-  ù: 'u',
-  ú: 'u',
-  û: 'u',
-  ý: 'y',
-  ÿ: 'y',
   À: 'A',
   Á: 'A',
   Â: 'A',
   Ã: 'A',
   Å: 'A',
+  // AE ligature
+  æ: 'ae',
   Æ: 'AE',
+  // C-cedilla
+  ç: 'c',
   Ç: 'C',
+  // Accented E (grave, acute, circumflex, diaeresis) -> base letter
+  è: 'e',
+  é: 'e',
+  ê: 'e',
+  ë: 'e',
   È: 'E',
   É: 'E',
   Ê: 'E',
   Ë: 'E',
+  // Accented I (grave, acute, circumflex, diaeresis) -> base letter
+  ì: 'i',
+  í: 'i',
+  î: 'i',
+  ï: 'i',
   Ì: 'I',
   Í: 'I',
   Î: 'I',
   Ï: 'I',
+  // Eth (Icelandic/Old English) -> D/d
+  ð: 'd',
   Ð: 'D',
+  // N-tilde -> base letter
+  ñ: 'n',
   Ñ: 'N',
+  // Accented O (grave, acute, circumflex, tilde, stroke) -> base letter
+  ò: 'o',
+  ó: 'o',
+  ô: 'o',
+  õ: 'o',
+  ø: 'o',
   Ò: 'O',
   Ó: 'O',
   Ô: 'O',
   Õ: 'O',
   Ø: 'O',
+  // Accented U (grave, acute, circumflex) -> base letter; U-umlaut uses ue convention above
+  ù: 'u',
+  ú: 'u',
+  û: 'u',
   Ù: 'U',
   Ú: 'U',
   Û: 'U',
+  // Accented Y -> base letter
+  ý: 'y',
+  ÿ: 'y',
   Ý: 'Y',
-  // Nordic
+  // Thorn (Old English/Icelandic) -> TH/th
   þ: 'th',
   Þ: 'TH',
 }
