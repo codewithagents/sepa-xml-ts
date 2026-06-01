@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.2.0...sepa-xml-ts-v0.3.0) (2026-06-01)
+
+
+### Features
+
+* add bank-profile seam and require-bic reference profile ([db4616e](https://github.com/codewithagents/sepa-xml-ts/commit/db4616ecb91a4a74a759787bfbafdfab981cd1ee))
+* add German DK pain.001.003.03 write+read variant (XSD-verified) ([52ad6ad](https://github.com/codewithagents/sepa-xml-ts/commit/52ad6adf1b23683a83d1e8e5bfeeacc10d0e1c08))
+* add read-only coexistence support for pain.001.001.03 and pain.008.001.02 ([af293a8](https://github.com/codewithagents/sepa-xml-ts/commit/af293a85b7b075798c673d0b53448f2dcbcab2ac))
+* add validateCreditTransfer and validateDirectDebit ([b6a1e37](https://github.com/codewithagents/sepa-xml-ts/commit/b6a1e3780e6c13e4f1f28e4ab3212ad28ddec51e))
+* complete EPC 217-08 transliteration and broaden property generators ([a1ccbe9](https://github.com/codewithagents/sepa-xml-ts/commit/a1ccbe9edbe60cfe863abb6d0a297fb0d625a6ca))
+* emit SEPA service level and charge bearer on credit transfers ([5d7c025](https://github.com/codewithagents/sepa-xml-ts/commit/5d7c025f1a165dd433153a06989c88916461c5e0))
+
+
+### Bug Fixes
+
+* make parse robust against malformed input (never throws) ([6ea6d5b](https://github.com/codewithagents/sepa-xml-ts/commit/6ea6d5b28bd9abfbebe606240f1656b59ce638d3))
+
 ## [0.2.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.1.0...sepa-xml-ts-v0.2.0) (2026-06-01)
 
 
