@@ -15,15 +15,20 @@
  */
 
 import { CreditTransferDocumentSchema, type CreditTransferDocument } from '../model/schema.js'
-import { escapeXml } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
+import {
+  xe,
+  computeTotals,
+  emitGrpHdr,
+  emitPmtInfHeader,
+  emitSvcLvl,
+  emitNmElement,
+  emitIbanAcct,
+  emitAlwaysFinInstnId,
+  emitRmtInf,
+} from './xml-emit.js'
 
 const XMLNS = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
-
-/** Escapes a value for use in XML text content. */
-function xe(value: string): string {
-  return escapeXml(value)
-}
 
 /**
  * Write a pain.001.001.09 credit transfer document to an XML string.
@@ -48,8 +53,7 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
 
   // Compute NbOfTxs and CtrlSum across all batches
   const allAmounts = doc.batches.flatMap((batch) => batch.transfers.map((tx) => tx.amount))
-  const totalTxCount = allAmounts.length
-  const totalCtrlSum = sumMoney(allAmounts)
+  const { txCount: totalTxCount, ctrlSum: totalCtrlSum } = computeTotals(allAmounts)
 
   const lines: string[] = []
 
@@ -58,17 +62,7 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
   lines.push(`  <CstmrCdtTrfInitn>`)
 
   // Group Header
-  lines.push(`    <GrpHdr>`)
-  lines.push(`      <MsgId>${xe(doc.messageId)}</MsgId>`)
-  lines.push(`      <CreDtTm>${xe(doc.createdAt)}</CreDtTm>`)
-  lines.push(`      <NbOfTxs>${totalTxCount}</NbOfTxs>`)
-  lines.push(
-    `      <CtrlSum>${formatAmountForXml({ currencyCode: 'EUR', minorUnits: totalCtrlSum })}</CtrlSum>`
-  )
-  lines.push(`      <InitgPty>`)
-  lines.push(`        <Nm>${xe(doc.initiatingParty)}</Nm>`)
-  lines.push(`      </InitgPty>`)
-  lines.push(`    </GrpHdr>`)
+  emitGrpHdr(lines, doc.messageId, doc.createdAt, totalTxCount, totalCtrlSum, doc.initiatingParty)
 
   // Payment Batches (PmtInf)
   for (const batch of doc.batches) {
@@ -76,37 +70,17 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
     const batchNbOfTxs = batchAmounts.length
     const batchCtrlSum = sumMoney(batchAmounts)
 
-    lines.push(`    <PmtInf>`)
-    lines.push(`      <PmtInfId>${xe(batch.id)}</PmtInfId>`)
-    lines.push(`      <PmtMtd>TRF</PmtMtd>`)
-    lines.push(`      <NbOfTxs>${batchNbOfTxs}</NbOfTxs>`)
-    lines.push(
-      `      <CtrlSum>${formatAmountForXml({ currencyCode: 'EUR', minorUnits: batchCtrlSum })}</CtrlSum>`
-    )
+    emitPmtInfHeader(lines, batch.id, 'TRF', batchNbOfTxs, batchCtrlSum)
     // PmtTpInf/SvcLvl/Cd=SEPA: SEPA rulebook requirement (XSD position: after CtrlSum, before ReqdExctnDt)
     lines.push(`      <PmtTpInf>`)
-    lines.push(`        <SvcLvl>`)
-    lines.push(`          <Cd>SEPA</Cd>`)
-    lines.push(`        </SvcLvl>`)
+    emitSvcLvl(lines)
     lines.push(`      </PmtTpInf>`)
     lines.push(`      <ReqdExctnDt>`)
     lines.push(`        <Dt>${xe(batch.executionDate)}</Dt>`)
     lines.push(`      </ReqdExctnDt>`)
-    lines.push(`      <Dbtr>`)
-    lines.push(`        <Nm>${xe(batch.debtor.name)}</Nm>`)
-    lines.push(`      </Dbtr>`)
-    lines.push(`      <DbtrAcct>`)
-    lines.push(`        <Id>`)
-    lines.push(`          <IBAN>${xe(batch.debtor.iban)}</IBAN>`)
-    lines.push(`        </Id>`)
-    lines.push(`      </DbtrAcct>`)
-    lines.push(`      <DbtrAgt>`)
-    lines.push(`        <FinInstnId>`)
-    if (batch.debtor.bic !== undefined) {
-      lines.push(`          <BICFI>${xe(batch.debtor.bic)}</BICFI>`)
-    }
-    lines.push(`        </FinInstnId>`)
-    lines.push(`      </DbtrAgt>`)
+    emitNmElement(lines, '      ', 'Dbtr', batch.debtor.name)
+    emitIbanAcct(lines, '      ', 'DbtrAcct', batch.debtor.iban)
+    emitAlwaysFinInstnId(lines, '      ', 'DbtrAgt', batch.debtor.bic)
     // ChrgBr=SLEV: SEPA rulebook requirement (XSD position: after DbtrAgt, before CdtTrfTxInf)
     lines.push(`      <ChrgBr>SLEV</ChrgBr>`)
 
@@ -126,19 +100,9 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
         lines.push(`          </FinInstnId>`)
         lines.push(`        </CdtrAgt>`)
       }
-      lines.push(`        <Cdtr>`)
-      lines.push(`          <Nm>${xe(tx.creditor.name)}</Nm>`)
-      lines.push(`        </Cdtr>`)
-      lines.push(`        <CdtrAcct>`)
-      lines.push(`          <Id>`)
-      lines.push(`            <IBAN>${xe(tx.creditor.iban)}</IBAN>`)
-      lines.push(`          </Id>`)
-      lines.push(`        </CdtrAcct>`)
-      if (tx.remittanceInfo !== undefined) {
-        lines.push(`        <RmtInf>`)
-        lines.push(`          <Ustrd>${xe(tx.remittanceInfo)}</Ustrd>`)
-        lines.push(`        </RmtInf>`)
-      }
+      emitNmElement(lines, '        ', 'Cdtr', tx.creditor.name)
+      emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
+      emitRmtInf(lines, tx.remittanceInfo)
       lines.push(`      </CdtTrfTxInf>`)
     }
 

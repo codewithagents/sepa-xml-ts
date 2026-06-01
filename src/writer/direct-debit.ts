@@ -18,15 +18,20 @@
  */
 
 import { DirectDebitDocumentSchema, type DirectDebitDocument } from '../model/pain008.js'
-import { escapeXml } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
+import {
+  xe,
+  computeTotals,
+  emitGrpHdr,
+  emitPmtInfHeader,
+  emitSvcLvl,
+  emitNmElement,
+  emitIbanAcct,
+  emitAlwaysFinInstnId,
+  emitRmtInf,
+} from './xml-emit.js'
 
 const XMLNS = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
-
-/** Escapes a value for use in XML text content. */
-function xe(value: string): string {
-  return escapeXml(value)
-}
 
 /**
  * Write a pain.008.001.08 direct debit document to an XML string.
@@ -51,8 +56,7 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
 
   // Compute NbOfTxs and CtrlSum across all batches
   const allAmounts = doc.batches.flatMap((batch) => batch.collections.map((col) => col.amount))
-  const totalTxCount = allAmounts.length
-  const totalCtrlSum = sumMoney(allAmounts)
+  const { txCount: totalTxCount, ctrlSum: totalCtrlSum } = computeTotals(allAmounts)
 
   const lines: string[] = []
 
@@ -61,17 +65,7 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
   lines.push(`  <CstmrDrctDbtInitn>`)
 
   // Group Header
-  lines.push(`    <GrpHdr>`)
-  lines.push(`      <MsgId>${xe(doc.messageId)}</MsgId>`)
-  lines.push(`      <CreDtTm>${xe(doc.createdAt)}</CreDtTm>`)
-  lines.push(`      <NbOfTxs>${totalTxCount}</NbOfTxs>`)
-  lines.push(
-    `      <CtrlSum>${formatAmountForXml({ currencyCode: 'EUR', minorUnits: totalCtrlSum })}</CtrlSum>`
-  )
-  lines.push(`      <InitgPty>`)
-  lines.push(`        <Nm>${xe(doc.initiatingParty)}</Nm>`)
-  lines.push(`      </InitgPty>`)
-  lines.push(`    </GrpHdr>`)
+  emitGrpHdr(lines, doc.messageId, doc.createdAt, totalTxCount, totalCtrlSum, doc.initiatingParty)
 
   // Payment Batches (PmtInf)
   for (const batch of doc.batches) {
@@ -80,17 +74,9 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
     const batchCtrlSum = sumMoney(batchAmounts)
     const localInstrument = batch.localInstrument ?? 'CORE'
 
-    lines.push(`    <PmtInf>`)
-    lines.push(`      <PmtInfId>${xe(batch.id)}</PmtInfId>`)
-    lines.push(`      <PmtMtd>DD</PmtMtd>`)
-    lines.push(`      <NbOfTxs>${batchNbOfTxs}</NbOfTxs>`)
-    lines.push(
-      `      <CtrlSum>${formatAmountForXml({ currencyCode: 'EUR', minorUnits: batchCtrlSum })}</CtrlSum>`
-    )
+    emitPmtInfHeader(lines, batch.id, 'DD', batchNbOfTxs, batchCtrlSum)
     lines.push(`      <PmtTpInf>`)
-    lines.push(`        <SvcLvl>`)
-    lines.push(`          <Cd>SEPA</Cd>`)
-    lines.push(`        </SvcLvl>`)
+    emitSvcLvl(lines)
     lines.push(`        <LclInstrm>`)
     lines.push(`          <Cd>${localInstrument}</Cd>`)
     lines.push(`        </LclInstrm>`)
@@ -99,22 +85,10 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
     lines.push(`      <ReqdColltnDt>${xe(batch.collectionDate)}</ReqdColltnDt>`)
 
     // Creditor (fans out doc-level creditor into each PmtInf)
-    lines.push(`      <Cdtr>`)
-    lines.push(`        <Nm>${xe(doc.creditor.name)}</Nm>`)
-    lines.push(`      </Cdtr>`)
-    lines.push(`      <CdtrAcct>`)
-    lines.push(`        <Id>`)
-    lines.push(`          <IBAN>${xe(doc.creditor.iban)}</IBAN>`)
-    lines.push(`        </Id>`)
-    lines.push(`      </CdtrAcct>`)
+    emitNmElement(lines, '      ', 'Cdtr', doc.creditor.name)
+    emitIbanAcct(lines, '      ', 'CdtrAcct', doc.creditor.iban)
     // CdtrAgt is required in XSD (PaymentInstruction29); emit empty FinInstnId when no BIC
-    lines.push(`      <CdtrAgt>`)
-    lines.push(`        <FinInstnId>`)
-    if (doc.creditor.bic !== undefined) {
-      lines.push(`          <BICFI>${xe(doc.creditor.bic)}</BICFI>`)
-    }
-    lines.push(`        </FinInstnId>`)
-    lines.push(`      </CdtrAgt>`)
+    emitAlwaysFinInstnId(lines, '      ', 'CdtrAgt', doc.creditor.bic)
     // ChrgBr=SLEV is standard SEPA practice
     lines.push(`      <ChrgBr>SLEV</ChrgBr>`)
     // CdtrSchmeId: SEPA Creditor Identifier at PmtInf level
@@ -145,26 +119,10 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
       lines.push(`          </MndtRltdInf>`)
       lines.push(`        </DrctDbtTx>`)
       // DbtrAgt is required in XSD (DirectDebitTransactionInformation23)
-      lines.push(`        <DbtrAgt>`)
-      lines.push(`          <FinInstnId>`)
-      if (col.debtor.bic !== undefined) {
-        lines.push(`            <BICFI>${xe(col.debtor.bic)}</BICFI>`)
-      }
-      lines.push(`          </FinInstnId>`)
-      lines.push(`        </DbtrAgt>`)
-      lines.push(`        <Dbtr>`)
-      lines.push(`          <Nm>${xe(col.debtor.name)}</Nm>`)
-      lines.push(`        </Dbtr>`)
-      lines.push(`        <DbtrAcct>`)
-      lines.push(`          <Id>`)
-      lines.push(`            <IBAN>${xe(col.debtor.iban)}</IBAN>`)
-      lines.push(`          </Id>`)
-      lines.push(`        </DbtrAcct>`)
-      if (col.remittanceInfo !== undefined) {
-        lines.push(`        <RmtInf>`)
-        lines.push(`          <Ustrd>${xe(col.remittanceInfo)}</Ustrd>`)
-        lines.push(`        </RmtInf>`)
-      }
+      emitAlwaysFinInstnId(lines, '        ', 'DbtrAgt', col.debtor.bic)
+      emitNmElement(lines, '        ', 'Dbtr', col.debtor.name)
+      emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
+      emitRmtInf(lines, col.remittanceInfo)
       lines.push(`      </DrctDbtTxInf>`)
     }
 
