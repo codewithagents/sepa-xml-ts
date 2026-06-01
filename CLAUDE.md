@@ -63,7 +63,11 @@ official XSD + golden samples. A wrong flavor is worse than none.
 | `Transfer.creditor` (`AccountParty`) | `Cdtr/Nm` + `CdtrAcct/Id/IBAN` + `CdtrAgt/FinInstnId/BICFI` |
 | `Transfer.remittanceInfo?` | `RmtInf/Ustrd` |
 
-`AccountParty = { name, iban, bic? }`. `Money = { currencyCode: "EUR", minorUnits: bigint }`,
+`AccountParty = { name, iban, bic?, address? }` where `address` is an optional structured
+`PostalAddress` (`PstlAdr`, PostalAddress24): `{ streetName?, buildingNumber?, postCode?, townName?,
+countrySubDivision?, country? (2-letter), addressLines? (max 7) }`. Emitted only for .09/.08; the
+legacy/DK variants THROW if an address is present (never silently dropped). The pain.008 `Creditor`
+and collection `debtor` carry the same optional `address`. `Money = { currencyCode: "EUR", minorUnits: bigint }`,
 built with `euros("123.45")`, formatted with `formatMoney`. Derived by the writer (not model
 fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 
@@ -149,8 +153,12 @@ deep-equal.
   a documented territory-exception table. A test proves the creditor-id check excludes the business
   code (positions 5-7) per EPC262-08. Deliberately NOT added: a "FRST before RCUR" rule (the SDD Core
   Rulebook made FRST optional in v9.1, so requiring it would be stricter than the standard).
-- Next planned feature: structured postal address (PstlAdr) for .09/.08, which EPC makes mandatory
-  on 2026-11-22 (the model carries no address yet). Tracked as a Roadmap row in the matrix.
+- Structured postal address (PstlAdr) ships for pain.001.001.09 and pain.008.001.08: optional
+  `address` on each party, emitted in PostalAddress24 element order (StrtNm, BldgNb, PstCd, TwnNm,
+  CtrySubDvsn, Ctry, AdrLine), XSD-verified and round-trip tested. Absent address is byte-identical
+  to before. Legacy/DK variants throw if an address is present (no silent data loss). EPC makes this
+  mandatory on 2026-11-22. Follow-up: emit PstlAdr for the .03/DK variants too (their older
+  PostalAddress types), and add Ultimate parties / Purpose / structured remittance.
 - ~433 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to

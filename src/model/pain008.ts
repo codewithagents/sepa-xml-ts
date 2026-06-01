@@ -11,7 +11,7 @@
 import { z } from 'zod'
 import { isValidIban } from './iban.js'
 import { isSepaCharset } from './charset.js'
-import { MoneySchema } from './schema.js'
+import { MoneySchema, PostalAddressSchema } from './schema.js'
 import { isValidCreditorId } from './creditor-id.js'
 
 // ---------------------------------------------------------------------------
@@ -141,6 +141,12 @@ const CreditorSchema = z.object({
   /** BIC of the creditor's bank (CdtrAgt/FinInstnId/BICFI). Optional. */
   bic: BICSchema.optional(),
   /**
+   * Structured postal address (PstlAdr), optional.
+   * Emitted for pain.008.001.08 only.
+   * EPC mandates this from 2026-11-22.
+   */
+  address: PostalAddressSchema.optional(),
+  /**
    * SEPA Creditor Identifier (CdtrSchmeId/Id/PrvtId/Othr/Id).
    * Written with SchmeNm/Prtry = "SEPA".
    * Validated by format regex AND ISO 7064 MOD 97-10 check digit (business code excluded per spec).
@@ -183,6 +189,12 @@ const CollectionSchema = z.object({
     name: sepaText(70),
     iban: IBANSchema,
     bic: BICSchema.optional(),
+    /**
+     * Structured postal address (PstlAdr), optional.
+     * Emitted for pain.008.001.08 only.
+     * EPC mandates this from 2026-11-22.
+     */
+    address: PostalAddressSchema.optional(),
   }),
   /** Mandate authorizing this collection. */
   mandate: MandateSchema,

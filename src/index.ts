@@ -31,13 +31,14 @@
 // pain.001 exports
 // ---------------------------------------------------------------------------
 
-export { CreditTransferDocumentSchema, euros, formatMoney } from './model/schema.js'
+export { CreditTransferDocumentSchema, PostalAddressSchema, euros, formatMoney } from './model/schema.js'
 
 export type {
   CreditTransferDocument,
   PaymentBatch,
   Transfer,
   AccountParty,
+  PostalAddress,
   Money,
 } from './model/schema.js'
 

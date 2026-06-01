@@ -32,6 +32,7 @@ import {
   emitPmtInfHeader,
   emitSvcLvl,
   emitNmElement,
+  emitPartyWithAddress,
   emitIbanAcct,
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
@@ -124,6 +125,21 @@ export function writeCreditTransfer(
 
   const variant = options?.variant ?? 'pain.001.001.09'
 
+  // Postal address is only supported for pain.001.001.09. Fail loud rather than
+  // silently drop address data when a legacy or DK variant is selected.
+  if (variant !== 'pain.001.001.09') {
+    const hasAddress = doc.batches.some(
+      (batch) =>
+        batch.debtor.address !== undefined ||
+        batch.transfers.some((tx) => tx.creditor.address !== undefined)
+    )
+    if (hasAddress) {
+      throw new Error(
+        `postal address is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.001.001.03') {
     return writeCreditTransfer03(doc, profile)
   }
@@ -177,7 +193,7 @@ function writeCreditTransfer09(
     lines.push(`      <ReqdExctnDt>`)
     lines.push(`        <Dt>${xe(batch.executionDate)}</Dt>`)
     lines.push(`      </ReqdExctnDt>`)
-    emitNmElement(lines, '      ', 'Dbtr', batch.debtor.name)
+    emitPartyWithAddress(lines, '      ', 'Dbtr', batch.debtor.name, batch.debtor.address)
     emitIbanAcct(lines, '      ', 'DbtrAcct', batch.debtor.iban)
     emitAlwaysFinInstnId(lines, '      ', 'DbtrAgt', batch.debtor.bic)
     // ChrgBr=SLEV: SEPA rulebook requirement (XSD position: after DbtrAgt, before CdtTrfTxInf)
@@ -199,7 +215,7 @@ function writeCreditTransfer09(
         lines.push(`          </FinInstnId>`)
         lines.push(`        </CdtrAgt>`)
       }
-      emitNmElement(lines, '        ', 'Cdtr', tx.creditor.name)
+      emitPartyWithAddress(lines, '        ', 'Cdtr', tx.creditor.name, tx.creditor.address)
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
       emitRmtInf(lines, tx.remittanceInfo)
       lines.push(`      </CdtTrfTxInf>`)

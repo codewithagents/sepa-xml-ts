@@ -31,7 +31,7 @@ not talk to banks.
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `ibanBicCountryMatch`, `batchBooking`) | overlay | ✅ Supported |
 | pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3) | `pain.008` | ✅ Supported |
-| Structured creditor/debtor postal address (`PstlAdr`) | `pain.001.001.09` / `pain.008.001.08` | 🟡 Roadmap |
+| Structured creditor/debtor postal address (`PstlAdr`) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
 | Additional named bank profiles | overlay | 🟡 On request |
 | Payment status reports | `pain.002` | ⛔ Out of scope |
@@ -46,7 +46,9 @@ samples, because a wrong flavor is worse than none.
 
 Note on structured address: the EPC makes a structured `PstlAdr` (separate town, postcode, country
 elements) mandatory for the modern messages from 22 November 2026, and many banks reject unstructured
-addresses already. The model does not yet carry a postal address, so this is the next planned feature.
+addresses already. The optional `address` field on each party is emitted as a structured `PstlAdr` for
+`pain.001.001.09` and `pain.008.001.08`. The legacy and DK variants do not yet emit it and throw a
+clear error if an address is present, rather than dropping it silently.
 
 ## Why this exists
 

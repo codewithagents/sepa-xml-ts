@@ -24,6 +24,7 @@ import {
   type Transfer,
   type PaymentBatch,
   type Money,
+  type PostalAddress,
 } from '../model/schema.js'
 import {
   DirectDebitDocumentSchema,
@@ -140,6 +141,67 @@ function nav(obj: unknown, ...keys: string[]): unknown {
 }
 
 // ---------------------------------------------------------------------------
+// PostalAddress extractor
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a PostalAddress from a PstlAdr element, if present.
+ * Returns undefined when the element is absent or empty (no known fields).
+ * Never returns an empty object, preserving round-trip deep-equality.
+ */
+function extractPstlAdr(partyEl: unknown): PostalAddress | undefined {
+  const pstlAdrEl = nav(partyEl, 'PstlAdr')
+  if (pstlAdrEl === null || pstlAdrEl === undefined) {
+    return undefined
+  }
+
+  const streetName = str(nav(pstlAdrEl, 'StrtNm')) ?? undefined
+  const buildingNumber = str(nav(pstlAdrEl, 'BldgNb')) ?? undefined
+  const postCode = str(nav(pstlAdrEl, 'PstCd')) ?? undefined
+  const townName = str(nav(pstlAdrEl, 'TwnNm')) ?? undefined
+  const countrySubDivision = str(nav(pstlAdrEl, 'CtrySubDvsn')) ?? undefined
+  const country = str(nav(pstlAdrEl, 'Ctry')) ?? undefined
+
+  // AdrLine can be a single string (when only one line) or an array
+  let addressLines: string[] | undefined
+  const rawAdrLine = nav(pstlAdrEl, 'AdrLine')
+  if (Array.isArray(rawAdrLine)) {
+    const lines = rawAdrLine.map((l: unknown) => str(l)).filter((l): l is string => l !== null && l !== '')
+    if (lines.length > 0) {
+      addressLines = lines
+    }
+  } else {
+    const single = str(rawAdrLine)
+    if (single !== null && single !== '') {
+      addressLines = [single]
+    }
+  }
+
+  // If no field was populated, return undefined (no empty object)
+  if (
+    streetName === undefined &&
+    buildingNumber === undefined &&
+    postCode === undefined &&
+    townName === undefined &&
+    countrySubDivision === undefined &&
+    country === undefined &&
+    addressLines === undefined
+  ) {
+    return undefined
+  }
+
+  const addr: PostalAddress = {}
+  if (streetName !== undefined) addr.streetName = streetName
+  if (buildingNumber !== undefined) addr.buildingNumber = buildingNumber
+  if (postCode !== undefined) addr.postCode = postCode
+  if (townName !== undefined) addr.townName = townName
+  if (countrySubDivision !== undefined) addr.countrySubDivision = countrySubDivision
+  if (country !== undefined) addr.country = country
+  if (addressLines !== undefined) addr.addressLines = addressLines
+  return addr
+}
+
+// ---------------------------------------------------------------------------
 // pain.001 extractor functions
 // ---------------------------------------------------------------------------
 
@@ -158,7 +220,9 @@ function extractAccountParty(
   const bic =
     str(nav(agtEl, 'FinInstnId', 'BICFI')) ?? str(nav(agtEl, 'FinInstnId', 'BIC')) ?? undefined
 
-  return { name, iban, ...(bic !== undefined ? { bic } : {}) }
+  const address = extractPstlAdr(partyEl)
+
+  return { name, iban, ...(bic !== undefined ? { bic } : {}), ...(address !== undefined ? { address } : {}) }
 }
 
 function extractTransfer(txEl: unknown): Transfer | null {
@@ -278,7 +342,8 @@ function extractCollection(txEl: unknown): Collection | null {
   const mandate: Mandate = { id: mandateId, signatureDate }
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
-  const dbtrName = str(nav(txEl, 'Dbtr', 'Nm'))
+  const dbtrEl = nav(txEl, 'Dbtr')
+  const dbtrName = str(nav(dbtrEl, 'Nm'))
   if (!dbtrName) return null
   const dbtrIban = str(nav(txEl, 'DbtrAcct', 'Id', 'IBAN'))
   if (!dbtrIban) return null
@@ -287,11 +352,13 @@ function extractCollection(txEl: unknown): Collection | null {
     str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BICFI')) ??
     str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BIC')) ??
     undefined
+  const dbtrAddress = extractPstlAdr(dbtrEl)
 
   const debtor = {
     name: dbtrName,
     iban: dbtrIban,
     ...(dbtrBic !== undefined ? { bic: dbtrBic } : {}),
+    ...(dbtrAddress !== undefined ? { address: dbtrAddress } : {}),
   }
 
   // Optional remittanceInfo. Treat empty strings as absent (defensive against empty elements).
@@ -348,7 +415,8 @@ function extractDirectDebitBatch(pmtInfEl: unknown): DirectDebitBatch | null {
 function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
   if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
-  const name = str(nav(pmtInfEl, 'Cdtr', 'Nm'))
+  const cdtrEl = nav(pmtInfEl, 'Cdtr')
+  const name = str(nav(cdtrEl, 'Nm'))
   if (!name) return null
 
   const iban = str(nav(pmtInfEl, 'CdtrAcct', 'Id', 'IBAN'))
@@ -360,6 +428,8 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
     str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BIC')) ??
     undefined
 
+  const address = extractPstlAdr(cdtrEl)
+
   // CdtrSchmeId/Id/PrvtId/Othr/Id
   const creditorId = str(nav(pmtInfEl, 'CdtrSchmeId', 'Id', 'PrvtId', 'Othr', 'Id'))
   if (!creditorId) return null
@@ -368,6 +438,7 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
     name,
     iban,
     ...(bic !== undefined ? { bic } : {}),
+    ...(address !== undefined ? { address } : {}),
     creditorId,
   }
 }

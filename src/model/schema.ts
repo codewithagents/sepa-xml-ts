@@ -166,12 +166,67 @@ export function formatMoney(m: Money): string {
 }
 
 // ---------------------------------------------------------------------------
+// PostalAddress: structured postal address (PostalAddress24 in XSD)
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured postal address, mapping to PostalAddress24 in the ISO 20022 XSD.
+ *
+ * All fields are optional; at least one must be present when the address object
+ * itself is included. EPC mandates a structured address for pain.001.001.09 and
+ * pain.008.001.08 from 2026-11-22.
+ *
+ * Field names mirror PostalAddress24 semantics; max lengths and character set
+ * match the XSD constraints (SEPA charset, EPC217-08).
+ *
+ * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK variants
+ * will throw a clear error if an address is present in the model.
+ */
+export const PostalAddressSchema = z
+  .object({
+    /** Street name (StrtNm), max 70 chars, SEPA charset. */
+    streetName: sepaText(70).optional(),
+    /** Building number (BldgNb), max 16 chars, SEPA charset. */
+    buildingNumber: sepaText(16).optional(),
+    /** Post code (PstCd), max 16 chars, SEPA charset. */
+    postCode: sepaText(16).optional(),
+    /** Town name (TwnNm), max 35 chars, SEPA charset. */
+    townName: sepaText(35).optional(),
+    /** Country sub-division (CtrySubDvsn), max 35 chars, SEPA charset. */
+    countrySubDivision: sepaText(35).optional(),
+    /** Country code (Ctry), exactly 2 uppercase letters (ISO 3166-1 alpha-2). */
+    country: z
+      .string()
+      .regex(/^[A-Z]{2}$/, 'Country must be exactly 2 uppercase letters (ISO 3166-1 alpha-2)')
+      .optional(),
+    /** Address lines (AdrLine), max 7 entries, each max 70 chars, SEPA charset. */
+    addressLines: z.array(sepaText(70)).max(7).optional(),
+  })
+  .refine(
+    (a) => {
+      // At least one field must be set when the address object is present.
+      return (
+        a.streetName !== undefined ||
+        a.buildingNumber !== undefined ||
+        a.postCode !== undefined ||
+        a.townName !== undefined ||
+        a.countrySubDivision !== undefined ||
+        a.country !== undefined ||
+        (a.addressLines !== undefined && a.addressLines.length > 0)
+      )
+    },
+    { message: 'PostalAddress must have at least one field set (empty address object is not allowed)' }
+  )
+
+export type PostalAddress = z.infer<typeof PostalAddressSchema>
+
+// ---------------------------------------------------------------------------
 // AccountParty: a party tied to a bank account
 // ---------------------------------------------------------------------------
 
 /**
  * A party (debtor or creditor) tied to a bank account.
- * Groups name, IBAN, and optional BIC as one natural unit.
+ * Groups name, IBAN, optional BIC, and optional structured postal address.
  */
 const AccountPartySchema = z.object({
   /** Party name (max 70 chars, SEPA charset). */
@@ -180,6 +235,13 @@ const AccountPartySchema = z.object({
   iban: IBANSchema,
   /** BIC of the party's bank. Optional; validated when present. */
   bic: BICSchema.optional(),
+  /**
+   * Structured postal address (PstlAdr), optional.
+   * Emitted for pain.001.001.09 and pain.008.001.08 only.
+   * Throws a clear error for legacy/DK variants.
+   * EPC mandates this from 2026-11-22.
+   */
+  address: PostalAddressSchema.optional(),
 })
 
 export type AccountParty = z.infer<typeof AccountPartySchema>

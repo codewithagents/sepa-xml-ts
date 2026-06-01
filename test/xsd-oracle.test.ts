@@ -25,6 +25,7 @@ import type {
   AccountParty,
   Transfer,
   PaymentBatch,
+  PostalAddress,
 } from '../src/model/schema.js'
 import type {
   DirectDebitDocument,
@@ -166,6 +167,44 @@ function arbBic(): fc.Arbitrary<string> {
 }
 
 /**
+ * Arbitrary for an optional structured PostalAddress (PstlAdr).
+ * Each field is independently optional; the result always has at least one field
+ * set (an empty address object is invalid). All text uses the trimmed SEPA charset
+ * so it survives the XML round-trip; country is a valid 2-letter code.
+ */
+function arbPostalAddress(): fc.Arbitrary<PostalAddress> {
+  return fc
+    .record({
+      streetName: fc.option(arbSepaText(1, 70), { nil: undefined }),
+      buildingNumber: fc.option(arbSepaText(1, 16), { nil: undefined }),
+      postCode: fc.option(arbSepaText(1, 16), { nil: undefined }),
+      townName: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      countrySubDivision: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      country: fc.option(fc.constantFrom('DE', 'FR', 'NL', 'ES', 'IT', 'BE', 'AT'), {
+        nil: undefined,
+      }),
+      addressLines: fc.option(fc.array(arbSepaText(1, 70), { minLength: 1, maxLength: 7 }), {
+        nil: undefined,
+      }),
+    })
+    .map((a) => {
+      // Strip undefined keys so the generated model matches what the parser returns.
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(a)) {
+        if (v !== undefined) out[k] = v
+      }
+      return out as PostalAddress
+    })
+    .filter((a) => Object.keys(a).length > 0)
+}
+
+/** Attach an optional address to a party record, stripping the key when absent. */
+function withOptionalAddress<T extends object>(party: T, address: PostalAddress | undefined): T {
+  if (address === undefined) return party
+  return { ...party, address }
+}
+
+/**
  * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
  * All boundary values must be at or below this cap.
  */
@@ -204,13 +243,12 @@ function arbAccountParty(): fc.Arbitrary<AccountParty> {
       name: arbPartyName(),
       iban: arbIban(),
       bic: fc.option(arbBic(), { nil: undefined }),
+      address: fc.option(arbPostalAddress(), { nil: undefined }),
     })
     .map((p) => {
-      if (p.bic === undefined) {
-        const { bic: _bic, ...rest } = p
-        return rest
-      }
-      return p
+      const { address, ...withBic } = p
+      const base = withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
+      return withOptionalAddress(base as AccountParty, address)
     })
 }
 
@@ -296,13 +334,12 @@ function arbCreditor(): fc.Arbitrary<Creditor> {
       iban: arbIban(),
       bic: fc.option(arbBic(), { nil: undefined }),
       creditorId: arbCreditorId(),
+      address: fc.option(arbPostalAddress(), { nil: undefined }),
     })
     .map((c) => {
-      if (c.bic === undefined) {
-        const { bic: _bic, ...rest } = c
-        return rest
-      }
-      return c
+      const { address, ...withBic } = c
+      const base = withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
+      return withOptionalAddress(base as Creditor, address)
     })
 }
 
@@ -368,13 +405,13 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
           name: arbPartyName(),
           iban: arbIban(),
           bic: fc.option(arbBic(), { nil: undefined }),
+          address: fc.option(arbPostalAddress(), { nil: undefined }),
         })
         .map((d) => {
-          if (d.bic === undefined) {
-            const { bic: _bic, ...rest } = d
-            return rest
-          }
-          return d
+          const { address, ...withBic } = d
+          const base =
+            withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
+          return withOptionalAddress(base, address)
         }),
       mandate: fc.record({
         // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).

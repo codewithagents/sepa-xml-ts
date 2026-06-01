@@ -85,6 +85,39 @@ The writer derives the following fields from the model. You do not supply them:
 | `PmtInf/PmtTpInf/SvcLvl/Cd` | Always `SEPA` |
 | `PmtInf/ChrgBr` | Always `SLEV` |
 
+## Structured postal address
+
+Each party (debtor and creditor) accepts an optional structured `address`, emitted as a
+`PstlAdr` element. The EPC makes a structured address mandatory for the modern messages from
+22 November 2026, and many banks reject unstructured addresses already.
+
+```typescript
+const doc = {
+  // ...
+  batches: [{
+    // ...
+    debtor: {
+      name: 'Test Corp',
+      iban: 'DE89370400440532013000',
+      bic: 'COBADEFFXXX',
+      address: {
+        streetName: 'Rue de la Loi',
+        buildingNumber: '16',
+        postCode: '1000',
+        townName: 'Brussels',
+        country: 'BE', // 2-letter ISO country code
+      },
+    },
+    // ...
+  }],
+}
+```
+
+All address fields are optional, but the object must have at least one field set, and `country`
+must be a 2-letter uppercase code. This is supported for `pain.001.001.09` and `pain.008.001.08`.
+The legacy and DK variants do not yet emit `PstlAdr`: they throw a clear error if an address is
+present, rather than dropping it silently.
+
 ## Variants
 
 To write a German DK pain.001.003.03 file, pass `{ variant: 'pain.001.003.03' }`:

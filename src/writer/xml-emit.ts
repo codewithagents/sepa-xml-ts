@@ -17,7 +17,7 @@
 
 import { escapeXml } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
-import type { Money } from '../model/schema.js'
+import type { Money, PostalAddress } from '../model/schema.js'
 
 /**
  * Escape a value for use in XML text content.
@@ -93,8 +93,77 @@ export function emitSvcLvl(lines: string[]): void {
 }
 
 /**
+ * Emit a PstlAdr element for a party block, using the PostalAddress24 element
+ * order mandated by the XSD (StrtNm, BldgNb, PstCd, TwnNm, CtrySubDvsn, Ctry, AdrLine).
+ *
+ * Only elements present in the model are emitted. When address is undefined,
+ * nothing is emitted and output is byte-identical to before.
+ *
+ * @param indent  - leading spaces for the PstlAdr tag (one level deeper than the party tag)
+ * @param address - optional PostalAddress from the model; nothing emitted when absent
+ */
+export function emitPstlAdr(lines: string[], indent: string, address: PostalAddress | undefined): void {
+  if (address === undefined) {
+    return
+  }
+  lines.push(`${indent}<PstlAdr>`)
+  const inner = `${indent}  `
+  // XSD PostalAddress24 element order (we emit only the subset we model):
+  // Dept, SubDept, StrtNm, BldgNb, BldgNm, Flr, PstBx, Room, PstCd, TwnNm,
+  // TwnLctnNm, DstrctNm, CtrySubDvsn, Ctry, AdrLine
+  if (address.streetName !== undefined) {
+    lines.push(`${inner}<StrtNm>${xe(address.streetName)}</StrtNm>`)
+  }
+  if (address.buildingNumber !== undefined) {
+    lines.push(`${inner}<BldgNb>${xe(address.buildingNumber)}</BldgNb>`)
+  }
+  if (address.postCode !== undefined) {
+    lines.push(`${inner}<PstCd>${xe(address.postCode)}</PstCd>`)
+  }
+  if (address.townName !== undefined) {
+    lines.push(`${inner}<TwnNm>${xe(address.townName)}</TwnNm>`)
+  }
+  if (address.countrySubDivision !== undefined) {
+    lines.push(`${inner}<CtrySubDvsn>${xe(address.countrySubDivision)}</CtrySubDvsn>`)
+  }
+  if (address.country !== undefined) {
+    lines.push(`${inner}<Ctry>${xe(address.country)}</Ctry>`)
+  }
+  if (address.addressLines !== undefined) {
+    for (const line of address.addressLines) {
+      lines.push(`${inner}<AdrLine>${xe(line)}</AdrLine>`)
+    }
+  }
+  lines.push(`${indent}</PstlAdr>`)
+}
+
+/**
+ * Emit a party element with Nm and optional PstlAdr.
+ * Used for Dbtr, Cdtr blocks in pain.001.001.09 and pain.008.001.08.
+ *
+ * PstlAdr follows Nm immediately, per PartyIdentification135 in the XSD.
+ *
+ * @param indent  - leading spaces for the outer tag (e.g. "      " for 6 spaces)
+ * @param tag     - element name, e.g. "Dbtr" or "Cdtr"
+ * @param name    - party name (will be XML-escaped)
+ * @param address - optional structured postal address
+ */
+export function emitPartyWithAddress(
+  lines: string[],
+  indent: string,
+  tag: string,
+  name: string,
+  address: PostalAddress | undefined
+): void {
+  lines.push(`${indent}<${tag}>`)
+  lines.push(`${indent}  <Nm>${xe(name)}</Nm>`)
+  emitPstlAdr(lines, `${indent}  `, address)
+  lines.push(`${indent}</${tag}>`)
+}
+
+/**
  * Emit a party element containing only a Nm child.
- * Used for Dbtr, Cdtr blocks that carry just the name.
+ * Used for Dbtr, Cdtr blocks that carry just the name (legacy/DK variants).
  *
  * @param indent - leading spaces for the outer tag (e.g. "      " for 6 spaces)
  * @param tag    - element name, e.g. "Dbtr" or "Cdtr"

@@ -31,6 +31,7 @@ import {
   emitPmtInfHeader,
   emitSvcLvl,
   emitNmElement,
+  emitPartyWithAddress,
   emitIbanAcct,
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
@@ -127,6 +128,21 @@ export function writeDirectDebit(
 
   const variant = options?.variant ?? 'pain.008.001.08'
 
+  // Postal address is only supported for pain.008.001.08. Fail loud rather than
+  // silently drop address data when the DK variant is selected.
+  if (variant !== 'pain.008.001.08') {
+    const hasAddress =
+      doc.creditor.address !== undefined ||
+      doc.batches.some((batch) =>
+        batch.collections.some((col) => col.debtor.address !== undefined)
+      )
+    if (hasAddress) {
+      throw new Error(
+        `postal address is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.008.003.02') {
     return writeDirectDebitDK(doc, profile)
   }
@@ -177,7 +193,7 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
     lines.push(`      <ReqdColltnDt>${xe(batch.collectionDate)}</ReqdColltnDt>`)
 
     // Creditor (fans out doc-level creditor into each PmtInf)
-    emitNmElement(lines, '      ', 'Cdtr', doc.creditor.name)
+    emitPartyWithAddress(lines, '      ', 'Cdtr', doc.creditor.name, doc.creditor.address)
     emitIbanAcct(lines, '      ', 'CdtrAcct', doc.creditor.iban)
     // CdtrAgt is required in XSD (PaymentInstruction29); emit empty FinInstnId when no BIC
     emitAlwaysFinInstnId(lines, '      ', 'CdtrAgt', doc.creditor.bic)
@@ -212,7 +228,7 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
       lines.push(`        </DrctDbtTx>`)
       // DbtrAgt is required in XSD (DirectDebitTransactionInformation23)
       emitAlwaysFinInstnId(lines, '        ', 'DbtrAgt', col.debtor.bic)
-      emitNmElement(lines, '        ', 'Dbtr', col.debtor.name)
+      emitPartyWithAddress(lines, '        ', 'Dbtr', col.debtor.name, col.debtor.address)
       emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
       emitRmtInf(lines, col.remittanceInfo)
       lines.push(`      </DrctDbtTxInf>`)
