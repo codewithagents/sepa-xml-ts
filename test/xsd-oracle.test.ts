@@ -229,7 +229,7 @@ describe("euros() and formatMoney() helpers", () => {
     expect(m.minorUnits).toBe(12345n);
   });
 
-  it("euros('123.4') treats single decimal as x0 (1240n)", () => {
+  it("euros('123.4') pads the single decimal to .40 (12340n)", () => {
     const m = euros("123.4");
     expect(m.minorUnits).toBe(12340n);
   });
