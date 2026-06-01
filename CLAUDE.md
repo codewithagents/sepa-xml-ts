@@ -15,11 +15,23 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
 
 ## Scope
 
-- Now: `pain.001.001.09` (credit transfer) and `pain.008.001.08` (direct debit). Parse, write,
-  validate, XSD-validate. `parse` auto-detects the message type (discriminated union by namespace).
-- Planned: full SEPA Creditor Identifier check-digit validation (currently format-only), reading
-  older coexistence versions `pain.001.001.03` / `pain.008.001.02`.
+- Write + parse + validate + XSD-validate: `pain.001.001.09` (credit transfer) and
+  `pain.008.001.08` (direct debit). `parse` auto-detects the message type (discriminated union).
+- Read-only coexistence: parse `pain.001.001.03` and `pain.008.001.02`; `validateXsd` covers all four.
+- SEPA Creditor Identifier check digits validated (ISO 7064 MOD 97-10, strict). Full EPC 217-08
+  charset transliteration. SvcLvl/Cd=SEPA + ChrgBr=SLEV emitted on both message types.
+- Planned: German DK national write variant `pain.001.003.03` (XSD oracle at schemas/dk/).
 - Out: bank connectivity / transmission (EBICS, FinTS, Peppol).
+
+## Bank profiles (flavors)
+
+A `BankProfile` is an OVERLAY on the always-correct core, never a fork: optional extra validation
+(`checkCreditTransfer`/`checkDirectDebit` returning issues) plus minor additive output options
+(e.g. `batchBooking`). write/validate take `{ profile }`; the writer throws if a profile check
+fails so it cannot emit a file that violates the chosen profile. `requireBic` is the reference
+profile. RULE: never ship a named/national flavor speculatively. National WRITE variants (different
+output schema, e.g. DK pain.001.003.03) are a separate mechanism and only ship with that schema's
+official XSD + golden samples. A wrong flavor is worse than none.
 
 ## Architecture
 

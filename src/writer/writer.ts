@@ -27,6 +27,18 @@ import {
   emitAlwaysFinInstnId,
   emitRmtInf,
 } from './xml-emit.js'
+import type { BankProfile } from '../profile/profile.js'
+
+/** Options accepted by writeCreditTransfer. */
+export interface WriteCreditTransferOptions {
+  /**
+   * A bank profile to apply. After base validation, the profile's
+   * checkCreditTransfer is run; if it returns any issues, an Error is thrown
+   * and no XML is emitted. Profile output options (e.g. batchBooking) are
+   * applied to every PmtInf block.
+   */
+  profile?: BankProfile
+}
 
 const XMLNS = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
 
@@ -36,11 +48,18 @@ const XMLNS = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
  * The model is validated before writing. If validation fails, an error is thrown
  * with a human-readable description of the issue.
  *
+ * If a profile is supplied, its checkCreditTransfer rules are run after base
+ * validation. Any profile issues cause an Error to be thrown; no XML is emitted.
+ *
  * @param input the credit transfer document model
+ * @param options optional write options (profile)
  * @returns UTF-8 XML string
- * @throws Error if the model fails validation
+ * @throws Error if the model fails base validation or a profile check
  */
-export function writeCreditTransfer(input: CreditTransferDocument): string {
+export function writeCreditTransfer(
+  input: CreditTransferDocument,
+  options?: WriteCreditTransferOptions
+): string {
   // Self-check: validate the model before writing
   const parseResult = CreditTransferDocumentSchema.safeParse(input)
   if (!parseResult.success) {
@@ -50,6 +69,18 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
     throw new Error(`Invalid CreditTransferDocument: ${messages}`)
   }
   const doc = parseResult.data
+
+  // Profile check: run after base validation so the doc is known-good
+  const profile = options?.profile
+  if (profile?.checkCreditTransfer !== undefined) {
+    const issues = profile.checkCreditTransfer(doc)
+    if (issues.length > 0) {
+      const detail = issues
+        .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
+        .join('; ')
+      throw new Error(`Profile "${profile.id}" check failed: ${detail}`)
+    }
+  }
 
   // Compute NbOfTxs and CtrlSum across all batches
   const allAmounts = doc.batches.flatMap((batch) => batch.transfers.map((tx) => tx.amount))
@@ -70,7 +101,14 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
     const batchNbOfTxs = batchAmounts.length
     const batchCtrlSum = sumMoney(batchAmounts)
 
-    emitPmtInfHeader(lines, batch.id, 'TRF', batchNbOfTxs, batchCtrlSum)
+    emitPmtInfHeader(
+      lines,
+      batch.id,
+      'TRF',
+      batchNbOfTxs,
+      batchCtrlSum,
+      profile?.output?.batchBooking
+    )
     // PmtTpInf/SvcLvl/Cd=SEPA: SEPA rulebook requirement (XSD position: after CtrlSum, before ReqdExctnDt)
     lines.push(`      <PmtTpInf>`)
     emitSvcLvl(lines)

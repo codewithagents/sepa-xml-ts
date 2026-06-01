@@ -18,6 +18,10 @@
  * - validateDirectDebit: validate an unknown input against the pain.008 document schema
  * - validate: alias for validateCreditTransfer (backward compatibility)
  *
+ * Bank profiles:
+ * - BankProfile, ProfileIssue: types for authoring overlay profiles
+ * - requireBic: reference profile that mandates a BIC on every agent
+ *
  * Internal helpers (IBAN validation, SEPA charset, XML escaping) are NOT re-exported.
  * Import from "sepa-xml-ts/xsd" for XSD schema validation.
  */
@@ -81,4 +85,12 @@ export type {
   DirectDebitValidationResult,
   DirectDebitValidationSuccess,
   DirectDebitValidationFailure,
+  ValidateOptions,
 } from './model/validate.js'
+
+// ---------------------------------------------------------------------------
+// Bank profiles
+// ---------------------------------------------------------------------------
+
+export type { BankProfile, ProfileIssue } from './profile/profile.js'
+export { requireBic } from './profile/profiles.js'

@@ -30,6 +30,18 @@ import {
   emitAlwaysFinInstnId,
   emitRmtInf,
 } from './xml-emit.js'
+import type { BankProfile } from '../profile/profile.js'
+
+/** Options accepted by writeDirectDebit. */
+export interface WriteDirectDebitOptions {
+  /**
+   * A bank profile to apply. After base validation, the profile's
+   * checkDirectDebit is run; if it returns any issues, an Error is thrown
+   * and no XML is emitted. Profile output options (e.g. batchBooking) are
+   * applied to every PmtInf block.
+   */
+  profile?: BankProfile
+}
 
 const XMLNS = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 
@@ -39,11 +51,18 @@ const XMLNS = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
  * The model is validated before writing. If validation fails, an error is thrown
  * with a human-readable description of the issue.
  *
+ * If a profile is supplied, its checkDirectDebit rules are run after base
+ * validation. Any profile issues cause an Error to be thrown; no XML is emitted.
+ *
  * @param input the direct debit document model
+ * @param options optional write options (profile)
  * @returns UTF-8 XML string
- * @throws Error if the model fails validation
+ * @throws Error if the model fails base validation or a profile check
  */
-export function writeDirectDebit(input: DirectDebitDocument): string {
+export function writeDirectDebit(
+  input: DirectDebitDocument,
+  options?: WriteDirectDebitOptions
+): string {
   // Self-check: validate the model before writing
   const parseResult = DirectDebitDocumentSchema.safeParse(input)
   if (!parseResult.success) {
@@ -53,6 +72,18 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
     throw new Error(`Invalid DirectDebitDocument: ${messages}`)
   }
   const doc = parseResult.data
+
+  // Profile check: run after base validation so the doc is known-good
+  const profile = options?.profile
+  if (profile?.checkDirectDebit !== undefined) {
+    const issues = profile.checkDirectDebit(doc)
+    if (issues.length > 0) {
+      const detail = issues
+        .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
+        .join('; ')
+      throw new Error(`Profile "${profile.id}" check failed: ${detail}`)
+    }
+  }
 
   // Compute NbOfTxs and CtrlSum across all batches
   const allAmounts = doc.batches.flatMap((batch) => batch.collections.map((col) => col.amount))
@@ -74,7 +105,14 @@ export function writeDirectDebit(input: DirectDebitDocument): string {
     const batchCtrlSum = sumMoney(batchAmounts)
     const localInstrument = batch.localInstrument ?? 'CORE'
 
-    emitPmtInfHeader(lines, batch.id, 'DD', batchNbOfTxs, batchCtrlSum)
+    emitPmtInfHeader(
+      lines,
+      batch.id,
+      'DD',
+      batchNbOfTxs,
+      batchCtrlSum,
+      profile?.output?.batchBooking
+    )
     lines.push(`      <PmtTpInf>`)
     emitSvcLvl(lines)
     lines.push(`        <LclInstrm>`)

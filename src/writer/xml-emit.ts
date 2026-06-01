@@ -130,6 +130,12 @@ export function emitAlwaysFinInstnId(
  * Emit the opening lines of a PmtInf element through CtrlSum.
  * Both writers share this block; the PmtMtd value ("TRF" or "DD") differs.
  *
+ * XSD ordering for PmtInf children (pain.001.001.09 and pain.008.001.08):
+ *   PmtInfId, PmtMtd, BtchBookg (optional), NbOfTxs, CtrlSum, PmtTpInf ...
+ *
+ * BtchBookg is inserted after PmtMtd and before NbOfTxs when batchBooking is
+ * provided. When undefined, BtchBookg is not emitted (default behaviour).
+ *
  * Callers emit PmtTpInf (and its contents) immediately after.
  */
 export function emitPmtInfHeader(
@@ -137,11 +143,15 @@ export function emitPmtInfHeader(
   id: string,
   pmtMtd: string,
   nbOfTxs: number,
-  ctrlSum: bigint
+  ctrlSum: bigint,
+  batchBooking?: boolean
 ): void {
   lines.push(`    <PmtInf>`)
   lines.push(`      <PmtInfId>${xe(id)}</PmtInfId>`)
   lines.push(`      <PmtMtd>${pmtMtd}</PmtMtd>`)
+  if (batchBooking !== undefined) {
+    lines.push(`      <BtchBookg>${batchBooking ? 'true' : 'false'}</BtchBookg>`)
+  }
   lines.push(`      <NbOfTxs>${nbOfTxs}</NbOfTxs>`)
   lines.push(
     `      <CtrlSum>${formatAmountForXml({ currencyCode: 'EUR', minorUnits: ctrlSum })}</CtrlSum>`

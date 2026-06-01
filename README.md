@@ -179,6 +179,104 @@ euros("-1.00"); // throws: negative
 formatMoney(euros("123.45")); // "123.45" (always 2 decimals, dot, no grouping)
 ```
 
+## Bank profiles
+
+A **bank profile** is an overlay: extra validation rules and optional minor output tweaks that
+layer on top of the always-correct SEPA core. The model stays clean; the profile captures what
+a specific bank requires beyond the XSD.
+
+### What a profile is (and is not)
+
+A profile is **additive**, not a replacement. It runs after base Zod validation, and it must
+never make the output XSD-invalid. The output options that a profile may set (e.g. `batchBooking`)
+are limited to elements the XSD already permits.
+
+A profile is **not** a different message schema. Named national write-variant profiles
+(different output schema, e.g. German pain.001.003.03 for DK/CAMT-DE) are a separate mechanism
+and only ship alongside that schema's official XSD and golden test samples. A wrong flavor is
+worse than none; do not use a profile to change the message type.
+
+### The `requireBic` profile
+
+Some banks reject IBAN-only files even though the SEPA XSD and the post-2016 SEPA rulebook
+make BIC optional. The `requireBic` profile surfaces that rejection at validation time,
+before submission.
+
+```ts
+import {
+  writeCreditTransfer,
+  validateCreditTransfer,
+  requireBic,
+} from "sepa-xml-ts";
+
+// Validation: base Zod rules + profile rules, merged into one result
+const result = validateCreditTransfer(doc, { profile: requireBic });
+if (!result.ok) {
+  // result.errors: Zod issues (schema)
+  // result.profileIssues: bank-profile issues (e.g. missing BIC)
+  console.error(result.errors, result.profileIssues);
+}
+
+// Writing: throws if either base validation or the profile check fails
+const xml = writeCreditTransfer(doc, { profile: requireBic });
+```
+
+Same API for direct debit:
+
+```ts
+import { writeDirectDebit, validateDirectDebit, requireBic } from "sepa-xml-ts";
+
+const result = validateDirectDebit(doc, { profile: requireBic });
+const xml = writeDirectDebit(doc, { profile: requireBic });
+```
+
+### Output options: batchBooking
+
+Profiles can also request minor output tweaks. The `batchBooking` option emits
+`<BtchBookg>true</BtchBookg>` (or `false`) in each `PmtInf` element (XSD position: after
+`PmtMtd`, before `NbOfTxs`). The output is still XSD-valid and the parser ignores the element
+so the round-trip is unaffected.
+
+```ts
+import { writeCreditTransfer, type BankProfile } from "sepa-xml-ts";
+
+const myBankProfile: BankProfile = {
+  id: "my-bank",
+  output: { batchBooking: true },
+};
+
+const xml = writeCreditTransfer(doc, { profile: myBankProfile });
+// <BtchBookg>true</BtchBookg> now appears in every PmtInf
+```
+
+### Authoring your own profile
+
+Implement the `BankProfile` interface. Return `ProfileIssue[]` from the check functions;
+return an empty array to indicate the document passes. Use dot-delimited `path` values to
+point at the offending field.
+
+```ts
+import type { BankProfile, ProfileIssue } from "sepa-xml-ts";
+
+export const myProfile: BankProfile = {
+  id: "my-bank-rules",
+  description: "Extra rules required by My Bank AG",
+
+  checkCreditTransfer(doc): ProfileIssue[] {
+    const issues: ProfileIssue[] = [];
+    for (const [bi, batch] of doc.batches.entries()) {
+      if (batch.transfers.length > 100) {
+        issues.push({
+          path: `batches.${bi}.transfers`,
+          message: "My Bank AG rejects batches with more than 100 transfers",
+        });
+      }
+    }
+    return issues;
+  },
+};
+```
+
 ## Validate against the official XSD (optional)
 
 Business rules (charset, IBAN, CtrlSum, dates) are already enforced by the model and the writer.
