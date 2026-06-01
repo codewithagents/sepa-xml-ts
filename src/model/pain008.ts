@@ -217,6 +217,15 @@ const CollectionSchema = z
      * Legacy and DK variants throw if this field is set.
      */
     structuredRemittance: StructuredRemittanceSchema.optional(),
+    /**
+     * Transaction-level purpose code (DrctDbtTxInf/Purp/Cd).
+     * Maps to ExternalPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
+     * Common values: SALA (salary), SUPP (supplier payment), TAXS (tax), GDDS (goods).
+     * The code list is NOT validated against the ISO external list; only charset and
+     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Supported for pain.008.001.08 ONLY. DK variant throws if this is set.
+     */
+    purpose: sepaText(4).optional(),
   })
   .refine(
     (col) => !(col.remittanceInfo !== undefined && col.structuredRemittance !== undefined),
@@ -245,6 +254,15 @@ const DirectDebitBatchSchema = z
     sequenceType: SequenceTypeSchema,
     /** Local instrument code (PmtTpInf/LclInstrm/Cd). Defaults to "CORE" when omitted. */
     localInstrument: LocalInstrumentSchema.optional(),
+    /**
+     * Batch-level category purpose code (PmtTpInf/CtgyPurp/Cd).
+     * Maps to ExternalCategoryPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
+     * Common values: SALA (salary), SUPP (supplier payment), CASH (cash management), SECU (securities).
+     * The code list is NOT validated against the ISO external list; only charset and
+     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Supported for pain.008.001.08 ONLY. DK variant throws if this is set.
+     */
+    categoryPurpose: sepaText(4).optional(),
     /** Collections in this batch. At least one required. */
     collections: z.array(CollectionSchema).min(1),
   })

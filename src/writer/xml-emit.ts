@@ -373,6 +373,48 @@ export function emitUltimateParty(
 }
 
 /**
+ * Emit a conditional Purp/Cd element at 8-space indent.
+ * Used in both CdtTrfTxInf (pain.001.001.09) and DrctDbtTxInf (pain.008.001.08).
+ *
+ * XSD positions (confirmed against both XSDs):
+ * - pain.001 CreditTransferTransaction34: after InstrForDbtrAgt, before RgltryRptg
+ *   (in our writer: after UltmtCdtr, before RmtInf)
+ * - pain.008 DirectDebitTransactionInformation23: after InstrForCdtrAgt, before RgltryRptg
+ *   (in our writer: after UltmtDbtr, before RmtInf)
+ *
+ * Maps to Purpose2Choice/Cd (ExternalPurpose1Code: open string, minLength 1, maxLength 4).
+ *
+ * @param purpose - optional 1-4 char ISO purpose code; nothing emitted when absent
+ */
+export function emitPurp(lines: string[], purpose: string | undefined): void {
+  if (purpose !== undefined) {
+    lines.push(`        <Purp>`)
+    lines.push(`          <Cd>${xe(purpose)}</Cd>`)
+    lines.push(`        </Purp>`)
+  }
+}
+
+/**
+ * Emit a conditional CtgyPurp/Cd element inside a PmtTpInf block (8-space indent).
+ * Used in both PmtInf (pain.001.001.09) and PmtInf (pain.008.001.08).
+ *
+ * XSD positions (confirmed against both XSDs):
+ * - pain.001 PaymentTypeInformation26: LAST child, after SvcLvl (and optional LclInstrm)
+ * - pain.008 PaymentTypeInformation29: LAST child, after SvcLvl, LclInstrm, SeqTp
+ *
+ * Maps to CategoryPurpose1Choice/Cd (ExternalCategoryPurpose1Code: open string, minLength 1, maxLength 4).
+ *
+ * @param categoryPurpose - optional 1-4 char ISO category purpose code; nothing emitted when absent
+ */
+export function emitCtgyPurp(lines: string[], categoryPurpose: string | undefined): void {
+  if (categoryPurpose !== undefined) {
+    lines.push(`        <CtgyPurp>`)
+    lines.push(`          <Cd>${xe(categoryPurpose)}</Cd>`)
+    lines.push(`        </CtgyPurp>`)
+  }
+}
+
+/**
  * Emit a FinInstnId wrapper element for the DK pain.001.003.03 variant.
  *
  * The DK XSD uses:

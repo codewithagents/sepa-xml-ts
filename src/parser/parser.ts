@@ -338,12 +338,17 @@ function extractTransfer(txEl: unknown): Transfer | null {
   const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
   const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
 
+  // Optional transaction-level purpose code (Purp/Cd, ExternalPurpose1Code).
+  const purposeRaw = str(nav(txEl, 'Purp', 'Cd'))
+  const purpose = purposeRaw !== null && purposeRaw !== '' ? purposeRaw : undefined
+
   return {
     endToEndId,
     amount,
     ...(ultimateDebtor !== undefined ? { ultimateDebtor } : {}),
     creditor,
     ...(ultimateCreditor !== undefined ? { ultimateCreditor } : {}),
+    ...(purpose !== undefined ? { purpose } : {}),
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
     ...(structuredRemittance !== undefined ? { structuredRemittance } : {}),
   }
@@ -378,7 +383,18 @@ function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
     transfers.push(transfer)
   }
 
-  return { id, executionDate, debtor, transfers }
+  // Optional batch-level category purpose code (PmtTpInf/CtgyPurp/Cd, ExternalCategoryPurpose1Code).
+  const categoryPurposeRaw = str(nav(pmtInfEl, 'PmtTpInf', 'CtgyPurp', 'Cd'))
+  const categoryPurpose =
+    categoryPurposeRaw !== null && categoryPurposeRaw !== '' ? categoryPurposeRaw : undefined
+
+  return {
+    id,
+    executionDate,
+    debtor,
+    ...(categoryPurpose !== undefined ? { categoryPurpose } : {}),
+    transfers,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +470,10 @@ function extractCollection(txEl: unknown): Collection | null {
   const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
   const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
 
+  // Optional transaction-level purpose code (Purp/Cd, ExternalPurpose1Code).
+  const purposeRaw = str(nav(txEl, 'Purp', 'Cd'))
+  const purpose = purposeRaw !== null && purposeRaw !== '' ? purposeRaw : undefined
+
   return {
     endToEndId,
     amount,
@@ -461,6 +481,7 @@ function extractCollection(txEl: unknown): Collection | null {
     debtor,
     ...(ultimateDebtor !== undefined ? { ultimateDebtor } : {}),
     mandate,
+    ...(purpose !== undefined ? { purpose } : {}),
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
     ...(structuredRemittance !== undefined ? { structuredRemittance } : {}),
   }
@@ -501,7 +522,19 @@ function extractDirectDebitBatch(pmtInfEl: unknown): DirectDebitBatch | null {
     collections.push(collection)
   }
 
-  return { id, collectionDate, sequenceType, localInstrument, collections }
+  // Optional batch-level category purpose code (PmtTpInf/CtgyPurp/Cd, ExternalCategoryPurpose1Code).
+  const categoryPurposeRaw = str(nav(pmtInfEl, 'PmtTpInf', 'CtgyPurp', 'Cd'))
+  const categoryPurpose =
+    categoryPurposeRaw !== null && categoryPurposeRaw !== '' ? categoryPurposeRaw : undefined
+
+  return {
+    id,
+    collectionDate,
+    sequenceType,
+    localInstrument,
+    ...(categoryPurpose !== undefined ? { categoryPurpose } : {}),
+    collections,
+  }
 }
 
 function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {

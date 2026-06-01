@@ -38,6 +38,8 @@ import {
   emitRmtInf,
   emitStructuredRmtInf,
   emitUltimateParty,
+  emitPurp,
+  emitCtgyPurp,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 import { checkDirectDebitRules } from '../model/dd-rules.js'
@@ -173,6 +175,19 @@ export function writeDirectDebit(
     }
   }
 
+  // Purpose codes (Purp and CtgyPurp) are only supported for pain.008.001.08. Fail loud
+  // rather than silently drop purpose data when the DK variant is selected.
+  if (variant !== 'pain.008.001.08') {
+    const hasPurpose =
+      doc.batches.some((batch) => batch.categoryPurpose !== undefined) ||
+      doc.batches.some((batch) => batch.collections.some((col) => col.purpose !== undefined))
+    if (hasPurpose) {
+      throw new Error(
+        `purpose codes (purpose, categoryPurpose) are not supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.008.003.02') {
     return writeDirectDebitDK(doc, profile)
   }
@@ -213,12 +228,15 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
       batchCtrlSum,
       profile?.output?.batchBooking
     )
+    // PmtTpInf: PaymentTypeInformation29 child order: InstrPrty, SvcLvl, LclInstrm, SeqTp, CtgyPurp (LAST)
     lines.push(`      <PmtTpInf>`)
     emitSvcLvl(lines)
     lines.push(`        <LclInstrm>`)
     lines.push(`          <Cd>${localInstrument}</Cd>`)
     lines.push(`        </LclInstrm>`)
     lines.push(`        <SeqTp>${batch.sequenceType}</SeqTp>`)
+    // CtgyPurp is the last child of PmtTpInf (PaymentTypeInformation29)
+    emitCtgyPurp(lines, batch.categoryPurpose)
     lines.push(`      </PmtTpInf>`)
     lines.push(`      <ReqdColltnDt>${xe(batch.collectionDate)}</ReqdColltnDt>`)
 
@@ -262,8 +280,11 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
       emitAlwaysFinInstnId(lines, '        ', 'DbtrAgt', col.debtor.bic)
       emitPartyWithAddress(lines, '        ', 'Dbtr', col.debtor.name, col.debtor.address)
       emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
-      // UltmtDbtr: XSD position after DbtrAcct, before InstrForCdtrAgt/RmtInf (DirectDebitTransactionInformation23 sequence)
+      // UltmtDbtr: XSD position after DbtrAcct, before InstrForCdtrAgt/Purp/RmtInf (DirectDebitTransactionInformation23 sequence)
       emitUltimateParty(lines, '        ', 'UltmtDbtr', col.ultimateDebtor)
+      // Purp: XSD position after InstrForCdtrAgt, before RgltryRptg/Tax/RmtInf (DirectDebitTransactionInformation23 sequence)
+      // In our writer this is after UltmtDbtr, before RmtInf (we do not emit the intervening optional elements)
+      emitPurp(lines, col.purpose)
       // Emit either unstructured or structured remittance (never both, enforced by model validation)
       if (col.structuredRemittance !== undefined) {
         emitStructuredRmtInf(lines, col.structuredRemittance)

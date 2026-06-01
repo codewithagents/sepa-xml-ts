@@ -191,6 +191,28 @@ with the uppercase `RF` prefix has its ISO 11649 check digits validated; non-RF 
 pass through unchecked. Supported for `pain.008.001.08` only; the DK variant throws if present. See
 the [credit transfers guide](/guides/credit-transfers) for the full validation policy.
 
+## Purpose codes
+
+Each collection can carry a purpose code (`Purp/Cd`), and each batch a category purpose code
+(`PmtTpInf/CtgyPurp/Cd`). Both are 4-letter ISO 20022 external codes.
+
+```typescript
+const batch = {
+  // ...
+  categoryPurpose: 'SUPP',   // batch level
+  collections: [{
+    endToEndId: 'SDD-E2E-001',
+    amount: euros('10.00'),
+    debtor: { name: 'Customer', iban: 'NL91ABNA0417164300' },
+    mandate: { id: 'MAND-001', signatureDate: '2025-01-01' },
+    purpose: 'GDDS',         // collection level
+  }],
+}
+```
+
+Validated for SEPA charset and length (1 to 4 characters) only, not against the ISO external code
+list. Supported for `pain.008.001.08` only; the DK variant throws if present.
+
 ## Variants
 
 To write a German DK pain.008.003.02 file:

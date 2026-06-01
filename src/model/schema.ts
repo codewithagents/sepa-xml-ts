@@ -59,6 +59,23 @@ const SepaMax35Text = sepaText(35)
 /** Max140Text with SEPA charset validation */
 const SepaMax140Text = sepaText(140)
 
+/**
+ * Purpose code: ExternalPurpose1Code and ExternalCategoryPurpose1Code.
+ *
+ * Both XSD types are open strings (xs:restriction base="xs:string", minLength 1, maxLength 4),
+ * NOT enumerations. Validation is deliberately limited to charset and length.
+ *
+ * We do NOT validate against the ISO external code list (SALA, SUPP, TAXS, etc.).
+ * That list is published separately by ISO and updated quarterly. Validating membership
+ * would risk false-positive rejections of valid-but-newer codes, which violates our
+ * "a false reject is worse than none" principle.
+ *
+ * Confirmed against schemas/iso20022/pain.001.001.09.xsd and pain.008.001.08.xsd:
+ * ExternalPurpose1Code: minLength=1, maxLength=4 (open string)
+ * ExternalCategoryPurpose1Code: minLength=1, maxLength=4 (open string)
+ */
+const PurposeCodeSchema = sepaText(4)
+
 /** ISODateTime: full datetime string */
 const ISODateTimeSchema = z
   .string()
@@ -363,6 +380,15 @@ const TransferSchema = z
      * Legacy and DK variants throw if this field is set.
      */
     structuredRemittance: StructuredRemittanceSchema.optional(),
+    /**
+     * Transaction-level purpose code (CdtTrfTxInf/Purp/Cd).
+     * Maps to ExternalPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
+     * Common values: SALA (salary), SUPP (supplier payment), TAXS (tax), GDDS (goods).
+     * The code list is NOT validated against the ISO external list; only charset and
+     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
+     */
+    purpose: PurposeCodeSchema.optional(),
   })
   .refine(
     (tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined),
@@ -389,6 +415,15 @@ const PaymentBatchSchema = z
     executionDate: ISODateSchema,
     /** Debtor party (Dbtr + DbtrAcct/IBAN + DbtrAgt/BIC). */
     debtor: AccountPartySchema,
+    /**
+     * Batch-level category purpose code (PmtTpInf/CtgyPurp/Cd).
+     * Maps to ExternalCategoryPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
+     * Common values: SALA (salary), SUPP (supplier payment), CASH (cash management), SECU (securities).
+     * The code list is NOT validated against the ISO external list; only charset and
+     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
+     */
+    categoryPurpose: PurposeCodeSchema.optional(),
     /** Credit transfers in this batch. At least one required. */
     transfers: z.array(TransferSchema).min(1),
   })

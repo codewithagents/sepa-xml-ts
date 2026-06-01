@@ -40,6 +40,8 @@ import {
   emitRmtInf,
   emitStructuredRmtInf,
   emitUltimateParty,
+  emitPurp,
+  emitCtgyPurp,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 
@@ -170,6 +172,19 @@ export function writeCreditTransfer(
     }
   }
 
+  // Purpose codes (Purp and CtgyPurp) are only supported for pain.001.001.09. Fail loud
+  // rather than silently drop purpose data when a legacy or DK variant is selected.
+  if (variant !== 'pain.001.001.09') {
+    const hasPurpose =
+      doc.batches.some((batch) => batch.categoryPurpose !== undefined) ||
+      doc.batches.some((batch) => batch.transfers.some((tx) => tx.purpose !== undefined))
+    if (hasPurpose) {
+      throw new Error(
+        `purpose codes (purpose, categoryPurpose) are not supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.001.001.03') {
     return writeCreditTransfer03(doc, profile)
   }
@@ -217,8 +232,11 @@ function writeCreditTransfer09(
       profile?.output?.batchBooking
     )
     // PmtTpInf/SvcLvl/Cd=SEPA: SEPA rulebook requirement (XSD position: after CtrlSum, before ReqdExctnDt)
+    // PaymentTypeInformation26 child order: InstrPrty, SvcLvl, LclInstrm, CtgyPurp (LAST)
     lines.push(`      <PmtTpInf>`)
     emitSvcLvl(lines)
+    // CtgyPurp is the last child of PmtTpInf (PaymentTypeInformation26)
+    emitCtgyPurp(lines, batch.categoryPurpose)
     lines.push(`      </PmtTpInf>`)
     lines.push(`      <ReqdExctnDt>`)
     lines.push(`        <Dt>${xe(batch.executionDate)}</Dt>`)
@@ -249,8 +267,11 @@ function writeCreditTransfer09(
       }
       emitPartyWithAddress(lines, '        ', 'Cdtr', tx.creditor.name, tx.creditor.address)
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
-      // UltmtCdtr: XSD position after CdtrAcct, before InstrForCdtrAgt/RmtInf (CreditTransferTransaction34 sequence)
+      // UltmtCdtr: XSD position after CdtrAcct, before InstrForCdtrAgt/Purp/RmtInf (CreditTransferTransaction34 sequence)
       emitUltimateParty(lines, '        ', 'UltmtCdtr', tx.ultimateCreditor)
+      // Purp: XSD position after InstrForDbtrAgt, before RgltryRptg/Tax/RmtInf (CreditTransferTransaction34 sequence)
+      // In our writer this is after UltmtCdtr, before RmtInf (we do not emit the intervening optional elements)
+      emitPurp(lines, tx.purpose)
       // Emit either unstructured or structured remittance (never both, enforced by model validation)
       if (tx.structuredRemittance !== undefined) {
         emitStructuredRmtInf(lines, tx.structuredRemittance)

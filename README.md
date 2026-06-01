@@ -34,6 +34,7 @@ not talk to banks.
 | Structured creditor/debtor postal address (`PstlAdr`) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Ultimate creditor/debtor at transaction level (`UltmtCdtr` / `UltmtDbtr`, name only) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Structured remittance / creditor reference (`RmtInf/Strd/CdtrRefInf`, conditional ISO 11649) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
+| Purpose and category purpose codes (`Purp` / `CtgyPurp`, ISO external codes, not list-validated) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
 | Additional named bank profiles | overlay | 🟡 On request |
 | Payment status reports | `pain.002` | ⛔ Out of scope |

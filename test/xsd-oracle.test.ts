@@ -274,6 +274,21 @@ function arbRemittance(): fc.Arbitrary<Record<string, unknown>> {
 }
 
 /**
+ * Arbitrary for an optional purpose code (Purp/Cd or CtgyPurp/Cd).
+ *
+ * Uses a small set of known real ISO external codes so values survive XML round-trip
+ * and model validation (SEPA charset, 1-4 chars, no trailing whitespace).
+ * We do NOT generate arbitrary text: even a valid 4-char code like "ABCD" is fine,
+ * but fc.option with constantFrom is the safest approach for the property suite.
+ */
+function arbPurposeCode(): fc.Arbitrary<string | undefined> {
+  return fc.option(
+    fc.constantFrom('SALA', 'SUPP', 'TAXS', 'OTHR', 'GDDS'),
+    { nil: undefined }
+  )
+}
+
+/**
  * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
  * All boundary values must be at or below this cap.
  */
@@ -329,11 +344,12 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
       ultimateDebtor: arbUltimateParty(),
       creditor: arbAccountParty(),
       ultimateCreditor: arbUltimateParty(),
+      purpose: arbPurposeCode(),
       remittance: arbRemittance(),
     })
     .map((tx) => {
       // Strip undefined keys so the generated model matches what the parser returns
-      // (absent ultimate parties must not appear as keys with undefined values).
+      // (absent fields must not appear as keys with undefined values).
       const out: Record<string, unknown> = {
         endToEndId: tx.endToEndId,
         amount: tx.amount,
@@ -341,6 +357,7 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
       }
       if (tx.ultimateDebtor !== undefined) out['ultimateDebtor'] = tx.ultimateDebtor
       if (tx.ultimateCreditor !== undefined) out['ultimateCreditor'] = tx.ultimateCreditor
+      if (tx.purpose !== undefined) out['purpose'] = tx.purpose
       // remittance is {} | { remittanceInfo } | { structuredRemittance } (mutually exclusive).
       Object.assign(out, tx.remittance)
       return out as Transfer
@@ -348,12 +365,26 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
 }
 
 function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
-  return fc.record({
-    id: arbSepaIdentifier(1, 35),
-    executionDate: arbDate(),
-    debtor: arbAccountParty(),
-    transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
-  })
+  return fc
+    .record({
+      id: arbSepaIdentifier(1, 35),
+      executionDate: arbDate(),
+      debtor: arbAccountParty(),
+      categoryPurpose: arbPurposeCode(),
+      transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
+    })
+    .map((batch) => {
+      // Strip undefined categoryPurpose key so the generated model matches what the
+      // parser returns (absent fields must not appear as keys with undefined values).
+      const out: Record<string, unknown> = {
+        id: batch.id,
+        executionDate: batch.executionDate,
+        debtor: batch.debtor,
+        transfers: batch.transfers,
+      }
+      if (batch.categoryPurpose !== undefined) out['categoryPurpose'] = batch.categoryPurpose
+      return out as PaymentBatch
+    })
 }
 
 function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
@@ -499,6 +530,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
         id: arbSepaText(10, 35),
         signatureDate: arbSignatureDate,
       }),
+      purpose: arbPurposeCode(),
       remittance: arbRemittance(),
     })
     .map((col) => {
@@ -512,6 +544,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
       }
       if (col.ultimateCreditor !== undefined) out['ultimateCreditor'] = col.ultimateCreditor
       if (col.ultimateDebtor !== undefined) out['ultimateDebtor'] = col.ultimateDebtor
+      if (col.purpose !== undefined) out['purpose'] = col.purpose
       // remittance is {} | { remittanceInfo } | { structuredRemittance } (mutually exclusive).
       Object.assign(out, col.remittance)
       return out as Collection
@@ -530,11 +563,19 @@ function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
       // the writer always emits it, so the parser always reads it back.
       // Generating undefined would cause a round-trip mismatch (undefined -> write "CORE" -> parse "CORE").
       localInstrument: arbLocalInstrument(),
+      categoryPurpose: arbPurposeCode(),
     })
     .chain((batchBase) =>
       fc
         .array(arbCollection(batchBase.collectionDate), { minLength: 1, maxLength: 5 })
-        .map((collections) => ({ ...batchBase, collections }))
+        .map((collections) => {
+          // Strip an absent categoryPurpose key so the generated model matches what
+          // the parser returns (undefined keys would break deep-equal).
+          const { categoryPurpose, ...rest } = batchBase
+          const batch: Record<string, unknown> = { ...rest, collections }
+          if (categoryPurpose !== undefined) batch['categoryPurpose'] = categoryPurpose
+          return batch as DirectDebitBatch
+        })
     )
 }
 

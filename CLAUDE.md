@@ -63,6 +63,8 @@ official XSD + golden samples. A wrong flavor is worse than none.
 | `Transfer.creditor` (`AccountParty`) | `Cdtr/Nm` + `CdtrAcct/Id/IBAN` + `CdtrAgt/FinInstnId/BICFI` |
 | `Transfer.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
 | `Transfer.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
+| `Transfer.purpose?` (4-char ISO code, not list-validated) | `Purp/Cd` |
+| `PaymentBatch.categoryPurpose?` (4-char ISO code) | `PmtTpInf/CtgyPurp/Cd` |
 | `Transfer.remittanceInfo?` | `RmtInf/Ustrd` |
 | `Transfer.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` (`Ref` + `Tp/CdOrPrtry/Cd` + `Tp/Issr?`) |
 
@@ -90,6 +92,8 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 | `Collection.debtor` (`AccountParty`) | `Dbtr/Nm` + `DbtrAcct/Id/IBAN` + `DbtrAgt/FinInstnId/BICFI` |
 | `Collection.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
 | `Collection.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
+| `Collection.purpose?` (4-char ISO code) | `Purp/Cd` |
+| `DirectDebitBatch.categoryPurpose?` (4-char ISO code) | `PmtTpInf/CtgyPurp/Cd` |
 | `Collection.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` |
 | `Collection.mandate` (`{ id, signatureDate }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` |
 | `Collection.remittanceInfo?` | `RmtInf/Ustrd` |
@@ -164,7 +168,7 @@ deep-equal.
   CtrySubDvsn, Ctry, AdrLine), XSD-verified and round-trip tested. Absent address is byte-identical
   to before. Legacy/DK variants throw if an address is present (no silent data loss). EPC makes this
   mandatory on 2026-11-22. Follow-up: emit PstlAdr for the .03/DK variants too (their older
-  PostalAddress types), and add Purpose codes.
+  PostalAddress types).
 - Ultimate parties (UltmtDbtr / UltmtCdtr) ship for pain.001.001.09 and pain.008.001.08: optional
   `ultimateDebtor` and `ultimateCreditor` on each Transfer and Collection, name only first cut
   (UltimateParty = { name }). Emitted at the XSD-correct transaction-level positions
@@ -186,7 +190,18 @@ deep-equal.
   via the oracle suite and round-trip tested; absent structured remittance stays structurally
   identical. Legacy/DK variants throw if present. Follow-up: proprietary reference types via Prtry,
   and the richer Strd sub-elements (RfrdDocInf, RfrdDocAmt) if demand appears.
-- ~494 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+- Purpose codes ship for pain.001.001.09 and pain.008.001.08: optional `purpose` on each Transfer and
+  Collection (Purp/Cd) and `categoryPurpose` on each PaymentBatch and DirectDebitBatch
+  (PmtTpInf/CtgyPurp/Cd). These are 4-char ISO external codes (ExternalPurpose1Code /
+  ExternalCategoryPurpose1Code), which the XSD types as OPEN strings (minLength 1, maxLength 4), NOT
+  enumerations. Validation is deliberately limited to SEPA charset + length 1-4: we do NOT validate
+  against the ISO external code list (published separately, updated quarterly), because that would
+  risk false-positive rejection of valid-but-newer codes. Contrast CdtrRefInf/Tp/CdOrPrtry/Cd, which
+  IS the DocumentType3Code enum (hence referenceType is a Zod enum). Purp sits after
+  InstrForCdtrAgt/before RmtInf in the tx info element; CtgyPurp is the last child of PmtTpInf.
+  XSD-verified via the oracle suite and round-trip tested on both message types; legacy/DK variants
+  throw if present. Follow-up: proprietary purpose via Prtry.
+- ~503 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate
