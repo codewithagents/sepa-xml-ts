@@ -1,11 +1,17 @@
 /**
- * Parser for SEPA XML documents (pain.001.001.09 and pain.008.001.08).
+ * Parser for SEPA XML documents.
+ *
+ * Write targets: pain.001.001.09 and pain.008.001.08.
+ * Read-only (coexistence) support: pain.001.001.03 and pain.008.001.02.
  *
  * Auto-detects the message type from the xmlns attribute and returns a
  * discriminated union:
  *   { ok: true; type: "pain.001"; data: CreditTransferDocument }
  *   | { ok: true; type: "pain.008"; data: DirectDebitDocument }
  *   | { ok: false; error: string }
+ *
+ * The type strings are version-agnostic. An optional version field carries
+ * the detected schema version (e.g. "pain.001.001.03").
  *
  * Uses fast-xml-parser for lightweight, correct XML parsing.
  */
@@ -34,8 +40,20 @@ import {
 // ParseResult discriminated union
 // ---------------------------------------------------------------------------
 
-export type ParseSuccess001 = { ok: true; type: 'pain.001'; data: CreditTransferDocument }
-export type ParseSuccess008 = { ok: true; type: 'pain.008'; data: DirectDebitDocument }
+export type ParseSuccess001 = {
+  ok: true
+  type: 'pain.001'
+  /** Detected schema version, e.g. "pain.001.001.09" or "pain.001.001.03". */
+  version?: string
+  data: CreditTransferDocument
+}
+export type ParseSuccess008 = {
+  ok: true
+  type: 'pain.008'
+  /** Detected schema version, e.g. "pain.008.001.08" or "pain.008.001.02". */
+  version?: string
+  data: DirectDebitDocument
+}
 export type ParseFailure = { ok: false; error: string }
 export type ParseResult = ParseSuccess001 | ParseSuccess008 | ParseFailure
 
@@ -65,8 +83,14 @@ const PARSER = new XMLParser({
 // Namespace constants
 // ---------------------------------------------------------------------------
 
-const NS_PAIN001 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
-const NS_PAIN008 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
+/** Modern write target for credit transfer. */
+const NS_PAIN001_09 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
+/** Legacy read-only credit transfer (coexistence). */
+const NS_PAIN001_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
+/** Modern write target for direct debit. */
+const NS_PAIN008_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
+/** Legacy read-only direct debit (coexistence). */
+const NS_PAIN008_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.02'
 
 // ---------------------------------------------------------------------------
 // Shared internal helpers
@@ -126,7 +150,9 @@ function extractAccountParty(
   const iban = str(nav(acctEl, 'Id', 'IBAN'))
   if (!iban) return null
 
-  const bic = str(nav(agtEl, 'FinInstnId', 'BICFI')) ?? undefined
+  // Try BICFI (pain.001.001.09 / pain.008.001.08) then fall back to BIC (pain.001.001.03 / .02).
+  const bic =
+    str(nav(agtEl, 'FinInstnId', 'BICFI')) ?? str(nav(agtEl, 'FinInstnId', 'BIC')) ?? undefined
 
   return { name, iban, ...(bic !== undefined ? { bic } : {}) }
 }
@@ -161,9 +187,10 @@ function extractTransfer(txEl: unknown): Transfer | null {
   const creditor = extractAccountParty(cdtrEl, cdtrAcctEl, cdtrAgtEl)
   if (!creditor) return null
 
-  // Optional remittanceInfo
-  const ustrd = str(nav(txEl, 'RmtInf', 'Ustrd'))
-  const remittanceInfo = ustrd !== null ? ustrd : undefined
+  // Optional remittanceInfo. Treat empty strings as absent; some older libraries
+  // (e.g. sepa / kewisch.js) emit <RmtInf><Ustrd/></RmtInf> when no value is set.
+  const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
+  const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
   return {
     endToEndId,
@@ -179,7 +206,9 @@ function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
   const id = str(nav(pmtInfEl, 'PmtInfId'))
   if (!id) return null
 
-  const executionDate = str(nav(pmtInfEl, 'ReqdExctnDt', 'Dt'))
+  // pain.001.001.09 wraps the date in DateAndDateTime2Choice: <ReqdExctnDt><Dt>YYYY-MM-DD</Dt></ReqdExctnDt>
+  // pain.001.001.03 emits a plain text element: <ReqdExctnDt>YYYY-MM-DD</ReqdExctnDt>
+  const executionDate = str(nav(pmtInfEl, 'ReqdExctnDt', 'Dt')) ?? str(nav(pmtInfEl, 'ReqdExctnDt'))
   if (!executionDate) return null
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
@@ -249,7 +278,11 @@ function extractCollection(txEl: unknown): Collection | null {
   if (!dbtrName) return null
   const dbtrIban = str(nav(txEl, 'DbtrAcct', 'Id', 'IBAN'))
   if (!dbtrIban) return null
-  const dbtrBic = str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BICFI')) ?? undefined
+  // Try BICFI (modern) then fall back to BIC (legacy .02).
+  const dbtrBic =
+    str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BICFI')) ??
+    str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BIC')) ??
+    undefined
 
   const debtor = {
     name: dbtrName,
@@ -257,9 +290,9 @@ function extractCollection(txEl: unknown): Collection | null {
     ...(dbtrBic !== undefined ? { bic: dbtrBic } : {}),
   }
 
-  // Optional remittanceInfo
-  const ustrd = str(nav(txEl, 'RmtInf', 'Ustrd'))
-  const remittanceInfo = ustrd !== null ? ustrd : undefined
+  // Optional remittanceInfo. Treat empty strings as absent (defensive against empty elements).
+  const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
+  const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
   return {
     endToEndId,
@@ -317,7 +350,11 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
   const iban = str(nav(pmtInfEl, 'CdtrAcct', 'Id', 'IBAN'))
   if (!iban) return null
 
-  const bic = str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BICFI')) ?? undefined
+  // Try BICFI (modern) then fall back to BIC (legacy .02).
+  const bic =
+    str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BICFI')) ??
+    str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BIC')) ??
+    undefined
 
   // CdtrSchmeId/Id/PrvtId/Othr/Id
   const creditorId = str(nav(pmtInfEl, 'CdtrSchmeId', 'Id', 'PrvtId', 'Othr', 'Id'))
@@ -377,18 +414,21 @@ export function parse(xml: string): ParseResult {
     }
   }
 
+  // Extract a short version string from the namespace URI, e.g. "pain.001.001.09".
+  const version = ns.split(':xsd:')[1] ?? ns
+
   try {
-    if (ns === NS_PAIN008) {
-      return parsePain008(parsed)
+    if (ns === NS_PAIN008_08 || ns === NS_PAIN008_02) {
+      return parsePain008(parsed, version)
     }
 
-    if (ns === NS_PAIN001) {
-      return parsePain001(parsed)
+    if (ns === NS_PAIN001_09 || ns === NS_PAIN001_03) {
+      return parsePain001(parsed, version)
     }
 
     return {
       ok: false,
-      error: `Unknown XML namespace: "${ns}". Expected pain.001.001.09 or pain.008.001.08.`,
+      error: `Unknown XML namespace: "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.008.001.08, pain.008.001.02.`,
     }
   } catch (e) {
     return {
@@ -399,10 +439,10 @@ export function parse(xml: string): ParseResult {
 }
 
 // ---------------------------------------------------------------------------
-// pain.001 sub-parser
+// pain.001 sub-parser (handles pain.001.001.09 and pain.001.001.03)
 // ---------------------------------------------------------------------------
 
-function parsePain001(parsed: unknown): ParseResult {
+function parsePain001(parsed: unknown, version: string): ParseResult {
   try {
     const root = nav(parsed, 'Document', 'CstmrCdtTrfInitn')
     if (!root) {
@@ -458,7 +498,7 @@ function parsePain001(parsed: unknown): ParseResult {
       return { ok: false, error: `Model validation failed after parse: ${messages}` }
     }
 
-    return { ok: true, type: 'pain.001', data: validation.data }
+    return { ok: true, type: 'pain.001', version, data: validation.data }
   } catch (e) {
     return {
       ok: false,
@@ -468,10 +508,10 @@ function parsePain001(parsed: unknown): ParseResult {
 }
 
 // ---------------------------------------------------------------------------
-// pain.008 sub-parser
+// pain.008 sub-parser (handles pain.008.001.08 and pain.008.001.02)
 // ---------------------------------------------------------------------------
 
-function parsePain008(parsed: unknown): ParseResult {
+function parsePain008(parsed: unknown, version: string): ParseResult {
   try {
     const root = nav(parsed, 'Document', 'CstmrDrctDbtInitn')
     if (!root) {
@@ -534,7 +574,7 @@ function parsePain008(parsed: unknown): ParseResult {
       return { ok: false, error: `Model validation failed after parse: ${messages}` }
     }
 
-    return { ok: true, type: 'pain.008', data: validation.data }
+    return { ok: true, type: 'pain.008', version, data: validation.data }
   } catch (e) {
     return {
       ok: false,
