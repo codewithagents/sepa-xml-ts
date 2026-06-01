@@ -1,5 +1,5 @@
 /**
- * sepa-xml public API.
+ * sepa-xml-ts public API.
  *
  * Exports:
  * - CreditTransferDocumentSchema: Zod schema for the pain.001 document model
@@ -9,7 +9,7 @@
  * - validate: validate an unknown input against the document schema
  *
  * Internal helpers (IBAN validation, SEPA charset, XML escaping) are NOT re-exported.
- * Import from "sepa-xml/xsd" for XSD schema validation.
+ * Import from "sepa-xml-ts/xsd" for XSD schema validation.
  */
 
 export { CreditTransferDocumentSchema } from "./model/schema.js";

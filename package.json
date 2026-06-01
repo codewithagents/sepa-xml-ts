@@ -1,9 +1,13 @@
 {
-  "name": "sepa-xml",
+  "name": "sepa-xml-ts",
   "version": "0.1.0",
   "description": "Type-safe SEPA payment file library for pain.001",
   "type": "module",
   "sideEffects": false,
+  "files": [
+    "dist",
+    "schemas"
+  ],
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -21,12 +25,12 @@
   },
   "dependencies": {
     "zod": "^3.24.0",
-    "fast-check": "^3.23.0",
     "libxml2-wasm": "^0.7.1"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^2.1.0",
+    "fast-check": "^3.23.0",
     "@types/node": "^22.0.0"
   }
 }

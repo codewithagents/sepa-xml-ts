@@ -3,7 +3,7 @@
  *
  * Uses libxml2-wasm for XSD schema validation.
  * This module is intentionally separate from the main export to allow
- * tree-shaking: import from "sepa-xml/xsd" only when XSD validation is needed.
+ * tree-shaking: import from "sepa-xml-ts/xsd" only when XSD validation is needed.
  *
  * The XSD is loaded lazily on first call to validateXsd.
  */
