@@ -1,16 +1,13 @@
 /**
- * Parser for pain.001.001.09 XML documents.
+ * Parser for SEPA XML documents (pain.001.001.09 and pain.008.001.08).
  *
- * Reconstructs a CreditTransferDocument model from XML.
+ * Auto-detects the message type from the xmlns attribute and returns a
+ * discriminated union:
+ *   { ok: true; type: "pain.001"; data: CreditTransferDocument }
+ *   | { ok: true; type: "pain.008"; data: DirectDebitDocument }
+ *   | { ok: false; error: string }
+ *
  * Uses fast-xml-parser for lightweight, correct XML parsing.
- *
- * Approach:
- * - Parse XML into a JS object tree
- * - Extract fields by XPath-like navigation
- * - Reconstruct Money from the formatted amount string (e.g. "123.45" -> minorUnits: 12345n)
- * - Validate the result through the Zod schema before returning
- *
- * ParseResult is a discriminated union: { ok: true; data } | { ok: false; error: string }
  */
 
 import { XMLParser } from "fast-xml-parser";
@@ -22,14 +19,31 @@ import {
   type PaymentBatch,
   type Money,
 } from "../model/schema.js";
+import {
+  DirectDebitDocumentSchema,
+  type DirectDebitDocument,
+  type DirectDebitBatch,
+  type Collection,
+  type Creditor,
+  type Mandate,
+  type SequenceType,
+  type LocalInstrument,
+} from "../model/pain008.js";
 
 // ---------------------------------------------------------------------------
-// ParseResult type
+// ParseResult discriminated union
 // ---------------------------------------------------------------------------
 
-export type ParseSuccess = { ok: true; data: CreditTransferDocument };
+export type ParseSuccess001 = { ok: true; type: "pain.001"; data: CreditTransferDocument };
+export type ParseSuccess008 = { ok: true; type: "pain.008"; data: DirectDebitDocument };
 export type ParseFailure = { ok: false; error: string };
-export type ParseResult = ParseSuccess | ParseFailure;
+export type ParseResult = ParseSuccess001 | ParseSuccess008 | ParseFailure;
+
+/**
+ * @deprecated Use ParseSuccess001 or ParseSuccess008 for the new discriminated union.
+ * Kept for backwards compatibility of the ok:true branch shape.
+ */
+export type ParseSuccess = ParseSuccess001;
 
 // ---------------------------------------------------------------------------
 // XML parser configuration
@@ -38,9 +52,11 @@ export type ParseResult = ParseSuccess | ParseFailure;
 const PARSER = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
-  // Always wrap repeated elements as arrays (PmtInf, CdtTrfTxInf)
+  // Always wrap repeated elements as arrays
   isArray: (tagName) =>
-    tagName === "PmtInf" || tagName === "CdtTrfTxInf",
+    tagName === "PmtInf" ||
+    tagName === "CdtTrfTxInf" ||
+    tagName === "DrctDbtTxInf",
   // Preserve string values (don't auto-convert numbers/booleans)
   parseAttributeValue: false,
   parseTagValue: false,
@@ -48,13 +64,20 @@ const PARSER = new XMLParser({
 });
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Namespace constants
+// ---------------------------------------------------------------------------
+
+const NS_PAIN001 = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.09";
+const NS_PAIN008 = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08";
+
+// ---------------------------------------------------------------------------
+// Shared internal helpers
 // ---------------------------------------------------------------------------
 
 /**
  * Parse a decimal string from XML (e.g. "123.45") into a Money value.
- * The XML always has exactly 2 decimal places from our writer.
- * We also accept values with fewer decimals for robustness.
+ * The XML always has exactly 2 decimal places from our writers.
+ * Accepts values with fewer decimals for robustness.
  */
 function parseMoneyString(amountStr: string, ccy: string): Money | null {
   if (ccy !== "EUR") {
@@ -91,7 +114,7 @@ function nav(obj: unknown, ...keys: string[]): unknown {
 }
 
 // ---------------------------------------------------------------------------
-// Extractor functions
+// pain.001 extractor functions
 // ---------------------------------------------------------------------------
 
 function extractAccountParty(
@@ -183,16 +206,154 @@ function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
 }
 
 // ---------------------------------------------------------------------------
-// Main parse function
+// pain.008 extractor functions
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a pain.001.001.09 XML string into a CreditTransferDocument model.
+ * Parse the InstdAmt element which appears directly on DrctDbtTxInf
+ * (not wrapped in Amt like pain.001).
+ * Format: <InstdAmt Ccy="EUR">123.45</InstdAmt>
+ */
+function extractInstdAmt(txEl: unknown): Money | null {
+  const instdAmt = nav(txEl, "InstdAmt");
+  let amountStr: string | null = null;
+  let ccy = "EUR";
+  if (typeof instdAmt === "object" && instdAmt !== null) {
+    const amtObj = instdAmt as Record<string, unknown>;
+    amountStr = str(amtObj["#text"]);
+    const rawCcy = amtObj["@_Ccy"];
+    ccy = typeof rawCcy === "string" ? rawCcy : "EUR";
+  } else {
+    amountStr = str(instdAmt);
+  }
+  if (!amountStr) return null;
+  return parseMoneyString(amountStr, ccy);
+}
+
+function extractCollection(txEl: unknown): Collection | null {
+  if (!txEl || typeof txEl !== "object") return null;
+
+  const endToEndId = str(nav(txEl, "PmtId", "EndToEndId"));
+  if (!endToEndId) return null;
+
+  const amount = extractInstdAmt(txEl);
+  if (!amount) return null;
+
+  // Mandate: DrctDbtTx/MndtRltdInf
+  const mandateId = str(nav(txEl, "DrctDbtTx", "MndtRltdInf", "MndtId"));
+  if (!mandateId) return null;
+  const signatureDate = str(nav(txEl, "DrctDbtTx", "MndtRltdInf", "DtOfSgntr"));
+  if (!signatureDate) return null;
+  const mandate: Mandate = { id: mandateId, signatureDate };
+
+  // Debtor: Dbtr + DbtrAcct + DbtrAgt
+  const dbtrName = str(nav(txEl, "Dbtr", "Nm"));
+  if (!dbtrName) return null;
+  const dbtrIban = str(nav(txEl, "DbtrAcct", "Id", "IBAN"));
+  if (!dbtrIban) return null;
+  const dbtrBic = str(nav(txEl, "DbtrAgt", "FinInstnId", "BICFI")) ?? undefined;
+
+  const debtor = {
+    name: dbtrName,
+    iban: dbtrIban,
+    ...(dbtrBic !== undefined ? { bic: dbtrBic } : {}),
+  };
+
+  // Optional remittanceInfo
+  const ustrd = str(nav(txEl, "RmtInf", "Ustrd"));
+  const remittanceInfo = ustrd !== null ? ustrd : undefined;
+
+  return {
+    endToEndId,
+    amount,
+    debtor,
+    mandate,
+    ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
+  };
+}
+
+function extractDirectDebitBatch(pmtInfEl: unknown): DirectDebitBatch | null {
+  if (!pmtInfEl || typeof pmtInfEl !== "object") return null;
+
+  const id = str(nav(pmtInfEl, "PmtInfId"));
+  if (!id) return null;
+
+  const collectionDate = str(nav(pmtInfEl, "ReqdColltnDt"));
+  if (!collectionDate) return null;
+
+  // Sequence type (PmtTpInf/SeqTp)
+  const seqTpRaw = str(nav(pmtInfEl, "PmtTpInf", "SeqTp"));
+  if (!seqTpRaw) return null;
+  const validSeqTypes: SequenceType[] = ["FRST", "RCUR", "OOFF", "FNAL"];
+  if (!validSeqTypes.includes(seqTpRaw as SequenceType)) return null;
+  const sequenceType = seqTpRaw as SequenceType;
+
+  // Local instrument (PmtTpInf/LclInstrm/Cd) - always present in our writer
+  const lclInstrmRaw = str(nav(pmtInfEl, "PmtTpInf", "LclInstrm", "Cd"));
+  const validLocalInstruments: LocalInstrument[] = ["CORE", "B2B"];
+  const localInstrument: LocalInstrument =
+    lclInstrmRaw !== null && validLocalInstruments.includes(lclInstrmRaw as LocalInstrument)
+      ? (lclInstrmRaw as LocalInstrument)
+      : "CORE";
+
+  // DrctDbtTxInf (always an array via isArray config)
+  const txArray = nav(pmtInfEl, "DrctDbtTxInf");
+  if (!Array.isArray(txArray) || txArray.length === 0) return null;
+
+  const collections: Collection[] = [];
+  for (const txEl of txArray) {
+    const collection = extractCollection(txEl);
+    if (!collection) return null;
+    collections.push(collection);
+  }
+
+  return { id, collectionDate, sequenceType, localInstrument, collections };
+}
+
+function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
+  if (!pmtInfEl || typeof pmtInfEl !== "object") return null;
+
+  const name = str(nav(pmtInfEl, "Cdtr", "Nm"));
+  if (!name) return null;
+
+  const iban = str(nav(pmtInfEl, "CdtrAcct", "Id", "IBAN"));
+  if (!iban) return null;
+
+  const bic = str(nav(pmtInfEl, "CdtrAgt", "FinInstnId", "BICFI")) ?? undefined;
+
+  // CdtrSchmeId/Id/PrvtId/Othr/Id
+  const creditorId = str(
+    nav(pmtInfEl, "CdtrSchmeId", "Id", "PrvtId", "Othr", "Id")
+  );
+  if (!creditorId) return null;
+
+  return {
+    name,
+    iban,
+    ...(bic !== undefined ? { bic } : {}),
+    creditorId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main parse function (auto-detects namespace)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a SEPA XML string, auto-detecting pain.001 or pain.008 by xmlns.
+ *
+ * Namespace detection: reads the xmlns attribute from the raw XML string using
+ * a regex. This is more reliable than trying to extract it from the XMLParser
+ * output, which may not preserve xmlns as a regular attribute.
  *
  * @param xml the XML string to parse
- * @returns ParseResult: { ok: true; data } or { ok: false; error: string }
+ * @returns ParseResult discriminated union
  */
 export function parse(xml: string): ParseResult {
+  // Detect namespace from raw XML before parsing (regex on string is reliable)
+  const nsMatch = xml.match(/xmlns\s*=\s*["']([^"']+)["']/);
+  const ns = nsMatch ? (nsMatch[1] ?? null) : null;
+
   let parsed: unknown;
   try {
     parsed = PARSER.parse(xml);
@@ -204,13 +365,38 @@ export function parse(xml: string): ParseResult {
   }
 
   try {
-    // Navigate to the document root
+    if (ns === NS_PAIN008) {
+      return parsePain008(parsed);
+    }
+
+    if (ns === NS_PAIN001 || ns === null) {
+      // Default to pain.001 when namespace matches or is absent (legacy support)
+      return parsePain001(parsed);
+    }
+
+    return {
+      ok: false,
+      error: `Unknown XML namespace: "${ns}". Expected pain.001.001.09 or pain.008.001.08.`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Parse error: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// pain.001 sub-parser
+// ---------------------------------------------------------------------------
+
+function parsePain001(parsed: unknown): ParseResult {
+  try {
     const root = nav(parsed, "Document", "CstmrCdtTrfInitn");
     if (!root) {
       return { ok: false, error: "Missing Document/CstmrCdtTrfInitn element" };
     }
 
-    // Group Header
     const grpHdr = nav(root, "GrpHdr");
     if (!grpHdr) {
       return { ok: false, error: "Missing GrpHdr element" };
@@ -231,7 +417,6 @@ export function parse(xml: string): ParseResult {
       return { ok: false, error: "Missing GrpHdr/InitgPty/Nm" };
     }
 
-    // PmtInf (always an array via isArray config)
     const pmtInfArray = nav(root, "PmtInf");
     if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
       return { ok: false, error: "Missing or empty PmtInf elements" };
@@ -253,7 +438,6 @@ export function parse(xml: string): ParseResult {
       batches,
     };
 
-    // Final Zod validation to catch any remaining issues
     const validation = CreditTransferDocumentSchema.safeParse(rawDoc);
     if (!validation.success) {
       const messages = validation.error.issues
@@ -262,11 +446,87 @@ export function parse(xml: string): ParseResult {
       return { ok: false, error: `Model validation failed after parse: ${messages}` };
     }
 
-    return { ok: true, data: validation.data };
+    return { ok: true, type: "pain.001", data: validation.data };
   } catch (e) {
     return {
       ok: false,
-      error: `Parse error: ${e instanceof Error ? e.message : String(e)}`,
+      error: `pain.001 parse error: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// pain.008 sub-parser
+// ---------------------------------------------------------------------------
+
+function parsePain008(parsed: unknown): ParseResult {
+  try {
+    const root = nav(parsed, "Document", "CstmrDrctDbtInitn");
+    if (!root) {
+      return { ok: false, error: "Missing Document/CstmrDrctDbtInitn element" };
+    }
+
+    const grpHdr = nav(root, "GrpHdr");
+    if (!grpHdr) {
+      return { ok: false, error: "Missing GrpHdr element" };
+    }
+
+    const messageId = str(nav(grpHdr, "MsgId"));
+    if (!messageId) {
+      return { ok: false, error: "Missing GrpHdr/MsgId" };
+    }
+
+    const createdAt = str(nav(grpHdr, "CreDtTm"));
+    if (!createdAt) {
+      return { ok: false, error: "Missing GrpHdr/CreDtTm" };
+    }
+
+    const initiatingParty = str(nav(grpHdr, "InitgPty", "Nm"));
+    if (!initiatingParty) {
+      return { ok: false, error: "Missing GrpHdr/InitgPty/Nm" };
+    }
+
+    const pmtInfArray = nav(root, "PmtInf");
+    if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
+      return { ok: false, error: "Missing or empty PmtInf elements" };
+    }
+
+    // Extract creditor from the first PmtInf (same value is fanned out to all)
+    const creditor = extractCreditorFromPmtInf(pmtInfArray[0]);
+    if (!creditor) {
+      return { ok: false, error: "Failed to extract Creditor from first PmtInf" };
+    }
+
+    const batches: DirectDebitBatch[] = [];
+    for (const pmtInfEl of pmtInfArray) {
+      const batch = extractDirectDebitBatch(pmtInfEl);
+      if (!batch) {
+        return { ok: false, error: "Failed to extract DirectDebitBatch from PmtInf" };
+      }
+      batches.push(batch);
+    }
+
+    const rawDoc: DirectDebitDocument = {
+      messageId,
+      createdAt,
+      initiatingParty,
+      creditor,
+      batches,
+    };
+
+    const validation = DirectDebitDocumentSchema.safeParse(rawDoc);
+    if (!validation.success) {
+      const messages = validation.error.issues
+        .map((iss) => `${iss.path.join(".")}: ${iss.message}`)
+        .join("; ");
+      return { ok: false, error: `Model validation failed after parse: ${messages}` };
+    }
+
+    return { ok: true, type: "pain.008", data: validation.data };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `pain.008 parse error: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
 }
