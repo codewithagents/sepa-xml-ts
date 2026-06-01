@@ -151,10 +151,15 @@ deep-equal.
   Rulebook made FRST optional in v9.1, so requiring it would be stricter than the standard).
 - Next planned feature: structured postal address (PstlAdr) for .09/.08, which EPC makes mandatory
   on 2026-11-22 (the model carries no address yet). Tracked as a Roadmap row in the matrix.
-- ~427 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+- ~433 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
-  validation-rules + creditor-id suites. Property arbitraries are constrained to satisfy the new
-  rules by construction (amount cap, slash-free identifiers, globally-unique mandate ids), and the
-  suite has been stress-run 15x with zero flakes.
+  validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
+  satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate
+  ids), and the suite has been stress-run 15x with zero flakes.
+- External cross-implementation fixtures live at test/fixtures/external/ (MIT samples from sepa_king:
+  pain.001.001.03 + pain.001.003.03), parsed and run through the full pipeline to prove we read
+  third-party XML. sepa_king's pain.008.003.02 sample was excluded because its placeholder creditor
+  id DE00ZZZ00099999999 has check digits "00" (invalid under ISO 7064), which our validation correctly
+  rejects: a useful confirmation our check-digit logic is right. See test/fixtures/external/NOTICE.md.
 - Profile seam: write/validate take `{ profile, variant }`. variant 'pain.001.003.03' = DK national
   write target (XSD-verified against schemas/dk/). Built-in profiles: `requireBic`, `ibanBicCountryMatch`.
