@@ -16,8 +16,8 @@
  *        - pain.001.001.09, XSD-valid BUT parse ok=false (IBAN/mod-97 error)
  *        - value-demonstration: shows XSD alone is not enough
  *     3. sepa_king.pain.001.003.03.xml  (MIT, salesking/sepa_king)
- *        - pain.001.003.03 national variant, intentionally unsupported namespace
- *        - negative test: confirms graceful rejection
+ *        - German DK national variant (pain.001.003.03), XSD-valid and parses ok
+ *        - positive test: confirms the DK variant is fully supported
  *
  *   Snapshot count: 2 canonical files (committed, regenerated to catch drift)
  *     1. pain.001.001.09.xml  - multi-batch credit transfer
@@ -162,21 +162,89 @@ describe('third-party value-demonstration: pain001.pain.001.001.09.xml (Apache-2
 })
 
 // ---------------------------------------------------------------------------
-// National-variant NEGATIVE: sepa_king.pain.001.003.03.xml (MIT)
-// The pain.001.003.03 namespace is a German national variant we do NOT support.
-// Both validateXsd and parse must reject it gracefully.
+// German DK variant POSITIVE: sepa_king.pain.001.003.03.xml (MIT)
+// The pain.001.003.03 namespace is the German DK national variant, fully supported.
+// Both validateXsd (against the DK XSD) and parse must succeed.
 // ---------------------------------------------------------------------------
 
-describe('national-variant negative: sepa_king.pain.001.003.03.xml (MIT, unsupported namespace)', () => {
-  it('validateXsd returns valid=false with an unsupported-namespace error', async () => {
+describe('German DK variant: sepa_king.pain.001.003.03.xml (MIT, supported)', () => {
+  it('validateXsd returns valid=true against the DK XSD', async () => {
     const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = await validateXsd(xml)
+    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('parse returns ok=true with type="pain.001"', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    expect(result.ok, result.ok ? '' : (result as { error: string }).error).toBe(true)
+    if (!result.ok) throw new Error('unexpected parse failure')
+    expect(result.type).toBe('pain.001')
+  })
+
+  it('version is "pain.001.003.03"', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    if (!result.ok || result.type !== 'pain.001') throw new Error('expected ok pain.001')
+    expect(result.version).toBe('pain.001.003.03')
+  })
+
+  it('messageId matches file content: "Message-ID-4711"', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    if (!result.ok || result.type !== 'pain.001') throw new Error('expected ok pain.001')
+    expect(result.data.messageId).toBe('Message-ID-4711')
+  })
+
+  it('initiatingParty matches file content: "Initiator Name"', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    if (!result.ok || result.type !== 'pain.001') throw new Error('expected ok pain.001')
+    expect(result.data.initiatingParty).toBe('Initiator Name')
+  })
+
+  it('first transfer amount is 654314 minorUnits (6543.14 EUR)', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    if (!result.ok || result.type !== 'pain.001') throw new Error('expected ok pain.001')
+    const tx0 = result.data.batches[0]?.transfers[0]
+    expect(tx0?.amount.minorUnits).toBe(654314n)
+    expect(tx0?.amount.currencyCode).toBe('EUR')
+  })
+
+  it('first transfer creditor IBAN matches file: DE21500500009876543210', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    if (!result.ok || result.type !== 'pain.001') throw new Error('expected ok pain.001')
+    const tx0 = result.data.batches[0]?.transfers[0]
+    expect(tx0?.creditor.iban).toBe('DE21500500009876543210')
+  })
+
+  it('debtor BIC is preserved (DK uses <BIC>, not <BICFI>)', () => {
+    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const result = parse(xml)
+    if (!result.ok || result.type !== 'pain.001') throw new Error('expected ok pain.001')
+    expect(result.data.batches[0]?.debtor.bic).toBe('BANKDEFFXXX')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Genuinely unsupported namespace negative test.
+// Confirms that validateXsd and parse reject namespaces that are not in our
+// supported set (e.g. a camt.053 document).
+// ---------------------------------------------------------------------------
+
+describe('unsupported namespace: camt.053-shaped document (negative)', () => {
+  it('validateXsd returns valid=false with an unsupported-namespace error', async () => {
+    const xml = `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><SomeEl/></Document>`
     const result = await validateXsd(xml)
     expect(result.valid).toBe(false)
     expect(result.errors[0]).toMatch(/unsupported namespace/i)
   })
 
   it('parse returns ok=false with an unknown-namespace error', () => {
-    const xml = readFixture('sepa_king.pain.001.003.03.xml')
+    const xml = `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><SomeEl/></Document>`
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok=false')

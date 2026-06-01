@@ -15,12 +15,13 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
 
 ## Scope
 
-- Write + parse + validate + XSD-validate: `pain.001.001.09` (credit transfer) and
-  `pain.008.001.08` (direct debit). `parse` auto-detects the message type (discriminated union).
-- Read-only coexistence: parse `pain.001.001.03` and `pain.008.001.02`; `validateXsd` covers all four.
+- Write + parse + validate + XSD-validate: `pain.001.001.09` (credit transfer), `pain.001.003.03`
+  (German DK national variant), and `pain.008.001.08` (direct debit). `parse` auto-detects the
+  message type (discriminated union).
+- Read-only coexistence: parse `pain.001.001.03` and `pain.008.001.02`; `validateXsd` covers all five.
 - SEPA Creditor Identifier check digits validated (ISO 7064 MOD 97-10, strict). Full EPC 217-08
   charset transliteration. SvcLvl/Cd=SEPA + ChrgBr=SLEV emitted on both message types.
-- Planned: German DK national write variant `pain.001.003.03` (XSD oracle at schemas/dk/).
+- DK variant `pain.001.003.03` ships with XSD oracle at schemas/dk/ (DFU-Abkommen Anlage 3 v2.7).
 - Out: bank connectivity / transmission (EBICS, FinTS, Peppol).
 
 ## Bank profiles (flavors)
@@ -122,9 +123,12 @@ deep-equal.
 
 ## Current state
 
-- 0.1.0 published to npm (write + validate, XSD-verified).
-- Local, unpushed (working locally until mature; will be 0.2.0): natural model redesign (Money,
-  AccountParty, batches/transfers, remittanceInfo), parse with model round-trip, and full
-  pain.008 direct debit (model, writeDirectDebit, parse auto-detect, XSD-oracle + round-trip).
-- 25 tests green: euros/formatMoney units, pain.001 + pain.008 sample tests, and four 200-run
-  property tests (XSD-oracle + round-trip for each message type).
+- 0.1.0 and 0.2.0 published to npm (OIDC + provenance pipeline proven).
+- Local, unpushed (next release will be 0.3.0): coexistence reading (.03/.02), SEPA rulebook
+  elements on both types, dual validate, fuzz-hardened parse, complete EPC transliteration,
+  golden corpus, differential tests vs sepa.js, bank-profile seam + requireBic, DK pain.001.003.03
+  write+read variant.
+- ~273 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  per type at 200 runs) + 3 parse fuzz suites at 300 runs.
+- Profile seam: write/validate take `{ profile, variant }`. variant 'pain.001.003.03' = DK national
+  write target (XSD-verified against schemas/dk/).

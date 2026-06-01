@@ -1,7 +1,7 @@
 /**
  * XSD validation for SEPA XML documents.
  *
- * Write targets: pain.001.001.09 and pain.008.001.08.
+ * Write targets: pain.001.001.09, pain.001.003.03 (DK variant), and pain.008.001.08.
  * Read-only (coexistence) support: pain.001.001.03 and pain.008.001.02.
  *
  * Uses libxml2-wasm for XSD schema validation.
@@ -21,15 +21,18 @@ const __dirname = dirname(__filename)
 
 // At runtime this file lives at dist/xsd.js, so __dirname = <project>/dist.
 // One level up reaches the project root where schemas/ lives.
-const SCHEMAS_DIR = join(__dirname, '../schemas/iso20022')
+const SCHEMAS_ISO_DIR = join(__dirname, '../schemas/iso20022')
+const SCHEMAS_DK_DIR = join(__dirname, '../schemas/dk')
 
-const XSD_PATH_001_09 = join(SCHEMAS_DIR, 'pain.001.001.09.xsd')
-const XSD_PATH_001_03 = join(SCHEMAS_DIR, 'pain.001.001.03.xsd')
-const XSD_PATH_008_08 = join(SCHEMAS_DIR, 'pain.008.001.08.xsd')
-const XSD_PATH_008_02 = join(SCHEMAS_DIR, 'pain.008.001.02.xsd')
+const XSD_PATH_001_09 = join(SCHEMAS_ISO_DIR, 'pain.001.001.09.xsd')
+const XSD_PATH_001_03 = join(SCHEMAS_ISO_DIR, 'pain.001.001.03.xsd')
+const XSD_PATH_001_003_03 = join(SCHEMAS_DK_DIR, 'pain.001.003.03.xsd')
+const XSD_PATH_008_08 = join(SCHEMAS_ISO_DIR, 'pain.008.001.08.xsd')
+const XSD_PATH_008_02 = join(SCHEMAS_ISO_DIR, 'pain.008.001.02.xsd')
 
 const NS_PAIN001_09 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
 const NS_PAIN001_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
+const NS_PAIN001_003_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.003.03'
 const NS_PAIN008_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 const NS_PAIN008_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.02'
 
@@ -43,6 +46,7 @@ export interface XsdResult {
 // Per-namespace validator cache (one slot per supported schema)
 let cachedValidator001_09: unknown = null
 let cachedValidator001_03: unknown = null
+let cachedValidator001_003_03: unknown = null
 let cachedValidator008_08: unknown = null
 let cachedValidator008_02: unknown = null
 
@@ -62,6 +66,7 @@ function detectNamespace(xml: string): string | null {
  * The namespace is detected from the XML to select the matching XSD:
  * - pain.001.001.09 (write target) for CreditTransfer
  * - pain.001.001.03 (read-only coexistence) for CreditTransfer legacy
+ * - pain.001.003.03 (German DK write+read variant) for CreditTransfer
  * - pain.008.001.08 (write target) for DirectDebit
  * - pain.008.001.02 (read-only coexistence) for DirectDebit legacy
  *
@@ -92,6 +97,12 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
     setCachedValidator = (v) => {
       cachedValidator001_03 = v
     }
+  } else if (ns === NS_PAIN001_003_03) {
+    xsdPath = XSD_PATH_001_003_03
+    cachedValidator = cachedValidator001_003_03
+    setCachedValidator = (v) => {
+      cachedValidator001_003_03 = v
+    }
   } else if (ns === NS_PAIN008_08) {
     xsdPath = XSD_PATH_008_08
     cachedValidator = cachedValidator008_08
@@ -111,7 +122,7 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
       errors: [
         ns === null
           ? 'Could not detect an ISO 20022 namespace on the root Document element.'
-          : `Unsupported namespace "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.008.001.08, pain.008.001.02.`,
+          : `Unsupported namespace "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.001.003.03, pain.008.001.08, pain.008.001.02.`,
       ],
     }
   }

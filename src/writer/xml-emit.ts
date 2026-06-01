@@ -171,3 +171,48 @@ export function emitRmtInf(lines: string[], remittanceInfo: string | undefined):
     lines.push(`        </RmtInf>`)
   }
 }
+
+/**
+ * Emit a FinInstnId wrapper element for the DK pain.001.003.03 variant.
+ *
+ * The DK XSD uses:
+ * - BranchAndFinancialInstitutionIdentificationSEPA3 for DbtrAgt (required, allows BIC or Othr/NOTPROVIDED)
+ * - BranchAndFinancialInstitutionIdentificationSEPA1 for CdtrAgt tx-level (optional, requires BIC when present)
+ *
+ * Key difference from pain.001.001.09: element name is "BIC", not "BICFI".
+ *
+ * When bic is undefined and required is true, emits Othr/Id=NOTPROVIDED (the only allowed fallback
+ * in the DK XSD for DbtrAgt). When bic is undefined and required is false (CdtrAgt), the whole
+ * element is omitted by the caller.
+ *
+ * @param indent   - leading spaces for the outer agent tag (e.g. "      " for 6 spaces)
+ * @param tag      - element name, e.g. "DbtrAgt" or "CdtrAgt"
+ * @param bic      - optional BIC string (will be XML-escaped if present)
+ * @param required - when true and bic is absent, emit Othr/Id=NOTPROVIDED instead of omitting the element
+ */
+export function emitDkFinInstnId(
+  lines: string[],
+  indent: string,
+  tag: string,
+  bic: string | undefined,
+  required: boolean
+): void {
+  if (bic === undefined && !required) {
+    // Optional element with no BIC: omit entirely (e.g. CdtrAgt at tx level)
+    return
+  }
+  const inner = `${indent}  `
+  const bicIndent = `${indent}    `
+  lines.push(`${indent}<${tag}>`)
+  lines.push(`${inner}<FinInstnId>`)
+  if (bic !== undefined) {
+    lines.push(`${bicIndent}<BIC>${xe(bic)}</BIC>`)
+  } else {
+    // No BIC available: use NOTPROVIDED (the only allowed fallback in FinancialInstitutionIdentificationSEPA3)
+    lines.push(`${bicIndent}<Othr>`)
+    lines.push(`${bicIndent}  <Id>NOTPROVIDED</Id>`)
+    lines.push(`${bicIndent}</Othr>`)
+  }
+  lines.push(`${inner}</FinInstnId>`)
+  lines.push(`${indent}</${tag}>`)
+}

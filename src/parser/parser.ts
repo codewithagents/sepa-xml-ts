@@ -2,7 +2,7 @@
  * Parser for SEPA XML documents.
  *
  * Write targets: pain.001.001.09 and pain.008.001.08.
- * Read-only (coexistence) support: pain.001.001.03 and pain.008.001.02.
+ * Read-only (coexistence) support: pain.001.001.03, pain.008.001.02, and pain.001.003.03.
  *
  * Auto-detects the message type from the xmlns attribute and returns a
  * discriminated union:
@@ -87,6 +87,8 @@ const PARSER = new XMLParser({
 const NS_PAIN001_09 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
 /** Legacy read-only credit transfer (coexistence). */
 const NS_PAIN001_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
+/** German DK national variant (write target and read support). */
+const NS_PAIN001_003_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.003.03'
 /** Modern write target for direct debit. */
 const NS_PAIN008_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 /** Legacy read-only direct debit (coexistence). */
@@ -422,13 +424,13 @@ export function parse(xml: string): ParseResult {
       return parsePain008(parsed, version)
     }
 
-    if (ns === NS_PAIN001_09 || ns === NS_PAIN001_03) {
+    if (ns === NS_PAIN001_09 || ns === NS_PAIN001_03 || ns === NS_PAIN001_003_03) {
       return parsePain001(parsed, version)
     }
 
     return {
       ok: false,
-      error: `Unknown XML namespace: "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.008.001.08, pain.008.001.02.`,
+      error: `Unknown XML namespace: "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.001.003.03, pain.008.001.08, pain.008.001.02.`,
     }
   } catch (e) {
     return {

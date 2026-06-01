@@ -41,6 +41,7 @@ export type {
 } from './model/schema.js'
 
 export { writeCreditTransfer } from './writer/writer.js'
+export type { WriteCreditTransferOptions, CreditTransferVariant } from './writer/writer.js'
 
 // ---------------------------------------------------------------------------
 // pain.008 exports
