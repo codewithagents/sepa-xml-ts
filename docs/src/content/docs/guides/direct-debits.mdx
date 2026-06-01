@@ -131,9 +131,9 @@ This is handled transparently. You only need to supply `bic` when you know it.
 
 ## Sequence-type and mandate rules
 
-`validateDirectDebit` and `writeDirectDebit` enforce three cross-field SEPA rulebook constraints.
-These apply to both CORE and B2B direct debits, and to both the ISO variant and the German DK
-variant.
+`validateDirectDebit` and `writeDirectDebit` enforce four cross-field SEPA rulebook constraints.
+R1 to R3 apply to both CORE and B2B direct debits, and to both the ISO variant and the German DK
+variant. R4 relates to mandate amendment (see below).
 
 **R1: signature before collection.** `mandate.signatureDate` must not be after the batch
 `collectionDate`. A collection cannot be initiated on a mandate that has not been signed yet.
@@ -148,8 +148,43 @@ other sequence type. A one-off authorization covers one collection.
 authorizations. Note that `localInstrument` defaults to `CORE` when omitted, matching the writer
 default.
 
+**R4: SMNDA requires FRST.** If any collection in a batch uses
+`mandate.amendment.sameMandateNewDebtorAccount: true` (the SMNDA flag), that batch's `sequenceType`
+must be `FRST`. A change of debtor account is presented as a first collection.
+
 `validateDirectDebit` returns the violations as `ruleIssues` on the result. `writeDirectDebit`
 throws before emitting any XML when a rule is violated.
+
+## Mandate amendment
+
+When an existing mandate's details change, set `mandate.amendment`. The writer emits
+`MndtRltdInf/AmdmntInd=true` and the matching `AmdmntInfDtls`. This first cut models the common cases:
+
+```typescript
+const collection = {
+  endToEndId: 'SDD-E2E-001',
+  amount: euros('10.00'),
+  debtor: { name: 'Customer', iban: 'NL91ABNA0417164300' },
+  mandate: {
+    id: 'MAND-NEW-001',
+    signatureDate: '2025-01-01',
+    amendment: {
+      originalMandateId: 'MAND-OLD-001', // AmdmntInfDtls/OrgnlMndtId, the mandate reference changed
+      // OR a moved account, give the old IBAN:
+      // originalDebtorAccount: 'DE89370400440532013000',
+      // OR same bank, new account (SMNDA), which requires a FRST batch (rule R4):
+      // sameMandateNewDebtorAccount: true,
+    },
+  },
+}
+```
+
+`originalDebtorAccount` (an old IBAN) and `sameMandateNewDebtorAccount` are mutually exclusive: SMNDA
+means the new account is at the same bank and is not disclosed, so an explicit old account would
+contradict it. An `amendment` object must set at least one detail. Supported for `pain.008.001.08`
+only; the DK variant throws if an amendment is present. The richer `AmdmntInfDtls` fields (original
+creditor scheme id, original debtor name and agent, frequency, final collection date, reason) are a
+documented follow-up.
 
 ## Ultimate parties
 

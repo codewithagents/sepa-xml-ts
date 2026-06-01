@@ -21,7 +21,7 @@
  * - RmtInf/Ustrd is emitted when remittanceInfo is present
  */
 
-import { DirectDebitDocumentSchema, type DirectDebitDocument } from '../model/pain008.js'
+import { DirectDebitDocumentSchema, type DirectDebitDocument, type Mandate } from '../model/pain008.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
 import {
   xe,
@@ -188,11 +188,84 @@ export function writeDirectDebit(
     }
   }
 
+  // Mandate amendment is only supported for pain.008.001.08. Fail loud rather than
+  // silently drop amendment data when the DK variant is selected.
+  if (variant !== 'pain.008.001.08') {
+    const hasAmendment = doc.batches.some((batch) =>
+      batch.collections.some((col) => col.mandate.amendment !== undefined)
+    )
+    if (hasAmendment) {
+      throw new Error(
+        `mandate amendment is not yet supported for variant ${variant}`
+      )
+    }
+  }
+
   if (variant === 'pain.008.003.02') {
     return writeDirectDebitDK(doc, profile)
   }
 
   return writeDirectDebit08(doc, profile)
+}
+
+// ---------------------------------------------------------------------------
+// MndtRltdInf emission helper for pain.008.001.08
+//
+// XSD order (MandateRelatedInformation14 sequence):
+//   MndtId, DtOfSgntr, AmdmntInd, AmdmntInfDtls, ElctrncSgntr, FrstColltnDt, ...
+//
+// AmdmntInfDtls order (AmendmentInformationDetails13 sequence, relevant children):
+//   OrgnlMndtId, OrgnlCdtrSchmeId(skip), OrgnlCdtrAgt(skip), OrgnlCdtrAgtAcct(skip),
+//   OrgnlDbtr(skip), OrgnlDbtrAcct, OrgnlDbtrAgt, ...
+//
+// SMNDA path: OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA"
+// (BranchAndFinancialInstitutionIdentification6/FinancialInstitutionIdentification18/
+//  GenericFinancialIdentification1/Id, confirmed against pain.008.001.08.xsd)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit the MndtRltdInf block for pain.008.001.08.
+ *
+ * When no amendment is present, emits only MndtId and DtOfSgntr (byte-identical to prior behavior).
+ * When amendment is present, adds AmdmntInd=true and AmdmntInfDtls with the relevant sub-fields.
+ */
+function emitMndtRltdInf08(lines: string[], mandate: Mandate): void {
+  lines.push(`          <MndtRltdInf>`)
+  lines.push(`            <MndtId>${xe(mandate.id)}</MndtId>`)
+  lines.push(`            <DtOfSgntr>${xe(mandate.signatureDate)}</DtOfSgntr>`)
+
+  if (mandate.amendment !== undefined) {
+    const amd = mandate.amendment
+    lines.push(`            <AmdmntInd>true</AmdmntInd>`)
+    lines.push(`            <AmdmntInfDtls>`)
+    // OrgnlMndtId: first in AmendmentInformationDetails13 sequence
+    if (amd.originalMandateId !== undefined) {
+      lines.push(`              <OrgnlMndtId>${xe(amd.originalMandateId)}</OrgnlMndtId>`)
+    }
+    // OrgnlDbtrAcct: after OrgnlDbtr (which we skip) in the sequence
+    if (amd.originalDebtorAccount !== undefined) {
+      lines.push(`              <OrgnlDbtrAcct>`)
+      lines.push(`                <Id>`)
+      lines.push(`                  <IBAN>${xe(amd.originalDebtorAccount)}</IBAN>`)
+      lines.push(`                </Id>`)
+      lines.push(`              </OrgnlDbtrAcct>`)
+    }
+    // OrgnlDbtrAgt: after OrgnlDbtrAcct. SMNDA = "SMNDA" in FinInstnId/Othr/Id.
+    // Path: BranchAndFinancialInstitutionIdentification6/FinancialInstitutionIdentification18/
+    //       GenericFinancialIdentification1/Id (confirmed against pain.008.001.08.xsd)
+    if (amd.sameMandateNewDebtorAccount === true) {
+      lines.push(`              <OrgnlDbtrAgt>`)
+      lines.push(`                <FinInstnId>`)
+      lines.push(`                  <Othr>`)
+      lines.push(`                    <Id>SMNDA</Id>`)
+      lines.push(`                  </Othr>`)
+      lines.push(`                </FinInstnId>`)
+      lines.push(`              </OrgnlDbtrAgt>`)
+    }
+    lines.push(`            </AmdmntInfDtls>`)
+  }
+
+  lines.push(`          </MndtRltdInf>`)
 }
 
 // ---------------------------------------------------------------------------
@@ -269,10 +342,7 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
       lines.push(`        </PmtId>`)
       lines.push(`        <InstdAmt Ccy="EUR">${formatAmountForXml(col.amount)}</InstdAmt>`)
       lines.push(`        <DrctDbtTx>`)
-      lines.push(`          <MndtRltdInf>`)
-      lines.push(`            <MndtId>${xe(col.mandate.id)}</MndtId>`)
-      lines.push(`            <DtOfSgntr>${xe(col.mandate.signatureDate)}</DtOfSgntr>`)
-      lines.push(`          </MndtRltdInf>`)
+      emitMndtRltdInf08(lines, col.mandate)
       lines.push(`        </DrctDbtTx>`)
       // UltmtCdtr: XSD position after DrctDbtTx, before DbtrAgt (DirectDebitTransactionInformation23 sequence)
       emitUltimateParty(lines, '        ', 'UltmtCdtr', col.ultimateCreditor)

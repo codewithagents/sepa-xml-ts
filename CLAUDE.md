@@ -95,7 +95,8 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 | `Collection.purpose?` (4-char ISO code) | `Purp/Cd` |
 | `DirectDebitBatch.categoryPurpose?` (4-char ISO code) | `PmtTpInf/CtgyPurp/Cd` |
 | `Collection.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` |
-| `Collection.mandate` (`{ id, signatureDate }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` |
+| `Collection.mandate` (`{ id, signatureDate, amendment? }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` (+ `AmdmntInd`/`AmdmntInfDtls` when amended) |
+| `Mandate.amendment?` (`{ originalMandateId?, originalDebtorAccount?, sameMandateNewDebtorAccount? }`) | `AmdmntInfDtls/OrgnlMndtId` + `OrgnlDbtrAcct/Id/IBAN` + `OrgnlDbtrAgt/FinInstnId/Othr/Id`=SMNDA |
 | `Collection.remittanceInfo?` | `RmtInf/Ustrd` |
 
 Writer-derived for pain.008: `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=DD`, `PmtTpInf/SvcLvl/Cd=SEPA`,
@@ -148,10 +149,12 @@ deep-equal.
   elements on both types, dual validate, fuzz-hardened parse, complete EPC transliteration,
   golden corpus, differential tests vs sepa.js, bank-profile seam + requireBic, DK pain.001.003.03
   write+read variant.
-- pain.008 sequence-type and mandate cross-field validation (R1/R2/R3) ships and is enforced by
+- pain.008 sequence-type and mandate cross-field validation (R1/R2/R3/R4) ships and is enforced by
   both validateDirectDebit (returns ruleIssues) and writeDirectDebit (throws before emitting XML).
   R1: signatureDate <= collectionDate. R2: OOFF mandate appears exactly once. R3: mandate id bound
-  to one scheme (CORE or B2B) per document.
+  to one scheme (CORE or B2B) per document. R4: if any collection in a batch has
+  mandate.amendment.sameMandateNewDebtorAccount === true (SMNDA), that batch's sequenceType must be
+  FRST (the agreed SMNDA-implies-FRST rule).
 - Legacy ISO `pain.001.001.03` credit-transfer WRITE variant ships, XSD-verified against
   schemas/iso20022/pain.001.001.03.xsd (the same XSD already vendored for the read path), with
   XSD-oracle + round-trip property suites. Deltas vs .09: plain ReqdExctnDt, BIC not BICFI, debtor
@@ -201,7 +204,18 @@ deep-equal.
   InstrForCdtrAgt/before RmtInf in the tx info element; CtgyPurp is the last child of PmtTpInf.
   XSD-verified via the oracle suite and round-trip tested on both message types; legacy/DK variants
   throw if present. Follow-up: proprietary purpose via Prtry.
-- ~503 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+- SDD mandate amendment ships for pain.008.001.08: optional `Mandate.amendment` (minimal common-case
+  fields { originalMandateId?, originalDebtorAccount?, sameMandateNewDebtorAccount? }) emits
+  MndtRltdInf/AmdmntInd=true + AmdmntInfDtls (OrgnlMndtId, OrgnlDbtrAcct/Id/IBAN, and
+  OrgnlDbtrAgt/FinInstnId/Othr/Id=SMNDA for same-bank-new-account). Schema refinements: an amendment
+  must set at least one detail, originalDebtorAccount must be a valid IBAN, and originalDebtorAccount
+  XOR sameMandateNewDebtorAccount (SMNDA does not disclose the new account, so an explicit old account
+  contradicts it). Cross-field rule R4 (enforced, agreed) requires SMNDA collections to sit in a FRST
+  batch. XSD-verified and round-trip tested; absent amendment is byte-identical; DK variant throws.
+  Follow-up: the richer AmdmntInfDtls fields (OrgnlCdtrSchmeId, OrgnlDbtr/Agt, OrgnlFrqcy,
+  OrgnlFnlColltnDt, OrgnlRsn). The SMNDA property arbitrary path is covered by unit tests, not the
+  property suite, because R4 couples it to the batch sequenceType.
+- ~538 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate

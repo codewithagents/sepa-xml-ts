@@ -161,6 +161,71 @@ export type Creditor = z.infer<typeof CreditorSchema>
 // ---------------------------------------------------------------------------
 
 /**
+ * Mandate amendment details (maps to DrctDbtTx/MndtRltdInf/AmdmntInfDtls).
+ *
+ * When a mandate's details change (new debtor account, new mandate id at the creditor,
+ * or the same mandate moving to a new account at the same bank via SMNDA), the file
+ * carries AmdmntInd=true and this record inside AmdmntInfDtls.
+ *
+ * Minimal common-case fields only. The remaining AmendmentInformationDetails13 sub-fields
+ * (original creditor scheme id, original debtor name/agent, frequency, final collection
+ * date, reason) are not modelled here and are a documented follow-up.
+ *
+ * Validation invariants (enforced as Zod refinements):
+ * 1. originalDebtorAccount, when present, must be a valid IBAN.
+ * 2. At least one detail must be meaningful: at least one of originalMandateId,
+ *    originalDebtorAccount, or sameMandateNewDebtorAccount===true must be present.
+ *    An empty or all-false object is rejected.
+ * 3. originalDebtorAccount and sameMandateNewDebtorAccount===true are mutually exclusive:
+ *    SMNDA means "same bank, new account, account not disclosed", so providing an
+ *    explicit old account contradicts it.
+ */
+const MandateAmendmentSchema = z
+  .object({
+    /**
+     * Original mandate identifier (AmdmntInfDtls/OrgnlMndtId).
+     * Present when the creditor's mandate reference changes.
+     */
+    originalMandateId: SepaMax35Text.optional(),
+    /**
+     * Original debtor account IBAN (AmdmntInfDtls/OrgnlDbtrAcct/Id/IBAN).
+     * Present when the debtor's bank account changes. Must be a valid IBAN.
+     */
+    originalDebtorAccount: IBANSchema.optional(),
+    /**
+     * Same Mandate New Debtor Account (SMNDA) flag.
+     * Maps to AmdmntInfDtls/OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA".
+     * Signals that the mandate stays the same but the debtor opens a new account
+     * at the same bank. The old account number is not disclosed.
+     * Mutually exclusive with originalDebtorAccount.
+     * When true, the batch sequenceType MUST be FRST (enforced by R4 in dd-rules.ts
+     * and by the writer before emitting XML).
+     */
+    sameMandateNewDebtorAccount: z.boolean().optional(),
+  })
+  .refine(
+    (a) =>
+      a.originalMandateId !== undefined ||
+      a.originalDebtorAccount !== undefined ||
+      a.sameMandateNewDebtorAccount === true,
+    {
+      message:
+        'A mandate amendment must contain at least one meaningful detail: ' +
+        'set originalMandateId, originalDebtorAccount, or sameMandateNewDebtorAccount=true',
+    }
+  )
+  .refine(
+    (a) => !(a.originalDebtorAccount !== undefined && a.sameMandateNewDebtorAccount === true),
+    {
+      message:
+        'originalDebtorAccount and sameMandateNewDebtorAccount=true are mutually exclusive: ' +
+        'SMNDA signals the old account is not disclosed, so providing an explicit original IBAN contradicts it',
+    }
+  )
+
+export type MandateAmendment = z.infer<typeof MandateAmendmentSchema>
+
+/**
  * Direct debit mandate (maps to DrctDbtTx/MndtRltdInf).
  */
 const MandateSchema = z.object({
@@ -168,6 +233,12 @@ const MandateSchema = z.object({
   id: SepaMax35Text,
   /** Date of signature (DtOfSgntr), YYYY-MM-DD. */
   signatureDate: ISODateSchema,
+  /**
+   * Optional amendment details. When present, the writer emits AmdmntInd=true
+   * and AmdmntInfDtls inside MndtRltdInf. Supported for pain.008.001.08 ONLY.
+   * The DK variant (pain.008.003.02) throws if this is set.
+   */
+  amendment: MandateAmendmentSchema.optional(),
 })
 
 export type Mandate = z.infer<typeof MandateSchema>

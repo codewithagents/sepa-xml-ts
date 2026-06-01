@@ -35,6 +35,7 @@ import {
   type Collection,
   type Creditor,
   type Mandate,
+  type MandateAmendment,
   type SequenceType,
   type LocalInstrument,
 } from '../model/pain008.js'
@@ -422,6 +423,46 @@ function extractInstdAmt(txEl: unknown): Money | null {
   return parseMoneyString(amountStr, ccy)
 }
 
+/**
+ * Extract a MandateAmendment from an AmdmntInfDtls element, if present.
+ * Returns undefined when the element is absent or has no recognized fields.
+ * Never returns an empty object, preserving round-trip deep-equality.
+ *
+ * Extracted fields (AmendmentInformationDetails13):
+ *   OrgnlMndtId          -> originalMandateId
+ *   OrgnlDbtrAcct/Id/IBAN -> originalDebtorAccount
+ *   OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA" -> sameMandateNewDebtorAccount: true
+ *
+ * Other sub-fields (OrgnlCdtrSchmeId, OrgnlDbtr, etc.) are not modelled and are ignored.
+ */
+function extractMandateAmendment(amdmntInfDtlsEl: unknown): MandateAmendment | undefined {
+  if (amdmntInfDtlsEl === null || amdmntInfDtlsEl === undefined) {
+    return undefined
+  }
+
+  const originalMandateId = str(nav(amdmntInfDtlsEl, 'OrgnlMndtId')) ?? undefined
+  const originalDebtorAccount = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN')) ?? undefined
+
+  // SMNDA is signaled by OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA"
+  const smndaId = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'Othr', 'Id'))
+  const sameMandateNewDebtorAccount = smndaId === 'SMNDA' ? true : undefined
+
+  // If no field was populated, return undefined (no empty object, preserves round-trip deep-equality)
+  if (
+    originalMandateId === undefined &&
+    originalDebtorAccount === undefined &&
+    sameMandateNewDebtorAccount === undefined
+  ) {
+    return undefined
+  }
+
+  const amd: MandateAmendment = {}
+  if (originalMandateId !== undefined) amd.originalMandateId = originalMandateId
+  if (originalDebtorAccount !== undefined) amd.originalDebtorAccount = originalDebtorAccount
+  if (sameMandateNewDebtorAccount !== undefined) amd.sameMandateNewDebtorAccount = sameMandateNewDebtorAccount
+  return amd
+}
+
 function extractCollection(txEl: unknown): Collection | null {
   if (!txEl || typeof txEl !== 'object') return null
 
@@ -436,7 +477,16 @@ function extractCollection(txEl: unknown): Collection | null {
   if (!mandateId) return null
   const signatureDate = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'DtOfSgntr'))
   if (!signatureDate) return null
-  const mandate: Mandate = { id: mandateId, signatureDate }
+
+  // Optional amendment: AmdmntInfDtls (only extracted when AmdmntInd=true is present)
+  const amdmntInd = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInd'))
+  const amendment = amdmntInd === 'true' ? extractMandateAmendment(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInfDtls')) : undefined
+
+  const mandate: Mandate = {
+    id: mandateId,
+    signatureDate,
+    ...(amendment !== undefined ? { amendment } : {}),
+  }
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
   const dbtrEl = nav(txEl, 'Dbtr')

@@ -36,6 +36,7 @@ import type {
   Creditor,
   SequenceType,
   LocalInstrument,
+  MandateAmendment,
 } from '../src/model/pain008.js'
 
 // ---------------------------------------------------------------------------
@@ -289,6 +290,30 @@ function arbPurposeCode(): fc.Arbitrary<string | undefined> {
 }
 
 /**
+ * Arbitrary for an optional MandateAmendment (general-purpose, safe for any sequenceType).
+ *
+ * IMPORTANT: sameMandateNewDebtorAccount=true is NOT generated here because R4 requires
+ * such collections to be in FRST-only batches. The general arbCollection does not know
+ * the batch sequenceType, so generating SMNDA would cause non-FRST batches to throw.
+ * SMNDA and R4 are covered by the dedicated unit tests in mandate-amendment.test.ts.
+ *
+ * Generated variants (all satisfy the not-empty and mutual-exclusion Zod refinements):
+ *   - undefined (no amendment, ~50% of cases)
+ *   - { originalMandateId }
+ *   - { originalDebtorAccount }
+ *   - { originalMandateId, originalDebtorAccount }
+ */
+function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
+  return fc.oneof(
+    fc.constant<MandateAmendment | undefined>(undefined),
+    arbSepaText(1, 35).map((id): MandateAmendment => ({ originalMandateId: id })),
+    arbIban().map((iban): MandateAmendment => ({ originalDebtorAccount: iban })),
+    fc.record({ originalMandateId: arbSepaText(1, 35), originalDebtorAccount: arbIban() })
+      .map((a): MandateAmendment => ({ originalMandateId: a.originalMandateId, originalDebtorAccount: a.originalDebtorAccount }))
+  )
+}
+
+/**
  * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
  * All boundary values must be at or below this cap.
  */
@@ -524,12 +549,21 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
           return withOptionalAddress(base, address)
         }),
       ultimateDebtor: arbUltimateParty(),
-      mandate: fc.record({
-        // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).
-        // Mandate id is NOT subject to the slash rule (per the EPC rulebook).
-        id: arbSepaText(10, 35),
-        signatureDate: arbSignatureDate,
-      }),
+      mandate: fc
+        .record({
+          // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).
+          // Mandate id is NOT subject to the slash rule (per the EPC rulebook).
+          id: arbSepaText(10, 35),
+          signatureDate: arbSignatureDate,
+          amendment: arbMandateAmendment(),
+        })
+        .map((m) => {
+          // Strip undefined amendment key so absent amendment does not appear as a key
+          // with undefined value (would break round-trip deep-equal).
+          const out: Record<string, unknown> = { id: m.id, signatureDate: m.signatureDate }
+          if (m.amendment !== undefined) out['amendment'] = m.amendment
+          return out as { id: string; signatureDate: string; amendment?: MandateAmendment }
+        }),
       purpose: arbPurposeCode(),
       remittance: arbRemittance(),
     })

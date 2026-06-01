@@ -17,6 +17,11 @@
  *   R3 (consistent scheme per mandate): a given mandate id must not be used under both
  *      CORE and B2B local instruments in the same document. localInstrument defaults to
  *      CORE when absent, matching the writer default.
+ *
+ *   R4 (SMNDA requires FRST): if a batch contains any collection whose
+ *      mandate.amendment.sameMandateNewDebtorAccount === true, that batch's sequenceType
+ *      MUST be 'FRST'. The SMNDA flag signals a new debtor account at the same bank,
+ *      which constitutes the first collection under the amended mandate.
  */
 
 import type { DirectDebitDocument } from './pain008.js'
@@ -127,6 +132,35 @@ export function checkDirectDebitRules(doc: DirectDebitDocument): ProfileIssue[] 
               ` A mandate is bound to one scheme (CORE or B2B) and cannot be reused across schemes.`,
           })
         }
+      }
+    }
+  }
+
+  // R4: SMNDA requires FRST sequenceType
+  // If any collection in a batch has mandate.amendment.sameMandateNewDebtorAccount === true,
+  // the batch's sequenceType must be 'FRST'.
+  for (let bIdx = 0; bIdx < doc.batches.length; bIdx++) {
+    const batch = doc.batches[bIdx]
+    if (batch === undefined) continue
+
+    if (batch.sequenceType === 'FRST') {
+      // Already FRST, no violation possible for this batch.
+      continue
+    }
+
+    for (let cIdx = 0; cIdx < batch.collections.length; cIdx++) {
+      const col = batch.collections[cIdx]
+      if (col === undefined) continue
+
+      if (col.mandate.amendment?.sameMandateNewDebtorAccount === true) {
+        issues.push({
+          path: `batches.${bIdx}.collections.${cIdx}.mandate.amendment.sameMandateNewDebtorAccount`,
+          message:
+            `R4: batch ${bIdx} has sequenceType "${batch.sequenceType}" but collection ${cIdx}` +
+            ` has sameMandateNewDebtorAccount=true (SMNDA).` +
+            ` A batch containing SMNDA collections must have sequenceType FRST,` +
+            ` because SMNDA represents the first collection under the amended mandate.`,
+        })
       }
     }
   }

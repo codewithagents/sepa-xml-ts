@@ -70,6 +70,7 @@ export type {
   Collection,
   Creditor,
   Mandate,
+  MandateAmendment,
   SequenceType,
   LocalInstrument,
 } from './model/pain008.js'
