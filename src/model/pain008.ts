@@ -8,18 +8,18 @@
  * Namespace: urn:iso:std:iso:20022:tech:xsd:pain.008.001.08
  */
 
-import { z } from "zod";
-import { isValidIban } from "./iban.js";
-import { isSepaCharset } from "./charset.js";
-import { MoneySchema } from "./schema.js";
-import { isValidCreditorId } from "./creditor-id.js";
+import { z } from 'zod'
+import { isValidIban } from './iban.js'
+import { isSepaCharset } from './charset.js'
+import { MoneySchema } from './schema.js'
+import { isValidCreditorId } from './creditor-id.js'
 
 // ---------------------------------------------------------------------------
 // Internal validators (shared with pain001 but redefined for independence)
 // ---------------------------------------------------------------------------
 
-const ISO_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 function sepaText(maxLen: number) {
   return z
@@ -28,33 +28,30 @@ function sepaText(maxLen: number) {
     .max(maxLen)
     .refine((v) => isSepaCharset(v), {
       message: `Value contains characters outside the SEPA charset (EPC217-08)`,
-    });
+    })
 }
 
-const SepaMax35Text = sepaText(35);
-const SepaMax140Text = sepaText(140);
+const SepaMax35Text = sepaText(35)
+const SepaMax140Text = sepaText(140)
 
 const ISODateTimeSchema = z
   .string()
-  .regex(ISO_DATETIME_PATTERN, "Must be a valid ISO 8601 datetime");
+  .regex(ISO_DATETIME_PATTERN, 'Must be a valid ISO 8601 datetime')
 
 const ISODateSchema = z
   .string()
-  .regex(ISO_DATE_PATTERN, "Must be a valid ISO 8601 date in YYYY-MM-DD format");
+  .regex(ISO_DATE_PATTERN, 'Must be a valid ISO 8601 date in YYYY-MM-DD format')
 
 const IBANSchema = z
   .string()
-  .regex(/^[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}$/, "Invalid IBAN format")
+  .regex(/^[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}$/, 'Invalid IBAN format')
   .refine((v) => isValidIban(v), {
-    message: "IBAN failed mod-97 checksum validation",
-  });
+    message: 'IBAN failed mod-97 checksum validation',
+  })
 
 const BICSchema = z
   .string()
-  .regex(
-    /^[A-Z0-9]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/,
-    "Invalid BIC/SWIFT format"
-  );
+  .regex(/^[A-Z0-9]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/, 'Invalid BIC/SWIFT format')
 
 // ---------------------------------------------------------------------------
 // SequenceType: SEPA direct debit sequence types
@@ -64,15 +61,15 @@ const BICSchema = z
  * SEPA direct debit sequence type (PmtTpInf/SeqTp).
  * FRST: First collection. RCUR: Recurring. OOFF: One-off. FNAL: Final.
  */
-export const SequenceTypeSchema = z.enum(["FRST", "RCUR", "OOFF", "FNAL"]);
-export type SequenceType = z.infer<typeof SequenceTypeSchema>;
+export const SequenceTypeSchema = z.enum(['FRST', 'RCUR', 'OOFF', 'FNAL'])
+export type SequenceType = z.infer<typeof SequenceTypeSchema>
 
 /**
  * SEPA local instrument code (PmtTpInf/LclInstrm/Cd).
  * CORE: standard SEPA Core Direct Debit. B2B: SEPA Business-to-Business Direct Debit.
  */
-export const LocalInstrumentSchema = z.enum(["CORE", "B2B"]);
-export type LocalInstrument = z.infer<typeof LocalInstrumentSchema>;
+export const LocalInstrumentSchema = z.enum(['CORE', 'B2B'])
+export type LocalInstrument = z.infer<typeof LocalInstrumentSchema>
 
 // ---------------------------------------------------------------------------
 // Creditor: the party collecting funds
@@ -90,11 +87,11 @@ const CreditorIdSchema = z
   .max(35)
   .regex(
     /^[A-Z]{2}[0-9]{2}[A-Z0-9]{3}[a-zA-Z0-9]{1,28}$/,
-    "Invalid SEPA Creditor Identifier format (expected: CC + 2 digits + 3 char business code + identifier)"
+    'Invalid SEPA Creditor Identifier format (expected: CC + 2 digits + 3 char business code + identifier)'
   )
   .refine((v) => isValidCreditorId(v), {
-    message: "SEPA Creditor Identifier failed ISO 7064 MOD 97-10 check digit validation",
-  });
+    message: 'SEPA Creditor Identifier failed ISO 7064 MOD 97-10 check digit validation',
+  })
 
 /**
  * The party collecting funds via direct debit.
@@ -113,9 +110,9 @@ export const CreditorSchema = z.object({
    * Validated by format regex AND ISO 7064 MOD 97-10 check digit (business code excluded per spec).
    */
   creditorId: CreditorIdSchema,
-});
+})
 
-export type Creditor = z.infer<typeof CreditorSchema>;
+export type Creditor = z.infer<typeof CreditorSchema>
 
 // ---------------------------------------------------------------------------
 // Mandate: the authorization given by a debtor
@@ -129,9 +126,9 @@ export const MandateSchema = z.object({
   id: SepaMax35Text,
   /** Date of signature (DtOfSgntr), YYYY-MM-DD. */
   signatureDate: ISODateSchema,
-});
+})
 
-export type Mandate = z.infer<typeof MandateSchema>;
+export type Mandate = z.infer<typeof MandateSchema>
 
 // ---------------------------------------------------------------------------
 // Collection: one direct debit transaction
@@ -155,9 +152,9 @@ export const CollectionSchema = z.object({
   mandate: MandateSchema,
   /** Remittance information (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
   remittanceInfo: SepaMax140Text.optional(),
-});
+})
 
-export type Collection = z.infer<typeof CollectionSchema>;
+export type Collection = z.infer<typeof CollectionSchema>
 
 // ---------------------------------------------------------------------------
 // DirectDebitBatch: one PmtInf element
@@ -180,10 +177,10 @@ export const DirectDebitBatchSchema = z
     collections: z.array(CollectionSchema).min(1),
   })
   .refine((b) => b.collections.length > 0, {
-    message: "DirectDebitBatch must contain at least one collection",
-  });
+    message: 'DirectDebitBatch must contain at least one collection',
+  })
 
-export type DirectDebitBatch = z.infer<typeof DirectDebitBatchSchema>;
+export type DirectDebitBatch = z.infer<typeof DirectDebitBatchSchema>
 
 // ---------------------------------------------------------------------------
 // DirectDebitDocument: the whole document
@@ -210,13 +207,10 @@ export const DirectDebitDocumentSchema = z
   })
   .refine(
     (doc) => {
-      const totalTxs = doc.batches.reduce(
-        (sum, batch) => sum + batch.collections.length,
-        0
-      );
-      return totalTxs >= 1;
+      const totalTxs = doc.batches.reduce((sum, batch) => sum + batch.collections.length, 0)
+      return totalTxs >= 1
     },
-    { message: "Document must contain at least one collection" }
-  );
+    { message: 'Document must contain at least one collection' }
+  )
 
-export type DirectDebitDocument = z.infer<typeof DirectDebitDocumentSchema>;
+export type DirectDebitDocument = z.infer<typeof DirectDebitDocumentSchema>

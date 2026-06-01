@@ -5,7 +5,7 @@
  * This file provides internal formatting utilities for the writer.
  */
 
-import type { Money } from "./schema.js";
+import type { Money } from './schema.js'
 
 /**
  * Format a Money value to the XML decimal string.
@@ -16,9 +16,9 @@ import type { Money } from "./schema.js";
  * @returns formatted string like "100.50"
  */
 export function formatAmountForXml(m: Money): string {
-  const whole = m.minorUnits / 100n;
-  const cents = m.minorUnits % 100n;
-  return `${whole}.${cents.toString().padStart(2, "0")}`;
+  const whole = m.minorUnits / 100n
+  const cents = m.minorUnits % 100n
+  return `${whole}.${cents.toString().padStart(2, '0')}`
 }
 
 /**
@@ -26,5 +26,5 @@ export function formatAmountForXml(m: Money): string {
  * All values must be EUR (the schema guarantees this).
  */
 export function sumMoney(amounts: readonly Money[]): bigint {
-  return amounts.reduce((acc, m) => acc + m.minorUnits, 0n);
+  return amounts.reduce((acc, m) => acc + m.minorUnits, 0n)
 }

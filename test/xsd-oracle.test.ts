@@ -10,17 +10,22 @@
  * 6. pain.008 round-trip property test (numRuns >= 200)
  */
 
-import { describe, it, expect } from "vitest";
-import * as fc from "fast-check";
-import { writeCreditTransfer } from "../src/writer/writer.js";
-import { writeDirectDebit } from "../src/writer/direct-debit.js";
-import { parse } from "../src/parser/parser.js";
-import { validateXsd } from "../src/xsd.js";
-import { buildIban } from "../src/model/iban.js";
-import { sanitizeSepa } from "../src/model/charset.js";
-import { buildCreditorId, isValidCreditorId } from "../src/model/creditor-id.js";
-import { euros, formatMoney } from "../src/model/schema.js";
-import type { CreditTransferDocument, AccountParty, Transfer, PaymentBatch } from "../src/model/schema.js";
+import { describe, it, expect } from 'vitest'
+import * as fc from 'fast-check'
+import { writeCreditTransfer } from '../src/writer/writer.js'
+import { writeDirectDebit } from '../src/writer/direct-debit.js'
+import { parse } from '../src/parser/parser.js'
+import { validateXsd } from '../src/xsd.js'
+import { buildIban } from '../src/model/iban.js'
+import { sanitizeSepa } from '../src/model/charset.js'
+import { buildCreditorId, isValidCreditorId } from '../src/model/creditor-id.js'
+import { euros, formatMoney } from '../src/model/schema.js'
+import type {
+  CreditTransferDocument,
+  AccountParty,
+  Transfer,
+  PaymentBatch,
+} from '../src/model/schema.js'
 import type {
   DirectDebitDocument,
   DirectDebitBatch,
@@ -28,7 +33,7 @@ import type {
   Creditor,
   SequenceType,
   LocalInstrument,
-} from "../src/model/pain008.js";
+} from '../src/model/pain008.js'
 
 // ---------------------------------------------------------------------------
 // Shared IBAN helpers (used by both pain.001 and pain.008 arbitraries)
@@ -39,50 +44,50 @@ import type {
  * Each entry: [countryCode, bbanLength] where all digits are used (simple).
  */
 const IBAN_COUNTRIES: Array<[string, number]> = [
-  ["DE", 18],
-  ["FR", 23],
-  ["NL", 14],
-  ["ES", 20],
-  ["IT", 23],
-  ["AT", 16],
-  ["BE", 12],
-  ["PT", 21],
-  ["FI", 14],
-  ["LU", 16],
-];
+  ['DE', 18],
+  ['FR', 23],
+  ['NL', 14],
+  ['ES', 20],
+  ['IT', 23],
+  ['AT', 16],
+  ['BE', 12],
+  ['PT', 21],
+  ['FI', 14],
+  ['LU', 16],
+]
 
 /** Arbitrary that produces a valid IBAN (passes mod-97 checksum). */
 function arbIban(): fc.Arbitrary<string> {
   return fc.integer({ min: 0, max: IBAN_COUNTRIES.length - 1 }).chain((idx) => {
-    const entry = IBAN_COUNTRIES[idx];
+    const entry = IBAN_COUNTRIES[idx]
     if (entry === undefined) {
-      throw new Error(`IBAN_COUNTRIES index out of range: ${idx}`);
+      throw new Error(`IBAN_COUNTRIES index out of range: ${idx}`)
     }
-    const [country, bbanLen] = entry;
+    const [country, bbanLen] = entry
     return fc
       .array(fc.integer({ min: 0, max: 9 }), { minLength: bbanLen, maxLength: bbanLen })
       .map((digits) => {
-        const bban = digits.join("");
-        return buildIban(country, bban);
-      });
-  });
+        const bban = digits.join('')
+        return buildIban(country, bban)
+      })
+  })
 }
 
 // ---------------------------------------------------------------------------
 // Shared SEPA text helpers
 // ---------------------------------------------------------------------------
 
-const SEPA_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 /-?:().,'+";
+const SEPA_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 /-?:().,'+"
 
 /** Arbitrary for a clean SEPA text string of the given max length. */
 function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   return fc
-    .stringOf(fc.constantFrom(...SEPA_CHARSET.split("")), {
+    .stringOf(fc.constantFrom(...SEPA_CHARSET.split('')), {
       minLength: minLen,
       maxLength: maxLen,
     })
     .map((s) => s.trim())
-    .filter((s) => s.length >= minLen);
+    .filter((s) => s.length >= minLen)
 }
 
 /**
@@ -90,15 +95,15 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
  * gets sanitized through sanitizeSepa before use.
  */
 function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  const extendedChars = "äöüÄÖÜßàáâèéêìíîòóôùúûñç";
-  const mixedCharset = SEPA_CHARSET + extendedChars;
+  const extendedChars = 'äöüÄÖÜßàáâèéêìíîòóôùúûñç'
+  const mixedCharset = SEPA_CHARSET + extendedChars
   return fc
-    .stringOf(fc.constantFrom(...mixedCharset.split("")), {
+    .stringOf(fc.constantFrom(...mixedCharset.split('')), {
       minLength: minLen + 2,
       maxLength: maxLen + 10,
     })
     .map((s) => sanitizeSepa(s))
-    .filter((s) => s.length >= minLen && s.length <= maxLen);
+    .filter((s) => s.length >= minLen && s.length <= maxLen)
 }
 
 // ---------------------------------------------------------------------------
@@ -117,9 +122,9 @@ function arbCreatedAt(): fc.Arbitrary<string> {
     })
     .map(
       ({ year, month, day, hour, minute, second }) =>
-        `${year}-${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}` +
-        `T${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}:${second.toString().padStart(2, "0")}Z`
-    );
+        `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}` +
+        `T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}Z`
+    )
 }
 
 function arbDate(): fc.Arbitrary<string> {
@@ -131,38 +136,31 @@ function arbDate(): fc.Arbitrary<string> {
     })
     .map(
       ({ year, month, day }) =>
-        `${year}-${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`
-    );
+        `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+    )
 }
 
 function arbPartyName(): fc.Arbitrary<string> {
-  return fc.oneof(
-    arbSepaText(1, 70),
-    arbSanitizedSepaText(1, 70)
-  );
+  return fc.oneof(arbSepaText(1, 70), arbSanitizedSepaText(1, 70))
 }
 
 function arbBic(): fc.Arbitrary<string> {
-  return fc.constantFrom(
-    "COBADEFFXXX",
-    "BNPAFRPPXXX",
-    "DEUTDEDBFRA",
-    "INGBNL2AXXX",
-    "BSCHESMMXXX"
-  );
+  return fc.constantFrom('COBADEFFXXX', 'BNPAFRPPXXX', 'DEUTDEDBFRA', 'INGBNL2AXXX', 'BSCHESMMXXX')
 }
 
-function arbMoney(): fc.Arbitrary<{ currencyCode: "EUR"; minorUnits: bigint }> {
+function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
   return fc.oneof(
     // Boundary: minimum (0.01 EUR = 1 cent)
-    fc.constant({ currencyCode: "EUR" as const, minorUnits: 1n }),
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 1n }),
     // Boundary: exactly 1 EUR
-    fc.constant({ currencyCode: "EUR" as const, minorUnits: 100n }),
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100n }),
     // Boundary: large amount
-    fc.constant({ currencyCode: "EUR" as const, minorUnits: 999_999_999n }),
+    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 999_999_999n }),
     // Random amounts between 1 cent and 1 million EUR
-    fc.bigInt({ min: 1n, max: 100_000_000n }).map((n) => ({ currencyCode: "EUR" as const, minorUnits: n }))
-  );
+    fc
+      .bigInt({ min: 1n, max: 100_000_000n })
+      .map((n) => ({ currencyCode: 'EUR' as const, minorUnits: n }))
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -170,32 +168,36 @@ function arbMoney(): fc.Arbitrary<{ currencyCode: "EUR"; minorUnits: bigint }> {
 // ---------------------------------------------------------------------------
 
 function arbAccountParty(): fc.Arbitrary<AccountParty> {
-  return fc.record({
-    name: arbPartyName(),
-    iban: arbIban(),
-    bic: fc.option(arbBic(), { nil: undefined }),
-  }).map((p) => {
-    if (p.bic === undefined) {
-      const { bic: _bic, ...rest } = p;
-      return rest;
-    }
-    return p;
-  });
+  return fc
+    .record({
+      name: arbPartyName(),
+      iban: arbIban(),
+      bic: fc.option(arbBic(), { nil: undefined }),
+    })
+    .map((p) => {
+      if (p.bic === undefined) {
+        const { bic: _bic, ...rest } = p
+        return rest
+      }
+      return p
+    })
 }
 
 function arbTransfer(): fc.Arbitrary<Transfer> {
-  return fc.record({
-    endToEndId: arbSepaText(1, 35),
-    amount: arbMoney(),
-    creditor: arbAccountParty(),
-    remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
-  }).map((tx) => {
-    if (tx.remittanceInfo === undefined) {
-      const { remittanceInfo: _ri, ...rest } = tx;
-      return rest;
-    }
-    return tx;
-  });
+  return fc
+    .record({
+      endToEndId: arbSepaText(1, 35),
+      amount: arbMoney(),
+      creditor: arbAccountParty(),
+      remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+    })
+    .map((tx) => {
+      if (tx.remittanceInfo === undefined) {
+        const { remittanceInfo: _ri, ...rest } = tx
+        return rest
+      }
+      return tx
+    })
 }
 
 function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
@@ -204,7 +206,7 @@ function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
     executionDate: arbDate(),
     debtor: arbAccountParty(),
     transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
-  });
+  })
 }
 
 function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
@@ -213,7 +215,7 @@ function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
     createdAt: arbCreatedAt(),
     initiatingParty: arbPartyName(),
     batches: fc.array(arbPaymentBatch(), { minLength: 1, maxLength: 3 }),
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -226,70 +228,76 @@ function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
  * value passes the ISO 7064 MOD 97-10 validation wired into CreditorIdSchema.
  */
 function arbCreditorId(): fc.Arbitrary<string> {
-  const COUNTRY_CODES = ["DE", "FR", "NL", "AT", "BE", "ES", "IT", "PT", "FI", "LU"];
-  const ALPHA_NUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  return fc.record({
-    country: fc.constantFrom(...COUNTRY_CODES),
-    // National identifier: 1..10 alphanumeric chars (keeps total length under 35)
-    nationalId: fc.stringOf(
-      fc.constantFrom(...ALPHA_NUM.split("")),
-      { minLength: 1, maxLength: 10 }
-    ),
-  }).map(({ country, nationalId }) =>
-    buildCreditorId(country, "ZZZ", nationalId)
-  );
+  const COUNTRY_CODES = ['DE', 'FR', 'NL', 'AT', 'BE', 'ES', 'IT', 'PT', 'FI', 'LU']
+  const ALPHA_NUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return fc
+    .record({
+      country: fc.constantFrom(...COUNTRY_CODES),
+      // National identifier: 1..10 alphanumeric chars (keeps total length under 35)
+      nationalId: fc.stringOf(fc.constantFrom(...ALPHA_NUM.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+    })
+    .map(({ country, nationalId }) => buildCreditorId(country, 'ZZZ', nationalId))
 }
 
 function arbSequenceType(): fc.Arbitrary<SequenceType> {
-  return fc.constantFrom<SequenceType>("FRST", "RCUR", "OOFF", "FNAL");
+  return fc.constantFrom<SequenceType>('FRST', 'RCUR', 'OOFF', 'FNAL')
 }
 
 function arbLocalInstrument(): fc.Arbitrary<LocalInstrument> {
-  return fc.constantFrom<LocalInstrument>("CORE", "B2B");
+  return fc.constantFrom<LocalInstrument>('CORE', 'B2B')
 }
 
 function arbCreditor(): fc.Arbitrary<Creditor> {
-  return fc.record({
-    name: arbPartyName(),
-    iban: arbIban(),
-    bic: fc.option(arbBic(), { nil: undefined }),
-    creditorId: arbCreditorId(),
-  }).map((c) => {
-    if (c.bic === undefined) {
-      const { bic: _bic, ...rest } = c;
-      return rest;
-    }
-    return c;
-  });
-}
-
-function arbCollection(): fc.Arbitrary<Collection> {
-  return fc.record({
-    endToEndId: arbSepaText(1, 35),
-    amount: arbMoney(),
-    debtor: fc.record({
+  return fc
+    .record({
       name: arbPartyName(),
       iban: arbIban(),
       bic: fc.option(arbBic(), { nil: undefined }),
-    }).map((d) => {
-      if (d.bic === undefined) {
-        const { bic: _bic, ...rest } = d;
-        return rest;
+      creditorId: arbCreditorId(),
+    })
+    .map((c) => {
+      if (c.bic === undefined) {
+        const { bic: _bic, ...rest } = c
+        return rest
       }
-      return d;
-    }),
-    mandate: fc.record({
-      id: arbSepaText(1, 35),
-      signatureDate: arbDate(),
-    }),
-    remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
-  }).map((col) => {
-    if (col.remittanceInfo === undefined) {
-      const { remittanceInfo: _ri, ...rest } = col;
-      return rest;
-    }
-    return col;
-  });
+      return c
+    })
+}
+
+function arbCollection(): fc.Arbitrary<Collection> {
+  return fc
+    .record({
+      endToEndId: arbSepaText(1, 35),
+      amount: arbMoney(),
+      debtor: fc
+        .record({
+          name: arbPartyName(),
+          iban: arbIban(),
+          bic: fc.option(arbBic(), { nil: undefined }),
+        })
+        .map((d) => {
+          if (d.bic === undefined) {
+            const { bic: _bic, ...rest } = d
+            return rest
+          }
+          return d
+        }),
+      mandate: fc.record({
+        id: arbSepaText(1, 35),
+        signatureDate: arbDate(),
+      }),
+      remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+    })
+    .map((col) => {
+      if (col.remittanceInfo === undefined) {
+        const { remittanceInfo: _ri, ...rest } = col
+        return rest
+      }
+      return col
+    })
 }
 
 function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
@@ -302,7 +310,7 @@ function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
     // Generating undefined would cause a round-trip mismatch (undefined -> write "CORE" -> parse "CORE").
     localInstrument: arbLocalInstrument(),
     collections: fc.array(arbCollection(), { minLength: 1, maxLength: 5 }),
-  });
+  })
 }
 
 function arbDirectDebitDocument(): fc.Arbitrary<DirectDebitDocument> {
@@ -312,204 +320,204 @@ function arbDirectDebitDocument(): fc.Arbitrary<DirectDebitDocument> {
     initiatingParty: arbPartyName(),
     creditor: arbCreditor(),
     batches: fc.array(arbDirectDebitBatch(), { minLength: 1, maxLength: 3 }),
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
 // Hand-written sample tests: euros() and formatMoney() helpers
 // ---------------------------------------------------------------------------
 
-describe("euros() and formatMoney() helpers", () => {
+describe('euros() and formatMoney() helpers', () => {
   it("euros('0.01') produces minorUnits = 1n", () => {
-    const m = euros("0.01");
-    expect(m.currencyCode).toBe("EUR");
-    expect(m.minorUnits).toBe(1n);
-  });
+    const m = euros('0.01')
+    expect(m.currencyCode).toBe('EUR')
+    expect(m.minorUnits).toBe(1n)
+  })
 
   it("euros('123.45') produces minorUnits = 12345n", () => {
-    const m = euros("123.45");
-    expect(m.minorUnits).toBe(12345n);
-  });
+    const m = euros('123.45')
+    expect(m.minorUnits).toBe(12345n)
+  })
 
   it("euros('123.4') pads the single decimal to .40 (12340n)", () => {
-    const m = euros("123.4");
-    expect(m.minorUnits).toBe(12340n);
-  });
+    const m = euros('123.4')
+    expect(m.minorUnits).toBe(12340n)
+  })
 
   it("euros('123') treats integer string as whole euros (12300n)", () => {
-    const m = euros("123");
-    expect(m.minorUnits).toBe(12300n);
-  });
+    const m = euros('123')
+    expect(m.minorUnits).toBe(12300n)
+  })
 
   it("euros('0.00') throws because amount is below minimum", () => {
-    expect(() => euros("0.00")).toThrow();
-  });
+    expect(() => euros('0.00')).toThrow()
+  })
 
   it("euros('') throws on empty string", () => {
-    expect(() => euros("")).toThrow();
-  });
+    expect(() => euros('')).toThrow()
+  })
 
   it("euros('1.234') throws on more than 2 decimal places", () => {
-    expect(() => euros("1.234")).toThrow();
-  });
+    expect(() => euros('1.234')).toThrow()
+  })
 
   it("euros('-1.00') throws on negative string", () => {
-    expect(() => euros("-1.00")).toThrow();
-  });
+    expect(() => euros('-1.00')).toThrow()
+  })
 
   it("euros('abc') throws on non-numeric string", () => {
-    expect(() => euros("abc")).toThrow();
-  });
+    expect(() => euros('abc')).toThrow()
+  })
 
-  it("formatMoney round-trips with euros()", () => {
-    const m = euros("50.75");
-    expect(formatMoney(m)).toBe("50.75");
-  });
+  it('formatMoney round-trips with euros()', () => {
+    const m = euros('50.75')
+    expect(formatMoney(m)).toBe('50.75')
+  })
 
-  it("formatMoney always produces exactly 2 decimal places", () => {
-    const m = euros("100");
-    expect(formatMoney(m)).toBe("100.00");
-  });
+  it('formatMoney always produces exactly 2 decimal places', () => {
+    const m = euros('100')
+    expect(formatMoney(m)).toBe('100.00')
+  })
 
   it("formatMoney on minimum amount produces '0.01'", () => {
-    const m = euros("0.01");
-    expect(formatMoney(m)).toBe("0.01");
-  });
-});
+    const m = euros('0.01')
+    expect(formatMoney(m)).toBe('0.01')
+  })
+})
 
 // ---------------------------------------------------------------------------
 // pain.001 hand-written sample: write XSD validity and parse round-trip
 // ---------------------------------------------------------------------------
 
-describe("pain.001 sample model: write XSD validity and parse round-trip", () => {
+describe('pain.001 sample model: write XSD validity and parse round-trip', () => {
   const sampleDoc: CreditTransferDocument = {
-    messageId: "MSG-SAMPLE-001",
-    createdAt: "2024-06-01T09:00:00Z",
-    initiatingParty: "Test Company GmbH",
+    messageId: 'MSG-SAMPLE-001',
+    createdAt: '2024-06-01T09:00:00Z',
+    initiatingParty: 'Test Company GmbH',
     batches: [
       {
-        id: "BATCH-001",
-        executionDate: "2024-06-05",
+        id: 'BATCH-001',
+        executionDate: '2024-06-05',
         debtor: {
-          name: "Test Company GmbH",
-          iban: "DE89370400440532013000",
-          bic: "COBADEFFXXX",
+          name: 'Test Company GmbH',
+          iban: 'DE89370400440532013000',
+          bic: 'COBADEFFXXX',
         },
         transfers: [
           {
-            endToEndId: "E2E-0001",
-            amount: euros("0.01"),
+            endToEndId: 'E2E-0001',
+            amount: euros('0.01'),
             creditor: {
-              name: "Supplier One",
-              iban: "DE65200400300234567000",
+              name: 'Supplier One',
+              iban: 'DE65200400300234567000',
             },
           },
           {
-            endToEndId: "E2E-0002",
-            amount: euros("123.45"),
+            endToEndId: 'E2E-0002',
+            amount: euros('123.45'),
             creditor: {
-              name: "Supplier Two",
-              iban: "DE65200400300234567000",
-              bic: "DEUTDEDBFRA",
+              name: 'Supplier Two',
+              iban: 'DE65200400300234567000',
+              bic: 'DEUTDEDBFRA',
             },
-            remittanceInfo: "Invoice 2024/42",
+            remittanceInfo: 'Invoice 2024/42',
           },
         ],
       },
       {
-        id: "BATCH-002",
-        executionDate: "2024-06-10",
+        id: 'BATCH-002',
+        executionDate: '2024-06-10',
         debtor: {
-          name: "Test Company GmbH",
-          iban: "DE89370400440532013000",
+          name: 'Test Company GmbH',
+          iban: 'DE89370400440532013000',
         },
         transfers: [
           {
-            endToEndId: "E2E-0003",
-            amount: euros("999.99"),
+            endToEndId: 'E2E-0003',
+            amount: euros('999.99'),
             creditor: {
-              name: "Large Vendor",
-              iban: "FR7630006000011234567890189",
+              name: 'Large Vendor',
+              iban: 'FR7630006000011234567890189',
             },
-            remittanceInfo: "Payment for services",
+            remittanceInfo: 'Payment for services',
           },
         ],
       },
     ],
-  };
+  }
 
-  it("write produces XSD-valid XML", async () => {
-    const xml = writeCreditTransfer(sampleDoc);
-    const result = await validateXsd(xml);
-    expect(result.valid, `XSD errors: ${result.errors.join(", ")}`).toBe(true);
-    expect(result.errors).toHaveLength(0);
-  });
+  it('write produces XSD-valid XML', async () => {
+    const xml = writeCreditTransfer(sampleDoc)
+    const result = await validateXsd(xml)
+    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
 
-  it("parse(write(model)) deep-equals the original model", () => {
-    const xml = writeCreditTransfer(sampleDoc);
-    const parsed = parse(xml);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) throw new Error("parse failed: " + parsed.error);
-    expect(parsed.type).toBe("pain.001");
-    if (parsed.type !== "pain.001") throw new Error("unexpected type");
-    expect(parsed.data).toEqual(sampleDoc);
-  });
+  it('parse(write(model)) deep-equals the original model', () => {
+    const xml = writeCreditTransfer(sampleDoc)
+    const parsed = parse(xml)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error('parse failed: ' + parsed.error)
+    expect(parsed.type).toBe('pain.001')
+    if (parsed.type !== 'pain.001') throw new Error('unexpected type')
+    expect(parsed.data).toEqual(sampleDoc)
+  })
 
-  it("sanitizes unicode names and still produces valid XSD output", async () => {
+  it('sanitizes unicode names and still produces valid XSD output', async () => {
     const doc: CreditTransferDocument = {
-      messageId: "UNICODE-TEST-01",
-      createdAt: "2024-06-01T09:00:00Z",
-      initiatingParty: sanitizeSepa("Müller und Söhne GmbH"),
+      messageId: 'UNICODE-TEST-01',
+      createdAt: '2024-06-01T09:00:00Z',
+      initiatingParty: sanitizeSepa('Müller und Söhne GmbH'),
       batches: [
         {
-          id: "PI-UNICODE-01",
-          executionDate: "2024-07-01",
+          id: 'PI-UNICODE-01',
+          executionDate: '2024-07-01',
           debtor: {
-            name: sanitizeSepa("Schroeder Ueberweisungen AG"),
-            iban: "DE89370400440532013000",
+            name: sanitizeSepa('Schroeder Ueberweisungen AG'),
+            iban: 'DE89370400440532013000',
           },
           transfers: [
             {
-              endToEndId: "E2E-UNICODE",
-              amount: euros("50.00"),
+              endToEndId: 'E2E-UNICODE',
+              amount: euros('50.00'),
               creditor: {
-                name: sanitizeSepa("Cafe Resume Nonyo"),
-                iban: "DE65200400300234567000",
+                name: sanitizeSepa('Cafe Resume Nonyo'),
+                iban: 'DE65200400300234567000',
               },
             },
           ],
         },
       ],
-    };
+    }
 
-    const xml = writeCreditTransfer(doc);
-    const result = await validateXsd(xml);
-    expect(result.valid, `XSD errors: ${result.errors.join(", ")}`).toBe(true);
-  });
-});
+    const xml = writeCreditTransfer(doc)
+    const result = await validateXsd(xml)
+    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // pain.001 XSD Oracle property test
 // ---------------------------------------------------------------------------
 
-describe("XSD Oracle: pain.001.001.09", () => {
-  it("property: forAll valid models, writeCreditTransfer produces XSD-valid XML (numRuns=200)", async () => {
-    const failures: string[] = [];
-    let runCount = 0;
+describe('XSD Oracle: pain.001.001.09', () => {
+  it('property: forAll valid models, writeCreditTransfer produces XSD-valid XML (numRuns=200)', async () => {
+    const failures: string[] = []
+    let runCount = 0
 
     await fc.assert(
       fc.asyncProperty(arbCreditTransferDocument(), async (doc) => {
-        runCount++;
-        const xml = writeCreditTransfer(doc);
-        const result = await validateXsd(xml);
+        runCount++
+        const xml = writeCreditTransfer(doc)
+        const result = await validateXsd(xml)
 
         if (!result.valid) {
           failures.push(
-            `Run ${runCount}: XSD error: ${result.errors.join(", ")}\nXML:\n${xml.slice(0, 500)}`
-          );
+            `Run ${runCount}: XSD error: ${result.errors.join(', ')}\nXML:\n${xml.slice(0, 500)}`
+          )
         }
 
-        return result.valid;
+        return result.valid
       }),
       {
         numRuns: 200,
@@ -518,199 +526,199 @@ describe("XSD Oracle: pain.001.001.09", () => {
           if (failed) {
             throw new Error(
               `Property failed after ${runCount} runs.\n` +
-                `Last failures:\n${failures.slice(-3).join("\n---\n")}\n` +
+                `Last failures:\n${failures.slice(-3).join('\n---\n')}\n` +
                 `Counterexample: ${JSON.stringify(counterexample, (_, v) =>
-                  typeof v === "bigint" ? v.toString() + "n" : v
+                  typeof v === 'bigint' ? v.toString() + 'n' : v
                 )}\n` +
-                (error ? `Error: ${error}` : "")
-            );
+                (error ? `Error: ${error}` : '')
+            )
           }
         },
       }
-    );
+    )
 
-    expect(runCount).toBeGreaterThanOrEqual(200);
-  });
-});
+    expect(runCount).toBeGreaterThanOrEqual(200)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // pain.001 round-trip property test
 // ---------------------------------------------------------------------------
 
-describe("Round-trip: pain.001 model -> write -> parse -> deep-equal (numRuns=200)", () => {
-  it("property: forAll valid models, parse(writeCreditTransfer(model)) deep-equals original (numRuns=200)", () => {
-    let runCount = 0;
+describe('Round-trip: pain.001 model -> write -> parse -> deep-equal (numRuns=200)', () => {
+  it('property: forAll valid models, parse(writeCreditTransfer(model)) deep-equals original (numRuns=200)', () => {
+    let runCount = 0
 
     fc.assert(
       fc.property(arbCreditTransferDocument(), (doc) => {
-        runCount++;
-        const xml = writeCreditTransfer(doc);
-        const result = parse(xml);
+        runCount++
+        const xml = writeCreditTransfer(doc)
+        const result = parse(xml)
 
         if (!result.ok) {
           throw new Error(
             `parse() failed on valid model at run ${runCount}: ${result.error}\nXML:\n${xml.slice(0, 500)}`
-          );
+          )
         }
 
-        if (result.type !== "pain.001") {
-          throw new Error(`Expected type "pain.001" but got "${result.type}"`);
+        if (result.type !== 'pain.001') {
+          throw new Error(`Expected type "pain.001" but got "${result.type}"`)
         }
 
-        expect(result.data).toEqual(doc);
-        return true;
+        expect(result.data).toEqual(doc)
+        return true
       }),
       {
         numRuns: 200,
         verbose: false,
       }
-    );
+    )
 
-    expect(runCount).toBeGreaterThanOrEqual(200);
-  });
-});
+    expect(runCount).toBeGreaterThanOrEqual(200)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // pain.008 hand-written sample test
 // ---------------------------------------------------------------------------
 
-describe("pain.008 sample model: write XSD validity and parse round-trip", () => {
+describe('pain.008 sample model: write XSD validity and parse round-trip', () => {
   const sampleDirectDebit: DirectDebitDocument = {
-    messageId: "SDD-SAMPLE-001",
-    createdAt: "2024-06-01T09:00:00Z",
-    initiatingParty: "My Company GmbH",
+    messageId: 'SDD-SAMPLE-001',
+    createdAt: '2024-06-01T09:00:00Z',
+    initiatingParty: 'My Company GmbH',
     creditor: {
-      name: "My Company GmbH",
-      iban: "DE89370400440532013000",
-      bic: "COBADEFFXXX",
-      creditorId: "DE98ZZZ09999999999",
+      name: 'My Company GmbH',
+      iban: 'DE89370400440532013000',
+      bic: 'COBADEFFXXX',
+      creditorId: 'DE98ZZZ09999999999',
     },
     batches: [
       {
-        id: "SDD-BATCH-001",
-        collectionDate: "2024-07-05",
-        sequenceType: "FRST",
-        localInstrument: "CORE",
+        id: 'SDD-BATCH-001',
+        collectionDate: '2024-07-05',
+        sequenceType: 'FRST',
+        localInstrument: 'CORE',
         collections: [
           {
-            endToEndId: "SDD-E2E-0001",
-            amount: euros("0.01"),
+            endToEndId: 'SDD-E2E-0001',
+            amount: euros('0.01'),
             debtor: {
-              name: "Customer One",
-              iban: "DE65200400300234567000",
-              bic: "DEUTDEDBFRA",
+              name: 'Customer One',
+              iban: 'DE65200400300234567000',
+              bic: 'DEUTDEDBFRA',
             },
             mandate: {
-              id: "MAND-0001",
-              signatureDate: "2024-01-15",
+              id: 'MAND-0001',
+              signatureDate: '2024-01-15',
             },
           },
           {
-            endToEndId: "SDD-E2E-0002",
-            amount: euros("49.99"),
+            endToEndId: 'SDD-E2E-0002',
+            amount: euros('49.99'),
             debtor: {
-              name: "Customer Two",
-              iban: "NL91ABNA0417164300",
+              name: 'Customer Two',
+              iban: 'NL91ABNA0417164300',
             },
             mandate: {
-              id: "MAND-0002",
-              signatureDate: "2023-11-30",
+              id: 'MAND-0002',
+              signatureDate: '2023-11-30',
             },
-            remittanceInfo: "Monthly subscription",
+            remittanceInfo: 'Monthly subscription',
           },
         ],
       },
       {
-        id: "SDD-BATCH-002",
-        collectionDate: "2024-07-05",
-        sequenceType: "RCUR",
-        localInstrument: "B2B",
+        id: 'SDD-BATCH-002',
+        collectionDate: '2024-07-05',
+        sequenceType: 'RCUR',
+        localInstrument: 'B2B',
         collections: [
           {
-            endToEndId: "SDD-E2E-0003",
-            amount: euros("999.99"),
+            endToEndId: 'SDD-E2E-0003',
+            amount: euros('999.99'),
             debtor: {
-              name: "Business Client",
-              iban: "FR7630006000011234567890189",
-              bic: "BNPAFRPPXXX",
+              name: 'Business Client',
+              iban: 'FR7630006000011234567890189',
+              bic: 'BNPAFRPPXXX',
             },
             mandate: {
-              id: "B2B-MAND-001",
-              signatureDate: "2022-06-01",
+              id: 'B2B-MAND-001',
+              signatureDate: '2022-06-01',
             },
-            remittanceInfo: "Q2 service fee",
+            remittanceInfo: 'Q2 service fee',
           },
         ],
       },
     ],
-  };
+  }
 
-  it("write produces XSD-valid pain.008 XML", async () => {
-    const xml = writeDirectDebit(sampleDirectDebit);
-    const result = await validateXsd(xml);
-    expect(result.valid, `XSD errors: ${result.errors.join(", ")}`).toBe(true);
-    expect(result.errors).toHaveLength(0);
-  });
+  it('write produces XSD-valid pain.008 XML', async () => {
+    const xml = writeDirectDebit(sampleDirectDebit)
+    const result = await validateXsd(xml)
+    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
 
-  it("write output contains pain.008 namespace", () => {
-    const xml = writeDirectDebit(sampleDirectDebit);
-    expect(xml).toContain("urn:iso:std:iso:20022:tech:xsd:pain.008.001.08");
-    expect(xml).toContain("CstmrDrctDbtInitn");
-  });
+  it('write output contains pain.008 namespace', () => {
+    const xml = writeDirectDebit(sampleDirectDebit)
+    expect(xml).toContain('urn:iso:std:iso:20022:tech:xsd:pain.008.001.08')
+    expect(xml).toContain('CstmrDrctDbtInitn')
+  })
 
   it("parse(write(model)) returns type='pain.008' and deep-equals the original model", () => {
-    const xml = writeDirectDebit(sampleDirectDebit);
-    const parsed = parse(xml);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) throw new Error("parse failed: " + parsed.error);
-    expect(parsed.type).toBe("pain.008");
-    if (parsed.type !== "pain.008") throw new Error("unexpected type");
-    expect(parsed.data).toEqual(sampleDirectDebit);
-  });
+    const xml = writeDirectDebit(sampleDirectDebit)
+    const parsed = parse(xml)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error('parse failed: ' + parsed.error)
+    expect(parsed.type).toBe('pain.008')
+    if (parsed.type !== 'pain.008') throw new Error('unexpected type')
+    expect(parsed.data).toEqual(sampleDirectDebit)
+  })
 
-  it("writeDirectDebit generates correct NbOfTxs and CtrlSum", () => {
-    const xml = writeDirectDebit(sampleDirectDebit);
+  it('writeDirectDebit generates correct NbOfTxs and CtrlSum', () => {
+    const xml = writeDirectDebit(sampleDirectDebit)
     // NbOfTxs = 3 (0.01 + 49.99 + 999.99)
-    expect(xml).toContain("<NbOfTxs>3</NbOfTxs>");
+    expect(xml).toContain('<NbOfTxs>3</NbOfTxs>')
     // CtrlSum = 1049.99
-    expect(xml).toContain("<CtrlSum>1049.99</CtrlSum>");
-  });
+    expect(xml).toContain('<CtrlSum>1049.99</CtrlSum>')
+  })
 
-  it("CdtrSchmeId is emitted with SEPA scheme name at PmtInf level", () => {
-    const xml = writeDirectDebit(sampleDirectDebit);
-    expect(xml).toContain("<CdtrSchmeId>");
-    expect(xml).toContain("<Prtry>SEPA</Prtry>");
-    expect(xml).toContain(`<Id>DE98ZZZ09999999999</Id>`);
-  });
+  it('CdtrSchmeId is emitted with SEPA scheme name at PmtInf level', () => {
+    const xml = writeDirectDebit(sampleDirectDebit)
+    expect(xml).toContain('<CdtrSchmeId>')
+    expect(xml).toContain('<Prtry>SEPA</Prtry>')
+    expect(xml).toContain(`<Id>DE98ZZZ09999999999</Id>`)
+  })
 
-  it("ChrgBr=SLEV is emitted at PmtInf level", () => {
-    const xml = writeDirectDebit(sampleDirectDebit);
-    expect(xml).toContain("<ChrgBr>SLEV</ChrgBr>");
-  });
-});
+  it('ChrgBr=SLEV is emitted at PmtInf level', () => {
+    const xml = writeDirectDebit(sampleDirectDebit)
+    expect(xml).toContain('<ChrgBr>SLEV</ChrgBr>')
+  })
+})
 
 // ---------------------------------------------------------------------------
 // pain.008 XSD Oracle property test
 // ---------------------------------------------------------------------------
 
-describe("XSD Oracle: pain.008.001.08", () => {
-  it("property: forAll valid models, writeDirectDebit produces XSD-valid XML (numRuns=200)", async () => {
-    const failures: string[] = [];
-    let runCount = 0;
+describe('XSD Oracle: pain.008.001.08', () => {
+  it('property: forAll valid models, writeDirectDebit produces XSD-valid XML (numRuns=200)', async () => {
+    const failures: string[] = []
+    let runCount = 0
 
     await fc.assert(
       fc.asyncProperty(arbDirectDebitDocument(), async (doc) => {
-        runCount++;
-        const xml = writeDirectDebit(doc);
-        const result = await validateXsd(xml);
+        runCount++
+        const xml = writeDirectDebit(doc)
+        const result = await validateXsd(xml)
 
         if (!result.valid) {
           failures.push(
-            `Run ${runCount}: XSD error: ${result.errors.join(", ")}\nXML:\n${xml.slice(0, 800)}`
-          );
+            `Run ${runCount}: XSD error: ${result.errors.join(', ')}\nXML:\n${xml.slice(0, 800)}`
+          )
         }
 
-        return result.valid;
+        return result.valid
       }),
       {
         numRuns: 200,
@@ -719,115 +727,115 @@ describe("XSD Oracle: pain.008.001.08", () => {
           if (failed) {
             throw new Error(
               `Property failed after ${runCount} runs.\n` +
-                `Last failures:\n${failures.slice(-3).join("\n---\n")}\n` +
+                `Last failures:\n${failures.slice(-3).join('\n---\n')}\n` +
                 `Counterexample: ${JSON.stringify(counterexample, (_, v) =>
-                  typeof v === "bigint" ? v.toString() + "n" : v
+                  typeof v === 'bigint' ? v.toString() + 'n' : v
                 )}\n` +
-                (error ? `Error: ${error}` : "")
-            );
+                (error ? `Error: ${error}` : '')
+            )
           }
         },
       }
-    );
+    )
 
-    expect(runCount).toBeGreaterThanOrEqual(200);
-  });
-});
+    expect(runCount).toBeGreaterThanOrEqual(200)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // pain.008 round-trip property test
 // ---------------------------------------------------------------------------
 
-describe("Round-trip: pain.008 model -> write -> parse -> deep-equal (numRuns=200)", () => {
-  it("property: forAll valid models, parse(writeDirectDebit(model)) deep-equals original (numRuns=200)", () => {
-    let runCount = 0;
+describe('Round-trip: pain.008 model -> write -> parse -> deep-equal (numRuns=200)', () => {
+  it('property: forAll valid models, parse(writeDirectDebit(model)) deep-equals original (numRuns=200)', () => {
+    let runCount = 0
 
     fc.assert(
       fc.property(arbDirectDebitDocument(), (doc) => {
-        runCount++;
-        const xml = writeDirectDebit(doc);
-        const result = parse(xml);
+        runCount++
+        const xml = writeDirectDebit(doc)
+        const result = parse(xml)
 
         if (!result.ok) {
           throw new Error(
             `parse() failed on valid model at run ${runCount}: ${result.error}\nXML:\n${xml.slice(0, 500)}`
-          );
+          )
         }
 
-        if (result.type !== "pain.008") {
-          throw new Error(`Expected type "pain.008" but got "${result.type}"`);
+        if (result.type !== 'pain.008') {
+          throw new Error(`Expected type "pain.008" but got "${result.type}"`)
         }
 
-        expect(result.data).toEqual(doc);
-        return true;
+        expect(result.data).toEqual(doc)
+        return true
       }),
       {
         numRuns: 200,
         verbose: false,
       }
-    );
+    )
 
-    expect(runCount).toBeGreaterThanOrEqual(200);
-  });
-});
+    expect(runCount).toBeGreaterThanOrEqual(200)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Creditor Identifier unit tests
 // ---------------------------------------------------------------------------
 
-describe("isValidCreditorId: SEPA Creditor Identifier ISO 7064 MOD 97-10 check digit", () => {
-  it("accepts the canonical example DE98ZZZ09999999999", () => {
-    expect(isValidCreditorId("DE98ZZZ09999999999")).toBe(true);
-  });
+describe('isValidCreditorId: SEPA Creditor Identifier ISO 7064 MOD 97-10 check digit', () => {
+  it('accepts the canonical example DE98ZZZ09999999999', () => {
+    expect(isValidCreditorId('DE98ZZZ09999999999')).toBe(true)
+  })
 
-  it("rejects DE98ZZZ09999999999 with wrong check digits (DE97...)", () => {
-    expect(isValidCreditorId("DE97ZZZ09999999999")).toBe(false);
-  });
+  it('rejects DE98ZZZ09999999999 with wrong check digits (DE97...)', () => {
+    expect(isValidCreditorId('DE97ZZZ09999999999')).toBe(false)
+  })
 
-  it("rejects DE98ZZZ09999999999 with wrong check digits (DE01...)", () => {
-    expect(isValidCreditorId("DE01ZZZ09999999999")).toBe(false);
-  });
+  it('rejects DE98ZZZ09999999999 with wrong check digits (DE01...)', () => {
+    expect(isValidCreditorId('DE01ZZZ09999999999')).toBe(false)
+  })
 
-  it("accepts AT result produced by buildCreditorId", () => {
-    const built = buildCreditorId("AT", "ZZZ", "00000000001");
-    expect(isValidCreditorId(built)).toBe(true);
-  });
+  it('accepts AT result produced by buildCreditorId', () => {
+    const built = buildCreditorId('AT', 'ZZZ', '00000000001')
+    expect(isValidCreditorId(built)).toBe(true)
+  })
 
-  it("accepts NL result produced by buildCreditorId", () => {
-    const built = buildCreditorId("NL", "ZZZ", "000000001");
-    expect(isValidCreditorId(built)).toBe(true);
-  });
+  it('accepts NL result produced by buildCreditorId', () => {
+    const built = buildCreditorId('NL', 'ZZZ', '000000001')
+    expect(isValidCreditorId(built)).toBe(true)
+  })
 
-  it("rejects a string that is too short (fewer than 8 chars)", () => {
-    expect(isValidCreditorId("DE98ZZZ")).toBe(false);
-  });
-});
+  it('rejects a string that is too short (fewer than 8 chars)', () => {
+    expect(isValidCreditorId('DE98ZZZ')).toBe(false)
+  })
+})
 
-describe("buildCreditorId: computes correct check digits and produces valid output", () => {
+describe('buildCreditorId: computes correct check digits and produces valid output', () => {
   it("buildCreditorId('DE', 'ZZZ', '09999999999') produces DE98ZZZ09999999999", () => {
-    expect(buildCreditorId("DE", "ZZZ", "09999999999")).toBe("DE98ZZZ09999999999");
-  });
+    expect(buildCreditorId('DE', 'ZZZ', '09999999999')).toBe('DE98ZZZ09999999999')
+  })
 
-  it("round-trips: buildCreditorId output always passes isValidCreditorId", () => {
+  it('round-trips: buildCreditorId output always passes isValidCreditorId', () => {
     const cases: Array<[string, string, string]> = [
-      ["DE", "ZZZ", "09999999999"],
-      ["FR", "ZZZ", "12345678"],
-      ["NL", "ABC", "9876543210"],
-      ["AT", "ZZZ", "00000000001"],
-      ["BE", "ZZZ", "695000000008"],
-      ["ES", "ZZZ", "00000001234"],
-      ["IT", "ZZZ", "ABCDE"],
-    ];
+      ['DE', 'ZZZ', '09999999999'],
+      ['FR', 'ZZZ', '12345678'],
+      ['NL', 'ABC', '9876543210'],
+      ['AT', 'ZZZ', '00000000001'],
+      ['BE', 'ZZZ', '695000000008'],
+      ['ES', 'ZZZ', '00000001234'],
+      ['IT', 'ZZZ', 'ABCDE'],
+    ]
     for (const [country, businessCode, nationalId] of cases) {
-      const id = buildCreditorId(country, businessCode, nationalId);
-      expect(isValidCreditorId(id), `Expected ${id} to be valid`).toBe(true);
+      const id = buildCreditorId(country, businessCode, nationalId)
+      expect(isValidCreditorId(id), `Expected ${id} to be valid`).toBe(true)
     }
-  });
+  })
 
-  it("produces check digits padded to 2 digits", () => {
-    const id = buildCreditorId("BE", "ZZZ", "695000000008");
-    const checkDigits = id.slice(2, 4);
-    expect(checkDigits).toHaveLength(2);
-    expect(/^\d{2}$/.test(checkDigits)).toBe(true);
-  });
-});
+  it('produces check digits padded to 2 digits', () => {
+    const id = buildCreditorId('BE', 'ZZZ', '695000000008')
+    const checkDigits = id.slice(2, 4)
+    expect(checkDigits).toHaveLength(2)
+    expect(/^\d{2}$/.test(checkDigits)).toBe(true)
+  })
+})

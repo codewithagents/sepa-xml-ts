@@ -10,7 +10,7 @@
  * Uses fast-xml-parser for lightweight, correct XML parsing.
  */
 
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser } from 'fast-xml-parser'
 import {
   CreditTransferDocumentSchema,
   type CreditTransferDocument,
@@ -18,7 +18,7 @@ import {
   type Transfer,
   type PaymentBatch,
   type Money,
-} from "../model/schema.js";
+} from '../model/schema.js'
 import {
   DirectDebitDocumentSchema,
   type DirectDebitDocument,
@@ -28,22 +28,22 @@ import {
   type Mandate,
   type SequenceType,
   type LocalInstrument,
-} from "../model/pain008.js";
+} from '../model/pain008.js'
 
 // ---------------------------------------------------------------------------
 // ParseResult discriminated union
 // ---------------------------------------------------------------------------
 
-export type ParseSuccess001 = { ok: true; type: "pain.001"; data: CreditTransferDocument };
-export type ParseSuccess008 = { ok: true; type: "pain.008"; data: DirectDebitDocument };
-export type ParseFailure = { ok: false; error: string };
-export type ParseResult = ParseSuccess001 | ParseSuccess008 | ParseFailure;
+export type ParseSuccess001 = { ok: true; type: 'pain.001'; data: CreditTransferDocument }
+export type ParseSuccess008 = { ok: true; type: 'pain.008'; data: DirectDebitDocument }
+export type ParseFailure = { ok: false; error: string }
+export type ParseResult = ParseSuccess001 | ParseSuccess008 | ParseFailure
 
 /**
  * @deprecated Use ParseSuccess001 or ParseSuccess008 for the new discriminated union.
  * Kept for backwards compatibility of the ok:true branch shape.
  */
-export type ParseSuccess = ParseSuccess001;
+export type ParseSuccess = ParseSuccess001
 
 // ---------------------------------------------------------------------------
 // XML parser configuration
@@ -51,24 +51,22 @@ export type ParseSuccess = ParseSuccess001;
 
 const PARSER = new XMLParser({
   ignoreAttributes: false,
-  attributeNamePrefix: "@_",
+  attributeNamePrefix: '@_',
   // Always wrap repeated elements as arrays
   isArray: (tagName) =>
-    tagName === "PmtInf" ||
-    tagName === "CdtTrfTxInf" ||
-    tagName === "DrctDbtTxInf",
+    tagName === 'PmtInf' || tagName === 'CdtTrfTxInf' || tagName === 'DrctDbtTxInf',
   // Preserve string values (don't auto-convert numbers/booleans)
   parseAttributeValue: false,
   parseTagValue: false,
   trimValues: true,
-});
+})
 
 // ---------------------------------------------------------------------------
 // Namespace constants
 // ---------------------------------------------------------------------------
 
-const NS_PAIN001 = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.09";
-const NS_PAIN008 = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08";
+const NS_PAIN001 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
+const NS_PAIN008 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 
 // ---------------------------------------------------------------------------
 // Shared internal helpers
@@ -80,37 +78,37 @@ const NS_PAIN008 = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08";
  * Accepts values with fewer decimals for robustness.
  */
 function parseMoneyString(amountStr: string, ccy: string): Money | null {
-  if (ccy !== "EUR") {
-    return null;
+  if (ccy !== 'EUR') {
+    return null
   }
-  const trimmed = amountStr.trim();
+  const trimmed = amountStr.trim()
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-    return null;
+    return null
   }
-  const parts = trimmed.split(".");
-  const wholePart = parts[0] ?? "0";
-  const fracPart = (parts[1] ?? "0").padEnd(2, "0");
-  const minorUnits = BigInt(wholePart) * 100n + BigInt(fracPart);
-  return { currencyCode: "EUR", minorUnits };
+  const parts = trimmed.split('.')
+  const wholePart = parts[0] ?? '0'
+  const fracPart = (parts[1] ?? '0').padEnd(2, '0')
+  const minorUnits = BigInt(wholePart) * 100n + BigInt(fracPart)
+  return { currencyCode: 'EUR', minorUnits }
 }
 
 /** Safely get a string value from a parsed object, or null. */
 function str(val: unknown): string | null {
-  if (typeof val === "string") return val;
-  if (typeof val === "number") return String(val);
-  return null;
+  if (typeof val === 'string') return val
+  if (typeof val === 'number') return String(val)
+  return null
 }
 
 /** Safely get a nested value by path, returning null if any step is missing. */
 function nav(obj: unknown, ...keys: string[]): unknown {
-  let cur: unknown = obj;
+  let cur: unknown = obj
   for (const key of keys) {
-    if (cur === null || cur === undefined || typeof cur !== "object") {
-      return null;
+    if (cur === null || cur === undefined || typeof cur !== 'object') {
+      return null
     }
-    cur = (cur as Record<string, unknown>)[key];
+    cur = (cur as Record<string, unknown>)[key]
   }
-  return cur;
+  return cur
 }
 
 // ---------------------------------------------------------------------------
@@ -122,87 +120,87 @@ function extractAccountParty(
   acctEl: unknown,
   agtEl: unknown
 ): AccountParty | null {
-  const name = str(nav(partyEl, "Nm"));
-  if (!name) return null;
+  const name = str(nav(partyEl, 'Nm'))
+  if (!name) return null
 
-  const iban = str(nav(acctEl, "Id", "IBAN"));
-  if (!iban) return null;
+  const iban = str(nav(acctEl, 'Id', 'IBAN'))
+  if (!iban) return null
 
-  const bic = str(nav(agtEl, "FinInstnId", "BICFI")) ?? undefined;
+  const bic = str(nav(agtEl, 'FinInstnId', 'BICFI')) ?? undefined
 
-  return { name, iban, ...(bic !== undefined ? { bic } : {}) };
+  return { name, iban, ...(bic !== undefined ? { bic } : {}) }
 }
 
 function extractTransfer(txEl: unknown): Transfer | null {
-  if (!txEl || typeof txEl !== "object") return null;
+  if (!txEl || typeof txEl !== 'object') return null
 
-  const endToEndId = str(nav(txEl, "PmtId", "EndToEndId"));
-  if (!endToEndId) return null;
+  const endToEndId = str(nav(txEl, 'PmtId', 'EndToEndId'))
+  if (!endToEndId) return null
 
   // Amount: <Amt><InstdAmt Ccy="EUR">123.45</InstdAmt></Amt>
-  const instdAmt = nav(txEl, "Amt", "InstdAmt");
-  let amountStr: string | null = null;
-  let ccy = "EUR";
-  if (typeof instdAmt === "object" && instdAmt !== null) {
-    const amtObj = instdAmt as Record<string, unknown>;
-    amountStr = str(amtObj["#text"]);
-    const rawCcy = amtObj["@_Ccy"];
-    ccy = typeof rawCcy === "string" ? rawCcy : "EUR";
+  const instdAmt = nav(txEl, 'Amt', 'InstdAmt')
+  let amountStr: string | null = null
+  let ccy = 'EUR'
+  if (typeof instdAmt === 'object' && instdAmt !== null) {
+    const amtObj = instdAmt as Record<string, unknown>
+    amountStr = str(amtObj['#text'])
+    const rawCcy = amtObj['@_Ccy']
+    ccy = typeof rawCcy === 'string' ? rawCcy : 'EUR'
   } else {
-    amountStr = str(instdAmt);
+    amountStr = str(instdAmt)
   }
-  if (!amountStr) return null;
+  if (!amountStr) return null
 
-  const amount = parseMoneyString(amountStr, ccy);
-  if (!amount) return null;
+  const amount = parseMoneyString(amountStr, ccy)
+  if (!amount) return null
 
   // Creditor: Cdtr + CdtrAcct + CdtrAgt (optional)
-  const cdtrEl = nav(txEl, "Cdtr");
-  const cdtrAcctEl = nav(txEl, "CdtrAcct");
-  const cdtrAgtEl = nav(txEl, "CdtrAgt");
-  const creditor = extractAccountParty(cdtrEl, cdtrAcctEl, cdtrAgtEl);
-  if (!creditor) return null;
+  const cdtrEl = nav(txEl, 'Cdtr')
+  const cdtrAcctEl = nav(txEl, 'CdtrAcct')
+  const cdtrAgtEl = nav(txEl, 'CdtrAgt')
+  const creditor = extractAccountParty(cdtrEl, cdtrAcctEl, cdtrAgtEl)
+  if (!creditor) return null
 
   // Optional remittanceInfo
-  const ustrd = str(nav(txEl, "RmtInf", "Ustrd"));
-  const remittanceInfo = ustrd !== null ? ustrd : undefined;
+  const ustrd = str(nav(txEl, 'RmtInf', 'Ustrd'))
+  const remittanceInfo = ustrd !== null ? ustrd : undefined
 
   return {
     endToEndId,
     amount,
     creditor,
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
-  };
+  }
 }
 
 function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
-  if (!pmtInfEl || typeof pmtInfEl !== "object") return null;
+  if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
-  const id = str(nav(pmtInfEl, "PmtInfId"));
-  if (!id) return null;
+  const id = str(nav(pmtInfEl, 'PmtInfId'))
+  if (!id) return null
 
-  const executionDate = str(nav(pmtInfEl, "ReqdExctnDt", "Dt"));
-  if (!executionDate) return null;
+  const executionDate = str(nav(pmtInfEl, 'ReqdExctnDt', 'Dt'))
+  if (!executionDate) return null
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
-  const dbtrEl = nav(pmtInfEl, "Dbtr");
-  const dbtrAcctEl = nav(pmtInfEl, "DbtrAcct");
-  const dbtrAgtEl = nav(pmtInfEl, "DbtrAgt");
-  const debtor = extractAccountParty(dbtrEl, dbtrAcctEl, dbtrAgtEl);
-  if (!debtor) return null;
+  const dbtrEl = nav(pmtInfEl, 'Dbtr')
+  const dbtrAcctEl = nav(pmtInfEl, 'DbtrAcct')
+  const dbtrAgtEl = nav(pmtInfEl, 'DbtrAgt')
+  const debtor = extractAccountParty(dbtrEl, dbtrAcctEl, dbtrAgtEl)
+  if (!debtor) return null
 
   // Transactions (CdtTrfTxInf is always an array via isArray config)
-  const txArray = nav(pmtInfEl, "CdtTrfTxInf");
-  if (!Array.isArray(txArray) || txArray.length === 0) return null;
+  const txArray = nav(pmtInfEl, 'CdtTrfTxInf')
+  if (!Array.isArray(txArray) || txArray.length === 0) return null
 
-  const transfers: Transfer[] = [];
+  const transfers: Transfer[] = []
   for (const txEl of txArray) {
-    const transfer = extractTransfer(txEl);
-    if (!transfer) return null;
-    transfers.push(transfer);
+    const transfer = extractTransfer(txEl)
+    if (!transfer) return null
+    transfers.push(transfer)
   }
 
-  return { id, executionDate, debtor, transfers };
+  return { id, executionDate, debtor, transfers }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,53 +213,53 @@ function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
  * Format: <InstdAmt Ccy="EUR">123.45</InstdAmt>
  */
 function extractInstdAmt(txEl: unknown): Money | null {
-  const instdAmt = nav(txEl, "InstdAmt");
-  let amountStr: string | null = null;
-  let ccy = "EUR";
-  if (typeof instdAmt === "object" && instdAmt !== null) {
-    const amtObj = instdAmt as Record<string, unknown>;
-    amountStr = str(amtObj["#text"]);
-    const rawCcy = amtObj["@_Ccy"];
-    ccy = typeof rawCcy === "string" ? rawCcy : "EUR";
+  const instdAmt = nav(txEl, 'InstdAmt')
+  let amountStr: string | null = null
+  let ccy = 'EUR'
+  if (typeof instdAmt === 'object' && instdAmt !== null) {
+    const amtObj = instdAmt as Record<string, unknown>
+    amountStr = str(amtObj['#text'])
+    const rawCcy = amtObj['@_Ccy']
+    ccy = typeof rawCcy === 'string' ? rawCcy : 'EUR'
   } else {
-    amountStr = str(instdAmt);
+    amountStr = str(instdAmt)
   }
-  if (!amountStr) return null;
-  return parseMoneyString(amountStr, ccy);
+  if (!amountStr) return null
+  return parseMoneyString(amountStr, ccy)
 }
 
 function extractCollection(txEl: unknown): Collection | null {
-  if (!txEl || typeof txEl !== "object") return null;
+  if (!txEl || typeof txEl !== 'object') return null
 
-  const endToEndId = str(nav(txEl, "PmtId", "EndToEndId"));
-  if (!endToEndId) return null;
+  const endToEndId = str(nav(txEl, 'PmtId', 'EndToEndId'))
+  if (!endToEndId) return null
 
-  const amount = extractInstdAmt(txEl);
-  if (!amount) return null;
+  const amount = extractInstdAmt(txEl)
+  if (!amount) return null
 
   // Mandate: DrctDbtTx/MndtRltdInf
-  const mandateId = str(nav(txEl, "DrctDbtTx", "MndtRltdInf", "MndtId"));
-  if (!mandateId) return null;
-  const signatureDate = str(nav(txEl, "DrctDbtTx", "MndtRltdInf", "DtOfSgntr"));
-  if (!signatureDate) return null;
-  const mandate: Mandate = { id: mandateId, signatureDate };
+  const mandateId = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'MndtId'))
+  if (!mandateId) return null
+  const signatureDate = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'DtOfSgntr'))
+  if (!signatureDate) return null
+  const mandate: Mandate = { id: mandateId, signatureDate }
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
-  const dbtrName = str(nav(txEl, "Dbtr", "Nm"));
-  if (!dbtrName) return null;
-  const dbtrIban = str(nav(txEl, "DbtrAcct", "Id", "IBAN"));
-  if (!dbtrIban) return null;
-  const dbtrBic = str(nav(txEl, "DbtrAgt", "FinInstnId", "BICFI")) ?? undefined;
+  const dbtrName = str(nav(txEl, 'Dbtr', 'Nm'))
+  if (!dbtrName) return null
+  const dbtrIban = str(nav(txEl, 'DbtrAcct', 'Id', 'IBAN'))
+  if (!dbtrIban) return null
+  const dbtrBic = str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BICFI')) ?? undefined
 
   const debtor = {
     name: dbtrName,
     iban: dbtrIban,
     ...(dbtrBic !== undefined ? { bic: dbtrBic } : {}),
-  };
+  }
 
   // Optional remittanceInfo
-  const ustrd = str(nav(txEl, "RmtInf", "Ustrd"));
-  const remittanceInfo = ustrd !== null ? ustrd : undefined;
+  const ustrd = str(nav(txEl, 'RmtInf', 'Ustrd'))
+  const remittanceInfo = ustrd !== null ? ustrd : undefined
 
   return {
     endToEndId,
@@ -269,70 +267,68 @@ function extractCollection(txEl: unknown): Collection | null {
     debtor,
     mandate,
     ...(remittanceInfo !== undefined ? { remittanceInfo } : {}),
-  };
+  }
 }
 
 function extractDirectDebitBatch(pmtInfEl: unknown): DirectDebitBatch | null {
-  if (!pmtInfEl || typeof pmtInfEl !== "object") return null;
+  if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
-  const id = str(nav(pmtInfEl, "PmtInfId"));
-  if (!id) return null;
+  const id = str(nav(pmtInfEl, 'PmtInfId'))
+  if (!id) return null
 
-  const collectionDate = str(nav(pmtInfEl, "ReqdColltnDt"));
-  if (!collectionDate) return null;
+  const collectionDate = str(nav(pmtInfEl, 'ReqdColltnDt'))
+  if (!collectionDate) return null
 
   // Sequence type (PmtTpInf/SeqTp)
-  const seqTpRaw = str(nav(pmtInfEl, "PmtTpInf", "SeqTp"));
-  if (!seqTpRaw) return null;
-  const validSeqTypes: SequenceType[] = ["FRST", "RCUR", "OOFF", "FNAL"];
-  if (!validSeqTypes.includes(seqTpRaw as SequenceType)) return null;
-  const sequenceType = seqTpRaw as SequenceType;
+  const seqTpRaw = str(nav(pmtInfEl, 'PmtTpInf', 'SeqTp'))
+  if (!seqTpRaw) return null
+  const validSeqTypes: SequenceType[] = ['FRST', 'RCUR', 'OOFF', 'FNAL']
+  if (!validSeqTypes.includes(seqTpRaw as SequenceType)) return null
+  const sequenceType = seqTpRaw as SequenceType
 
   // Local instrument (PmtTpInf/LclInstrm/Cd) - always present in our writer
-  const lclInstrmRaw = str(nav(pmtInfEl, "PmtTpInf", "LclInstrm", "Cd"));
-  const validLocalInstruments: LocalInstrument[] = ["CORE", "B2B"];
+  const lclInstrmRaw = str(nav(pmtInfEl, 'PmtTpInf', 'LclInstrm', 'Cd'))
+  const validLocalInstruments: LocalInstrument[] = ['CORE', 'B2B']
   const localInstrument: LocalInstrument =
     lclInstrmRaw !== null && validLocalInstruments.includes(lclInstrmRaw as LocalInstrument)
       ? (lclInstrmRaw as LocalInstrument)
-      : "CORE";
+      : 'CORE'
 
   // DrctDbtTxInf (always an array via isArray config)
-  const txArray = nav(pmtInfEl, "DrctDbtTxInf");
-  if (!Array.isArray(txArray) || txArray.length === 0) return null;
+  const txArray = nav(pmtInfEl, 'DrctDbtTxInf')
+  if (!Array.isArray(txArray) || txArray.length === 0) return null
 
-  const collections: Collection[] = [];
+  const collections: Collection[] = []
   for (const txEl of txArray) {
-    const collection = extractCollection(txEl);
-    if (!collection) return null;
-    collections.push(collection);
+    const collection = extractCollection(txEl)
+    if (!collection) return null
+    collections.push(collection)
   }
 
-  return { id, collectionDate, sequenceType, localInstrument, collections };
+  return { id, collectionDate, sequenceType, localInstrument, collections }
 }
 
 function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
-  if (!pmtInfEl || typeof pmtInfEl !== "object") return null;
+  if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
-  const name = str(nav(pmtInfEl, "Cdtr", "Nm"));
-  if (!name) return null;
+  const name = str(nav(pmtInfEl, 'Cdtr', 'Nm'))
+  if (!name) return null
 
-  const iban = str(nav(pmtInfEl, "CdtrAcct", "Id", "IBAN"));
-  if (!iban) return null;
+  const iban = str(nav(pmtInfEl, 'CdtrAcct', 'Id', 'IBAN'))
+  if (!iban) return null
 
-  const bic = str(nav(pmtInfEl, "CdtrAgt", "FinInstnId", "BICFI")) ?? undefined;
+  const bic = str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BICFI')) ?? undefined
 
   // CdtrSchmeId/Id/PrvtId/Othr/Id
-  const creditorId = str(
-    nav(pmtInfEl, "CdtrSchmeId", "Id", "PrvtId", "Othr", "Id")
-  );
-  if (!creditorId) return null;
+  const creditorId = str(nav(pmtInfEl, 'CdtrSchmeId', 'Id', 'PrvtId', 'Othr', 'Id'))
+  if (!creditorId) return null
 
   return {
     name,
     iban,
     ...(bic !== undefined ? { bic } : {}),
     creditorId,
-  };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -351,38 +347,38 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
  */
 export function parse(xml: string): ParseResult {
   // Detect namespace from raw XML before parsing (regex on string is reliable)
-  const nsMatch = xml.match(/xmlns\s*=\s*["']([^"']+)["']/);
-  const ns = nsMatch ? (nsMatch[1] ?? null) : null;
+  const nsMatch = xml.match(/xmlns\s*=\s*["']([^"']+)["']/)
+  const ns = nsMatch ? (nsMatch[1] ?? null) : null
 
-  let parsed: unknown;
+  let parsed: unknown
   try {
-    parsed = PARSER.parse(xml);
+    parsed = PARSER.parse(xml)
   } catch (e) {
     return {
       ok: false,
       error: `XML parse error: ${e instanceof Error ? e.message : String(e)}`,
-    };
+    }
   }
 
   try {
     if (ns === NS_PAIN008) {
-      return parsePain008(parsed);
+      return parsePain008(parsed)
     }
 
     if (ns === NS_PAIN001 || ns === null) {
       // Default to pain.001 when namespace matches or is absent (legacy support)
-      return parsePain001(parsed);
+      return parsePain001(parsed)
     }
 
     return {
       ok: false,
       error: `Unknown XML namespace: "${ns}". Expected pain.001.001.09 or pain.008.001.08.`,
-    };
+    }
   } catch (e) {
     return {
       ok: false,
       error: `Parse error: ${e instanceof Error ? e.message : String(e)}`,
-    };
+    }
   }
 }
 
@@ -392,43 +388,43 @@ export function parse(xml: string): ParseResult {
 
 function parsePain001(parsed: unknown): ParseResult {
   try {
-    const root = nav(parsed, "Document", "CstmrCdtTrfInitn");
+    const root = nav(parsed, 'Document', 'CstmrCdtTrfInitn')
     if (!root) {
-      return { ok: false, error: "Missing Document/CstmrCdtTrfInitn element" };
+      return { ok: false, error: 'Missing Document/CstmrCdtTrfInitn element' }
     }
 
-    const grpHdr = nav(root, "GrpHdr");
+    const grpHdr = nav(root, 'GrpHdr')
     if (!grpHdr) {
-      return { ok: false, error: "Missing GrpHdr element" };
+      return { ok: false, error: 'Missing GrpHdr element' }
     }
 
-    const messageId = str(nav(grpHdr, "MsgId"));
+    const messageId = str(nav(grpHdr, 'MsgId'))
     if (!messageId) {
-      return { ok: false, error: "Missing GrpHdr/MsgId" };
+      return { ok: false, error: 'Missing GrpHdr/MsgId' }
     }
 
-    const createdAt = str(nav(grpHdr, "CreDtTm"));
+    const createdAt = str(nav(grpHdr, 'CreDtTm'))
     if (!createdAt) {
-      return { ok: false, error: "Missing GrpHdr/CreDtTm" };
+      return { ok: false, error: 'Missing GrpHdr/CreDtTm' }
     }
 
-    const initiatingParty = str(nav(grpHdr, "InitgPty", "Nm"));
+    const initiatingParty = str(nav(grpHdr, 'InitgPty', 'Nm'))
     if (!initiatingParty) {
-      return { ok: false, error: "Missing GrpHdr/InitgPty/Nm" };
+      return { ok: false, error: 'Missing GrpHdr/InitgPty/Nm' }
     }
 
-    const pmtInfArray = nav(root, "PmtInf");
+    const pmtInfArray = nav(root, 'PmtInf')
     if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
-      return { ok: false, error: "Missing or empty PmtInf elements" };
+      return { ok: false, error: 'Missing or empty PmtInf elements' }
     }
 
-    const batches: PaymentBatch[] = [];
+    const batches: PaymentBatch[] = []
     for (const pmtInfEl of pmtInfArray) {
-      const batch = extractPaymentBatch(pmtInfEl);
+      const batch = extractPaymentBatch(pmtInfEl)
       if (!batch) {
-        return { ok: false, error: "Failed to extract PaymentBatch from PmtInf" };
+        return { ok: false, error: 'Failed to extract PaymentBatch from PmtInf' }
       }
-      batches.push(batch);
+      batches.push(batch)
     }
 
     const rawDoc: CreditTransferDocument = {
@@ -436,22 +432,22 @@ function parsePain001(parsed: unknown): ParseResult {
       createdAt,
       initiatingParty,
       batches,
-    };
-
-    const validation = CreditTransferDocumentSchema.safeParse(rawDoc);
-    if (!validation.success) {
-      const messages = validation.error.issues
-        .map((iss) => `${iss.path.join(".")}: ${iss.message}`)
-        .join("; ");
-      return { ok: false, error: `Model validation failed after parse: ${messages}` };
     }
 
-    return { ok: true, type: "pain.001", data: validation.data };
+    const validation = CreditTransferDocumentSchema.safeParse(rawDoc)
+    if (!validation.success) {
+      const messages = validation.error.issues
+        .map((iss) => `${iss.path.join('.')}: ${iss.message}`)
+        .join('; ')
+      return { ok: false, error: `Model validation failed after parse: ${messages}` }
+    }
+
+    return { ok: true, type: 'pain.001', data: validation.data }
   } catch (e) {
     return {
       ok: false,
       error: `pain.001 parse error: ${e instanceof Error ? e.message : String(e)}`,
-    };
+    }
   }
 }
 
@@ -461,49 +457,49 @@ function parsePain001(parsed: unknown): ParseResult {
 
 function parsePain008(parsed: unknown): ParseResult {
   try {
-    const root = nav(parsed, "Document", "CstmrDrctDbtInitn");
+    const root = nav(parsed, 'Document', 'CstmrDrctDbtInitn')
     if (!root) {
-      return { ok: false, error: "Missing Document/CstmrDrctDbtInitn element" };
+      return { ok: false, error: 'Missing Document/CstmrDrctDbtInitn element' }
     }
 
-    const grpHdr = nav(root, "GrpHdr");
+    const grpHdr = nav(root, 'GrpHdr')
     if (!grpHdr) {
-      return { ok: false, error: "Missing GrpHdr element" };
+      return { ok: false, error: 'Missing GrpHdr element' }
     }
 
-    const messageId = str(nav(grpHdr, "MsgId"));
+    const messageId = str(nav(grpHdr, 'MsgId'))
     if (!messageId) {
-      return { ok: false, error: "Missing GrpHdr/MsgId" };
+      return { ok: false, error: 'Missing GrpHdr/MsgId' }
     }
 
-    const createdAt = str(nav(grpHdr, "CreDtTm"));
+    const createdAt = str(nav(grpHdr, 'CreDtTm'))
     if (!createdAt) {
-      return { ok: false, error: "Missing GrpHdr/CreDtTm" };
+      return { ok: false, error: 'Missing GrpHdr/CreDtTm' }
     }
 
-    const initiatingParty = str(nav(grpHdr, "InitgPty", "Nm"));
+    const initiatingParty = str(nav(grpHdr, 'InitgPty', 'Nm'))
     if (!initiatingParty) {
-      return { ok: false, error: "Missing GrpHdr/InitgPty/Nm" };
+      return { ok: false, error: 'Missing GrpHdr/InitgPty/Nm' }
     }
 
-    const pmtInfArray = nav(root, "PmtInf");
+    const pmtInfArray = nav(root, 'PmtInf')
     if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
-      return { ok: false, error: "Missing or empty PmtInf elements" };
+      return { ok: false, error: 'Missing or empty PmtInf elements' }
     }
 
     // Extract creditor from the first PmtInf (same value is fanned out to all)
-    const creditor = extractCreditorFromPmtInf(pmtInfArray[0]);
+    const creditor = extractCreditorFromPmtInf(pmtInfArray[0])
     if (!creditor) {
-      return { ok: false, error: "Failed to extract Creditor from first PmtInf" };
+      return { ok: false, error: 'Failed to extract Creditor from first PmtInf' }
     }
 
-    const batches: DirectDebitBatch[] = [];
+    const batches: DirectDebitBatch[] = []
     for (const pmtInfEl of pmtInfArray) {
-      const batch = extractDirectDebitBatch(pmtInfEl);
+      const batch = extractDirectDebitBatch(pmtInfEl)
       if (!batch) {
-        return { ok: false, error: "Failed to extract DirectDebitBatch from PmtInf" };
+        return { ok: false, error: 'Failed to extract DirectDebitBatch from PmtInf' }
       }
-      batches.push(batch);
+      batches.push(batch)
     }
 
     const rawDoc: DirectDebitDocument = {
@@ -512,21 +508,21 @@ function parsePain008(parsed: unknown): ParseResult {
       initiatingParty,
       creditor,
       batches,
-    };
-
-    const validation = DirectDebitDocumentSchema.safeParse(rawDoc);
-    if (!validation.success) {
-      const messages = validation.error.issues
-        .map((iss) => `${iss.path.join(".")}: ${iss.message}`)
-        .join("; ");
-      return { ok: false, error: `Model validation failed after parse: ${messages}` };
     }
 
-    return { ok: true, type: "pain.008", data: validation.data };
+    const validation = DirectDebitDocumentSchema.safeParse(rawDoc)
+    if (!validation.success) {
+      const messages = validation.error.issues
+        .map((iss) => `${iss.path.join('.')}: ${iss.message}`)
+        .join('; ')
+      return { ok: false, error: `Model validation failed after parse: ${messages}` }
+    }
+
+    return { ok: true, type: 'pain.008', data: validation.data }
   } catch (e) {
     return {
       ok: false,
       error: `pain.008 parse error: ${e instanceof Error ? e.message : String(e)}`,
-    };
+    }
   }
 }

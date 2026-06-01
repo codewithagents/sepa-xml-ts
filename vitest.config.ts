@@ -1,10 +1,10 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
     globals: false,
-    environment: "node",
+    environment: 'node',
     testTimeout: 120000,
-    pool: "forks",
+    pool: 'forks',
   },
-});
+})

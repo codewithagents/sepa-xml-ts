@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignorePatterns": ["dist/**", "node_modules/**", "coverage/**"],
+  "rules": {
+    "unused-files": "warn",
+    "unused-exports": "warn",
+    "unused-types": "off"
+  },
+  "health": {
+    "maxCyclomatic": 15,
+    "maxCognitive": 12
+  }
+}

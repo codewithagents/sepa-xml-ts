@@ -8,18 +8,18 @@
  * move first 4 characters to the end, then replace letters with digits (A=10, B=11, ..., Z=35).
  */
 function ibanToNumeric(iban: string): string {
-  const rearranged = iban.slice(4) + iban.slice(0, 4);
-  let numeric = "";
+  const rearranged = iban.slice(4) + iban.slice(0, 4)
+  let numeric = ''
   for (const ch of rearranged) {
-    const code = ch.toUpperCase().charCodeAt(0);
+    const code = ch.toUpperCase().charCodeAt(0)
     if (code >= 65 && code <= 90) {
       // A-Z => 10-35
-      numeric += (code - 55).toString();
+      numeric += (code - 55).toString()
     } else {
-      numeric += ch;
+      numeric += ch
     }
   }
-  return numeric;
+  return numeric
 }
 
 /**
@@ -27,11 +27,11 @@ function ibanToNumeric(iban: string): string {
  * Uses chunked division to avoid floating-point issues.
  */
 function mod97(numeric: string): number {
-  let remainder = 0;
+  let remainder = 0
   for (const ch of numeric) {
-    remainder = (remainder * 10 + parseInt(ch, 10)) % 97;
+    remainder = (remainder * 10 + parseInt(ch, 10)) % 97
   }
-  return remainder;
+  return remainder
 }
 
 /**
@@ -41,9 +41,9 @@ function mod97(numeric: string): number {
 export function isValidIban(iban: string): boolean {
   // Basic structural check first (matches XSD pattern)
   if (!/^[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}$/.test(iban)) {
-    return false;
+    return false
   }
-  return mod97(ibanToNumeric(iban.toUpperCase())) === 1;
+  return mod97(ibanToNumeric(iban.toUpperCase())) === 1
 }
 
 /**
@@ -56,9 +56,9 @@ export function isValidIban(iban: string): boolean {
  */
 export function buildIban(countryCode: string, bban: string): string {
   // Placeholder check digits
-  const provisional = countryCode + "00" + bban;
-  const numeric = ibanToNumeric(provisional);
-  const checkDigits = 98 - mod97(numeric);
-  const digits = checkDigits.toString().padStart(2, "0");
-  return countryCode + digits + bban;
+  const provisional = countryCode + '00' + bban
+  const numeric = ibanToNumeric(provisional)
+  const checkDigits = 98 - mod97(numeric)
+  const digits = checkDigits.toString().padStart(2, '0')
+  return countryCode + digits + bban
 }

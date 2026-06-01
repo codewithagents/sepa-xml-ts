@@ -24,11 +24,7 @@
 // pain.001 exports
 // ---------------------------------------------------------------------------
 
-export {
-  CreditTransferDocumentSchema,
-  euros,
-  formatMoney,
-} from "./model/schema.js";
+export { CreditTransferDocumentSchema, euros, formatMoney } from './model/schema.js'
 
 export type {
   CreditTransferDocument,
@@ -36,9 +32,9 @@ export type {
   Transfer,
   AccountParty,
   Money,
-} from "./model/schema.js";
+} from './model/schema.js'
 
-export { writeCreditTransfer } from "./writer/writer.js";
+export { writeCreditTransfer } from './writer/writer.js'
 
 // ---------------------------------------------------------------------------
 // pain.008 exports
@@ -48,7 +44,7 @@ export {
   DirectDebitDocumentSchema,
   SequenceTypeSchema,
   LocalInstrumentSchema,
-} from "./model/pain008.js";
+} from './model/pain008.js'
 
 export type {
   DirectDebitDocument,
@@ -58,22 +54,22 @@ export type {
   Mandate,
   SequenceType,
   LocalInstrument,
-} from "./model/pain008.js";
+} from './model/pain008.js'
 
-export { writeDirectDebit } from "./writer/direct-debit.js";
+export { writeDirectDebit } from './writer/direct-debit.js'
 
 // ---------------------------------------------------------------------------
 // Shared: parse (auto-detects message type), validate
 // ---------------------------------------------------------------------------
 
-export { parse } from "./parser/parser.js";
+export { parse } from './parser/parser.js'
 export type {
   ParseResult,
   ParseSuccess,
   ParseSuccess001,
   ParseSuccess008,
   ParseFailure,
-} from "./parser/parser.js";
+} from './parser/parser.js'
 
-export { validate } from "./model/validate.js";
-export type { ValidationResult, ValidationSuccess, ValidationFailure } from "./model/validate.js";
+export { validate } from './model/validate.js'
+export type { ValidationResult, ValidationSuccess, ValidationFailure } from './model/validate.js'

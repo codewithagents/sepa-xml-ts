@@ -40,6 +40,13 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "fallow": "fallow",
+    "fallow:audit": "fallow audit",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
@@ -49,7 +56,12 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "eslint": "^9.39.4",
+    "fallow": "^2.85.0",
     "fast-check": "^3.23.0",
+    "prettier": "^3.8.3",
     "sepa": "^3.0.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

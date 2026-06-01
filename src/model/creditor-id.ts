@@ -24,12 +24,12 @@
  * Digits map to themselves; letters map as A=10 ... Z=35.
  */
 function charToDigits(ch: string): string {
-  const code = ch.toUpperCase().charCodeAt(0);
+  const code = ch.toUpperCase().charCodeAt(0)
   if (code >= 65 && code <= 90) {
     // A-Z => 10-35
-    return (code - 55).toString();
+    return (code - 55).toString()
   }
-  return ch;
+  return ch
 }
 
 /**
@@ -38,11 +38,11 @@ function charToDigits(ch: string): string {
  * Reuses the same approach as iban.ts.
  */
 function mod97(numeric: string): number {
-  let remainder = 0;
+  let remainder = 0
   for (const ch of numeric) {
-    remainder = (remainder * 10 + parseInt(ch, 10)) % 97;
+    remainder = (remainder * 10 + parseInt(ch, 10)) % 97
   }
-  return remainder;
+  return remainder
 }
 
 /**
@@ -55,16 +55,16 @@ function mod97(numeric: string): number {
  *   3. Replace each letter with its digit representation.
  */
 function creditorIdToNumeric(id: string): string {
-  const cc = id.slice(0, 2);
-  const checkDigits = id.slice(2, 4);
+  const cc = id.slice(0, 2)
+  const checkDigits = id.slice(2, 4)
   // Skip business code (positions 4,5,6) per spec
-  const nationalId = id.slice(7);
-  const rearranged = nationalId + cc + checkDigits;
-  let numeric = "";
+  const nationalId = id.slice(7)
+  const rearranged = nationalId + cc + checkDigits
+  let numeric = ''
   for (const ch of rearranged) {
-    numeric += charToDigits(ch);
+    numeric += charToDigits(ch)
   }
-  return numeric;
+  return numeric
 }
 
 /**
@@ -80,21 +80,21 @@ function creditorIdToNumeric(id: string): string {
  * @param id SEPA Creditor Identifier (e.g. "DE98ZZZ09999999999")
  */
 export function isValidCreditorId(id: string): boolean {
-  if (typeof id !== "string") {
-    return false;
+  if (typeof id !== 'string') {
+    return false
   }
-  const up = id.toUpperCase();
+  const up = id.toUpperCase()
   // Structure: 2 country letters, 2 check digits, 3-char business code, 1+ national id chars.
   if (up.length < 8 || up.length > 35) {
-    return false;
+    return false
   }
   if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{3}[A-Z0-9]+$/.test(up)) {
-    return false;
+    return false
   }
-  const cc = up.slice(0, 2);
-  const businessCode = up.slice(4, 7);
-  const nationalId = up.slice(7);
-  return buildCreditorId(cc, businessCode, nationalId) === up;
+  const cc = up.slice(0, 2)
+  const businessCode = up.slice(4, 7)
+  const nationalId = up.slice(7)
+  return buildCreditorId(cc, businessCode, nationalId) === up
 }
 
 /**
@@ -109,9 +109,10 @@ export function isValidCreditorId(id: string): boolean {
  */
 export function buildCreditorId(country: string, businessCode: string, nationalId: string): string {
   // Placeholder: CC + "00" + businessCode + nationalId
-  const provisional = country.toUpperCase() + "00" + businessCode.toUpperCase() + nationalId.toUpperCase();
-  const numeric = creditorIdToNumeric(provisional);
-  const checkDigits = 98 - mod97(numeric);
-  const digits = checkDigits.toString().padStart(2, "0");
-  return country.toUpperCase() + digits + businessCode.toUpperCase() + nationalId.toUpperCase();
+  const provisional =
+    country.toUpperCase() + '00' + businessCode.toUpperCase() + nationalId.toUpperCase()
+  const numeric = creditorIdToNumeric(provisional)
+  const checkDigits = 98 - mod97(numeric)
+  const digits = checkDigits.toString().padStart(2, '0')
+  return country.toUpperCase() + digits + businessCode.toUpperCase() + nationalId.toUpperCase()
 }
