@@ -31,7 +31,19 @@ All files are permissively licensed (MIT or Apache-2.0) and safe to redistribute
 - **Source repo:** https://github.com/salesking/sepa_king
 - **Upstream path:** spec/examples/pain.001.003.03.xml
 - **License:** MIT
-- **What it exercises:** A German national variant using the pain.001.003.03 namespace, which we
-  intentionally do NOT support. Used to confirm graceful rejection: validateXsd returns
-  valid=false with an unsupported-namespace error, and parse returns ok=false with an unknown
-  namespace error.
+- **What it exercises:** A real pain.001.003.03 German DK credit transfer with two transactions.
+  Used to confirm the DK CT variant is fully supported: validateXsd returns valid=true against
+  the DK XSD oracle, and parse returns a CreditTransferDocument (type "pain.001").
+
+### sepa_king.pain.008.003.02.xml
+
+- **Source repo:** https://github.com/salesking/sepa_king
+- **Upstream path:** spec/examples/pain.008.003.02.xml
+- **License:** MIT
+- **What it exercises:** A real pain.008.003.02 German DK direct debit with two transactions.
+  Used to confirm the DK SDD variant is fully supported at the XSD level: validateXsd returns
+  valid=true against the DK XSD oracle (schemas/dk/pain.008.003.02.xsd). The file contains a
+  placeholder creditorId "DE00ZZZ00099999999" whose check digits fail ISO 7064 MOD 97-10, so
+  parse() returns ok=false. This mirrors the pain001.pain.001.001.09.xml fixture: the XSD alone
+  is not a sufficient correctness oracle. Raw XML content assertions (mandate id, sequenceType,
+  debtor IBAN, amount, BIC element usage) are tested directly in test/dk-sdd-variant.test.ts.

@@ -15,10 +15,10 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
 
 ## Scope
 
-- Write + parse + validate + XSD-validate: `pain.001.001.09` (credit transfer), `pain.001.003.03`
-  (German DK national variant), and `pain.008.001.08` (direct debit). `parse` auto-detects the
-  message type (discriminated union).
-- Read-only coexistence: parse `pain.001.001.03` and `pain.008.001.02`; `validateXsd` covers all five.
+- Write + parse + validate + XSD-validate: `pain.001.001.09` + `pain.008.001.08` (modern ISO),
+  plus the German DK national variants `pain.001.003.03` + `pain.008.003.02`
+  (writeCreditTransfer/writeDirectDebit take `{ variant }`). `parse` auto-detects the message type.
+- Read-only coexistence: parse `pain.001.001.03` and `pain.008.001.02`; `validateXsd` covers all seven schemas.
 - SEPA Creditor Identifier check digits validated (ISO 7064 MOD 97-10, strict). Full EPC 217-08
   charset transliteration. SvcLvl/Cd=SEPA + ChrgBr=SLEV emitted on both message types.
 - DK variant `pain.001.003.03` ships with XSD oracle at schemas/dk/ (DFU-Abkommen Anlage 3 v2.7).

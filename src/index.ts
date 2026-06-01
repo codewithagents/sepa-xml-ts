@@ -64,6 +64,7 @@ export type {
 } from './model/pain008.js'
 
 export { writeDirectDebit } from './writer/direct-debit.js'
+export type { WriteDirectDebitOptions, DirectDebitVariant } from './writer/direct-debit.js'
 
 // ---------------------------------------------------------------------------
 // Shared: parse (auto-detects message type), validate

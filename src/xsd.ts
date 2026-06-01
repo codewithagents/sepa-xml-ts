@@ -1,7 +1,8 @@
 /**
  * XSD validation for SEPA XML documents.
  *
- * Write targets: pain.001.001.09, pain.001.003.03 (DK variant), and pain.008.001.08.
+ * Write targets: pain.001.001.09, pain.001.003.03 (DK CT variant), pain.008.001.08,
+ * and pain.008.003.02 (DK SDD variant).
  * Read-only (coexistence) support: pain.001.001.03 and pain.008.001.02.
  *
  * Uses libxml2-wasm for XSD schema validation.
@@ -29,12 +30,14 @@ const XSD_PATH_001_03 = join(SCHEMAS_ISO_DIR, 'pain.001.001.03.xsd')
 const XSD_PATH_001_003_03 = join(SCHEMAS_DK_DIR, 'pain.001.003.03.xsd')
 const XSD_PATH_008_08 = join(SCHEMAS_ISO_DIR, 'pain.008.001.08.xsd')
 const XSD_PATH_008_02 = join(SCHEMAS_ISO_DIR, 'pain.008.001.02.xsd')
+const XSD_PATH_008_003_02 = join(SCHEMAS_DK_DIR, 'pain.008.003.02.xsd')
 
 const NS_PAIN001_09 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
 const NS_PAIN001_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
 const NS_PAIN001_003_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.003.03'
 const NS_PAIN008_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 const NS_PAIN008_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.02'
+const NS_PAIN008_003_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.003.02'
 
 export interface XsdResult {
   /** true if the XML passed XSD validation */
@@ -49,6 +52,7 @@ let cachedValidator001_03: unknown = null
 let cachedValidator001_003_03: unknown = null
 let cachedValidator008_08: unknown = null
 let cachedValidator008_02: unknown = null
+let cachedValidator008_003_02: unknown = null
 
 /**
  * Detect the ISO 20022 namespace declared on the root Document element.
@@ -69,6 +73,7 @@ function detectNamespace(xml: string): string | null {
  * - pain.001.003.03 (German DK write+read variant) for CreditTransfer
  * - pain.008.001.08 (write target) for DirectDebit
  * - pain.008.001.02 (read-only coexistence) for DirectDebit legacy
+ * - pain.008.003.02 (German DK write+read variant) for DirectDebit
  *
  * Each validator is cached after first load for performance.
  * Uses lazy import of libxml2-wasm to keep the main bundle light.
@@ -115,6 +120,12 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
     setCachedValidator = (v) => {
       cachedValidator008_02 = v
     }
+  } else if (ns === NS_PAIN008_003_02) {
+    xsdPath = XSD_PATH_008_003_02
+    cachedValidator = cachedValidator008_003_02
+    setCachedValidator = (v) => {
+      cachedValidator008_003_02 = v
+    }
   } else {
     // Unknown or missing namespace: do not silently validate against the wrong schema.
     return {
@@ -122,7 +133,7 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
       errors: [
         ns === null
           ? 'Could not detect an ISO 20022 namespace on the root Document element.'
-          : `Unsupported namespace "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.001.003.03, pain.008.001.08, pain.008.001.02.`,
+          : `Unsupported namespace "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.001.003.03, pain.008.001.08, pain.008.001.02, pain.008.003.02.`,
       ],
     }
   }

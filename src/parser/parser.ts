@@ -1,8 +1,8 @@
 /**
  * Parser for SEPA XML documents.
  *
- * Write targets: pain.001.001.09 and pain.008.001.08.
- * Read-only (coexistence) support: pain.001.001.03, pain.008.001.02, and pain.001.003.03.
+ * Write targets: pain.001.001.09, pain.001.003.03, pain.008.001.08, pain.008.003.02.
+ * Read-only (coexistence) support: pain.001.001.03 and pain.008.001.02.
  *
  * Auto-detects the message type from the xmlns attribute and returns a
  * discriminated union:
@@ -93,6 +93,8 @@ const NS_PAIN001_003_03 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.003.03'
 const NS_PAIN008_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 /** Legacy read-only direct debit (coexistence). */
 const NS_PAIN008_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.02'
+/** German DK national variant (write target and read support). */
+const NS_PAIN008_003_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.003.02'
 
 // ---------------------------------------------------------------------------
 // Shared internal helpers
@@ -420,7 +422,7 @@ export function parse(xml: string): ParseResult {
   const version = ns.split(':xsd:')[1] ?? ns
 
   try {
-    if (ns === NS_PAIN008_08 || ns === NS_PAIN008_02) {
+    if (ns === NS_PAIN008_08 || ns === NS_PAIN008_02 || ns === NS_PAIN008_003_02) {
       return parsePain008(parsed, version)
     }
 
@@ -430,7 +432,7 @@ export function parse(xml: string): ParseResult {
 
     return {
       ok: false,
-      error: `Unknown XML namespace: "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.001.003.03, pain.008.001.08, pain.008.001.02.`,
+      error: `Unknown XML namespace: "${ns}". Supported: pain.001.001.09, pain.001.001.03, pain.001.003.03, pain.008.001.08, pain.008.001.02, pain.008.003.02.`,
     }
   } catch (e) {
     return {

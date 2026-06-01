@@ -59,6 +59,30 @@ export function emitGrpHdr(
 }
 
 /**
+ * Emit the GrpHdr block without CtrlSum.
+ *
+ * Used for the German DK SDD variant (pain.008.003.02), where CtrlSum is
+ * optional in GroupHeaderSDD and the reference sample omits it.
+ * Produces 8 lines at fixed 4/6/8-space indentation.
+ */
+export function emitGrpHdrNoCtrlSum(
+  lines: string[],
+  messageId: string,
+  createdAt: string,
+  txCount: number,
+  initiatingParty: string
+): void {
+  lines.push(`    <GrpHdr>`)
+  lines.push(`      <MsgId>${xe(messageId)}</MsgId>`)
+  lines.push(`      <CreDtTm>${xe(createdAt)}</CreDtTm>`)
+  lines.push(`      <NbOfTxs>${txCount}</NbOfTxs>`)
+  lines.push(`      <InitgPty>`)
+  lines.push(`        <Nm>${xe(initiatingParty)}</Nm>`)
+  lines.push(`      </InitgPty>`)
+  lines.push(`    </GrpHdr>`)
+}
+
+/**
  * Emit the SvcLvl/Cd=SEPA block inside a PmtTpInf element (8-space indent).
  * Both writers use this identically.
  */

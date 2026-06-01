@@ -321,6 +321,43 @@ const xml = writeCreditTransfer(doc, {
 });
 ```
 
+### German DK variant: pain.008.003.02
+
+The German DK direct debit variant uses the namespace
+`urn:iso:std:iso:20022:tech:xsd:pain.008.003.02`. Pass `variant: 'pain.008.003.02'` to emit and
+validate against this schema. The model input is the same `DirectDebitDocument` for both
+variants; only the serialization differs.
+
+```ts
+import { euros, writeDirectDebit, type DirectDebitDocument } from "sepa-xml-ts";
+import { validateXsd } from "sepa-xml-ts/xsd";
+
+const xml = writeDirectDebit(doc, { variant: "pain.008.003.02" });
+// <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.003.02">...
+
+const xsdResult = await validateXsd(xml); // validates against the DK SDD XSD
+console.log(xsdResult.valid); // true
+```
+
+The DK SDD structural differences from pain.008.001.08:
+- `FinInstnId` uses `<BIC>` element name (not `<BICFI>`)
+- `CdtrAgt` at PmtInf level: when `creditor.bic` is absent, the writer emits
+  `<Othr><Id>NOTPROVIDED</Id></Othr>` (the only allowed fallback in the DK XSD)
+- `DbtrAgt` at transaction level: same NOTPROVIDED fallback when `debtor.bic` is absent
+- `GrpHdr` omits `CtrlSum` (optional in the DK XSD; reference sample omits it)
+
+`parse()` reads pain.008.003.02 into a `DirectDebitDocument` (type `"pain.008"`),
+and `validateXsd()` uses the vendored DK XSD as the correctness oracle.
+
+The `variant` and `profile` options can be combined:
+
+```ts
+const xml = writeDirectDebit(doc, {
+  variant: "pain.008.003.02",
+  profile: { id: "my-bank", output: { batchBooking: true } },
+});
+```
+
 ## Validate against the official XSD (optional)
 
 Business rules (charset, IBAN, CtrlSum, dates) are already enforced by the model and the writer.
@@ -349,11 +386,13 @@ From `sepa-xml-ts`:
 | `euros(amount: string): Money` | Build a `Money` value safely |
 | `formatMoney(m: Money): string` | Format a `Money` value to `"123.45"` |
 | `writeCreditTransfer(model, options?): string` | Model to `pain.001` XML (`options.variant` selects schema) |
-| `writeDirectDebit(model): string` | Model to `pain.008` XML |
+| `writeDirectDebit(model, options?): string` | Model to `pain.008` XML (`options.variant` selects schema) |
 | `parse(xml: string): ParseResult` | SEPA XML to model, auto-detecting message type |
 | `validate(input: unknown): ValidationResult` | Validate a credit-transfer model against the schema |
 | `WriteCreditTransferOptions` | Options type for `writeCreditTransfer` |
 | `CreditTransferVariant` | `'pain.001.001.09' \| 'pain.001.003.03'` |
+| `WriteDirectDebitOptions` | Options type for `writeDirectDebit` |
+| `DirectDebitVariant` | `'pain.008.001.08' \| 'pain.008.003.02'` |
 
 From `sepa-xml-ts/xsd`:
 
@@ -365,8 +404,8 @@ Internal helpers (IBAN, SEPA charset, XML escaping) are intentionally not export
 
 ## Scope
 
-- **Supported write+read+XSD-validate:** `pain.001.001.09`, `pain.001.003.03` (German DK variant),
-  and `pain.008.001.08`.
+- **Supported write+read+XSD-validate:** `pain.001.001.09`, `pain.001.003.03` (German DK CT
+  variant), `pain.008.001.08`, and `pain.008.003.02` (German DK SDD variant).
 - **Read-only (coexistence):** `pain.001.001.03` and `pain.008.001.02`.
 - **Planned:** the full SEPA Creditor Identifier check-digit algorithm.
 - **Out of scope:** bank connectivity / transmission (EBICS, FinTS, Peppol). This is a file library.
