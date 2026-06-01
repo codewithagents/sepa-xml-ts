@@ -283,10 +283,7 @@ function arbRemittance(): fc.Arbitrary<Record<string, unknown>> {
  * but fc.option with constantFrom is the safest approach for the property suite.
  */
 function arbPurposeCode(): fc.Arbitrary<string | undefined> {
-  return fc.option(
-    fc.constantFrom('SALA', 'SUPP', 'TAXS', 'OTHR', 'GDDS'),
-    { nil: undefined }
-  )
+  return fc.option(fc.constantFrom('SALA', 'SUPP', 'TAXS', 'OTHR', 'GDDS'), { nil: undefined })
 }
 
 /**
@@ -308,8 +305,12 @@ function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
     fc.constant<MandateAmendment | undefined>(undefined),
     arbSepaText(1, 35).map((id): MandateAmendment => ({ originalMandateId: id })),
     arbIban().map((iban): MandateAmendment => ({ originalDebtorAccount: iban })),
-    fc.record({ originalMandateId: arbSepaText(1, 35), originalDebtorAccount: arbIban() })
-      .map((a): MandateAmendment => ({ originalMandateId: a.originalMandateId, originalDebtorAccount: a.originalDebtorAccount }))
+    fc.record({ originalMandateId: arbSepaText(1, 35), originalDebtorAccount: arbIban() }).map(
+      (a): MandateAmendment => ({
+        originalMandateId: a.originalMandateId,
+        originalDebtorAccount: a.originalDebtorAccount,
+      })
+    )
   )
 }
 
@@ -502,33 +503,25 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
   const cd = parseInt(parts[2]!, 10)
 
   // Build an arbitrary signatureDate that is always <= collectionDate (R1).
-  const arbSignatureDate: fc.Arbitrary<string> = fc
-    .integer({ min: 2000, max: cy })
-    .chain((yr) => {
-      if (yr < cy) {
-        // Any month/day is guaranteed to be before the collection year.
-        return fc
-          .record({
-            m: fc.integer({ min: 1, max: 12 }),
-            d: fc.integer({ min: 1, max: 28 }),
-          })
-          .map(
-            ({ m, d }) =>
-              `${yr}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-          )
-      }
-      // yr === cy: constrain month <= cm to stay within the same year.
-      return fc.integer({ min: 1, max: cm }).chain((mo) => {
-        // If month is earlier, any day works; if equal month, day must be <= cd.
-        const maxDay = mo < cm ? 28 : cd
-        return fc
-          .integer({ min: 1, max: maxDay })
-          .map(
-            (d) =>
-              `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-          )
-      })
+  const arbSignatureDate: fc.Arbitrary<string> = fc.integer({ min: 2000, max: cy }).chain((yr) => {
+    if (yr < cy) {
+      // Any month/day is guaranteed to be before the collection year.
+      return fc
+        .record({
+          m: fc.integer({ min: 1, max: 12 }),
+          d: fc.integer({ min: 1, max: 28 }),
+        })
+        .map(({ m, d }) => `${yr}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
+    }
+    // yr === cy: constrain month <= cm to stay within the same year.
+    return fc.integer({ min: 1, max: cm }).chain((mo) => {
+      // If month is earlier, any day works; if equal month, day must be <= cd.
+      const maxDay = mo < cm ? 28 : cd
+      return fc
+        .integer({ min: 1, max: maxDay })
+        .map((d) => `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
     })
+  })
 
   return fc
     .record({

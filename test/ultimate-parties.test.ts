@@ -45,7 +45,9 @@ function baseCt(opts?: {
               iban: 'NL91ABNA0417164300',
               bic: 'INGBNL2AXXX',
             },
-            ...(opts?.ultimateCreditor !== undefined ? { ultimateCreditor: opts.ultimateCreditor } : {}),
+            ...(opts?.ultimateCreditor !== undefined
+              ? { ultimateCreditor: opts.ultimateCreditor }
+              : {}),
           },
         ],
       },
@@ -77,7 +79,9 @@ function baseSdd(opts?: {
           {
             endToEndId: 'SDD-E2E-001',
             amount: euros('55.00'),
-            ...(opts?.ultimateCreditor !== undefined ? { ultimateCreditor: opts.ultimateCreditor } : {}),
+            ...(opts?.ultimateCreditor !== undefined
+              ? { ultimateCreditor: opts.ultimateCreditor }
+              : {}),
             debtor: {
               name: 'Customer One',
               iban: 'DE65200400300234567000',

@@ -12,10 +12,10 @@ ordering, and element names.
 
 `sepa-xml-ts` supports the German DK (DFU agreement Anlage 3) variants:
 
-| Variant | Schema | Namespace |
-|---|---|---|
+| Variant           | Schema                    | Namespace                                        |
+| ----------------- | ------------------------- | ------------------------------------------------ |
 | `pain.001.003.03` | German DK Credit Transfer | `urn:iso:std:iso:20022:tech:xsd:pain.001.003.03` |
-| `pain.008.003.02` | German DK Direct Debit | `urn:iso:std:iso:20022:tech:xsd:pain.008.003.02` |
+| `pain.008.003.02` | German DK Direct Debit    | `urn:iso:std:iso:20022:tech:xsd:pain.008.003.02` |
 
 Both ship with their official XSD (vendored in the package) and are verified against it in CI.
 
@@ -37,12 +37,12 @@ console.log(xsdResult.valid) // true -- validates against the DK XSD
 
 ### Structural differences from pain.001.001.09
 
-| Element | pain.001.001.09 | pain.001.003.03 |
-|---|---|---|
-| `ReqdExctnDt` | `<ReqdExctnDt><Dt>YYYY-MM-DD</Dt></ReqdExctnDt>` | `<ReqdExctnDt>YYYY-MM-DD</ReqdExctnDt>` |
-| Financial institution ID | `<BICFI>` element | `<BIC>` element |
-| `DbtrAgt` when no BIC | Omitted | Required: `<Othr><Id>NOTPROVIDED</Id></Othr>` |
-| `CdtrAgt` when no BIC | Empty placeholder | Omitted |
+| Element                  | pain.001.001.09                                  | pain.001.003.03                               |
+| ------------------------ | ------------------------------------------------ | --------------------------------------------- |
+| `ReqdExctnDt`            | `<ReqdExctnDt><Dt>YYYY-MM-DD</Dt></ReqdExctnDt>` | `<ReqdExctnDt>YYYY-MM-DD</ReqdExctnDt>`       |
+| Financial institution ID | `<BICFI>` element                                | `<BIC>` element                               |
+| `DbtrAgt` when no BIC    | Omitted                                          | Required: `<Othr><Id>NOTPROVIDED</Id></Othr>` |
+| `CdtrAgt` when no BIC    | Empty placeholder                                | Omitted                                       |
 
 The `NOTPROVIDED` fallback in `DbtrAgt` is the only allowed placeholder in the DK XSD when the
 debtor's BIC is unknown. The writer handles this automatically.
@@ -78,12 +78,12 @@ console.log(xsdResult.valid) // true
 
 ### Structural differences from pain.008.001.08
 
-| Element | pain.008.001.08 | pain.008.003.02 |
-|---|---|---|
-| Financial institution ID | `<BICFI>` element | `<BIC>` element |
-| `CdtrAgt` when no BIC | Empty placeholder | `<Othr><Id>NOTPROVIDED</Id></Othr>` |
-| `DbtrAgt` when no BIC | Empty placeholder | `<Othr><Id>NOTPROVIDED</Id></Othr>` |
-| `GrpHdr/CtrlSum` | Required | Omitted (optional in DK XSD) |
+| Element                  | pain.008.001.08   | pain.008.003.02                     |
+| ------------------------ | ----------------- | ----------------------------------- |
+| Financial institution ID | `<BICFI>` element | `<BIC>` element                     |
+| `CdtrAgt` when no BIC    | Empty placeholder | `<Othr><Id>NOTPROVIDED</Id></Othr>` |
+| `DbtrAgt` when no BIC    | Empty placeholder | `<Othr><Id>NOTPROVIDED</Id></Othr>` |
+| `GrpHdr/CtrlSum`         | Required          | Omitted (optional in DK XSD)        |
 
 ### Parsing pain.008.003.02
 
@@ -125,12 +125,12 @@ const xml = writeCreditTransfer(doc, {
 The profile check runs against the validated model. The variant controls the serialization.
 
 <Aside type="note">
-Never use a bank profile to change the message type or namespace. Profiles are additive overlays.
-If a bank requires a different XML schema, that is a variant, not a profile.
+  Never use a bank profile to change the message type or namespace. Profiles are additive overlays.
+  If a bank requires a different XML schema, that is a variant, not a profile.
 </Aside>
 
 ## What is NOT supported
 
 - National variants for countries other than Germany are not currently shipped. Adding a new
   variant requires the official XSD and golden test samples as verification oracles.
-- German DK variants for pain.002 (status reports) and camt.* messages are out of scope.
+- German DK variants for pain.002 (status reports) and camt.\* messages are out of scope.

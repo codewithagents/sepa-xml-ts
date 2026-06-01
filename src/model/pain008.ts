@@ -11,7 +11,12 @@
 import { z } from 'zod'
 import { isValidIban } from './iban.js'
 import { isSepaCharset } from './charset.js'
-import { MoneySchema, PostalAddressSchema, UltimatePartySchema, StructuredRemittanceSchema } from './schema.js'
+import {
+  MoneySchema,
+  PostalAddressSchema,
+  UltimatePartySchema,
+  StructuredRemittanceSchema,
+} from './schema.js'
 import { isValidCreditorId } from './creditor-id.js'
 
 // ---------------------------------------------------------------------------
@@ -298,13 +303,10 @@ const CollectionSchema = z
      */
     purpose: sepaText(4).optional(),
   })
-  .refine(
-    (col) => !(col.remittanceInfo !== undefined && col.structuredRemittance !== undefined),
-    {
-      message:
-        'A collection must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
-    }
-  )
+  .refine((col) => !(col.remittanceInfo !== undefined && col.structuredRemittance !== undefined), {
+    message:
+      'A collection must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
+  })
 
 export type Collection = z.infer<typeof CollectionSchema>
 

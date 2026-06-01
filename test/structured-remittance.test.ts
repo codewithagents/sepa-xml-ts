@@ -103,22 +103,22 @@ describe('StructuredRemittance schema validation', () => {
 
   it('passes through a non-RF national reference without a check-digit error', () => {
     // A Belgian-style structured reference, not ISO 11649.
-    expect(StructuredRemittanceSchema.safeParse({ creditorReference: '539007547034' }).success).toBe(
-      true
-    )
+    expect(
+      StructuredRemittanceSchema.safeParse({ creditorReference: '539007547034' }).success
+    ).toBe(true)
   })
 
   it('treats lowercase "rf..." as a non-RF reference (no check, passes)', () => {
     // The ISO 11649 prefix is uppercase. Lowercase is not an RF reference.
-    expect(StructuredRemittanceSchema.safeParse({ creditorReference: 'rf19539007547034' }).success).toBe(
-      true
-    )
+    expect(
+      StructuredRemittanceSchema.safeParse({ creditorReference: 'rf19539007547034' }).success
+    ).toBe(true)
   })
 
   it('rejects a reference longer than 35 chars', () => {
-    expect(StructuredRemittanceSchema.safeParse({ creditorReference: 'A'.repeat(36) }).success).toBe(
-      false
-    )
+    expect(
+      StructuredRemittanceSchema.safeParse({ creditorReference: 'A'.repeat(36) }).success
+    ).toBe(false)
   })
 })
 
@@ -134,7 +134,9 @@ describe('Structured remittance in pain.001.001.09', () => {
   })
 
   it('defaults an omitted referenceType to SCOR on write, read back as SCOR', () => {
-    const xml = writeCreditTransfer(baseCt({ structuredRemittance: { creditorReference: VALID_RF } }))
+    const xml = writeCreditTransfer(
+      baseCt({ structuredRemittance: { creditorReference: VALID_RF } })
+    )
     expect(xml).toContain('<Cd>SCOR</Cd>')
     const r = parse(xml)
     if (!r.ok) throw new Error('parse failed')
@@ -151,7 +153,9 @@ describe('Structured remittance in pain.001.001.09', () => {
   })
 
   it('still passes business validation after parse', () => {
-    const r = parse(writeCreditTransfer(baseCt({ structuredRemittance: { creditorReference: VALID_RF } })))
+    const r = parse(
+      writeCreditTransfer(baseCt({ structuredRemittance: { creditorReference: VALID_RF } }))
+    )
     if (!r.ok) throw new Error('parse failed')
     expect(validateCreditTransfer(r.data).ok).toBe(true)
   })
@@ -165,9 +169,9 @@ describe('Structured remittance in pain.008.001.08', () => {
     expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
     const r = parse(xml)
     if (!r.ok) throw new Error('parse failed')
-    expect((r.data as DirectDebitDocument).batches[0]!.collections[0]!.structuredRemittance).toEqual(
-      sr
-    )
+    expect(
+      (r.data as DirectDebitDocument).batches[0]!.collections[0]!.structuredRemittance
+    ).toEqual(sr)
   })
 })
 

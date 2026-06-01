@@ -21,7 +21,11 @@
  * - RmtInf/Ustrd is emitted when remittanceInfo is present
  */
 
-import { DirectDebitDocumentSchema, type DirectDebitDocument, type Mandate } from '../model/pain008.js'
+import {
+  DirectDebitDocumentSchema,
+  type DirectDebitDocument,
+  type Mandate,
+} from '../model/pain008.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
 import {
   xe,
@@ -141,9 +145,7 @@ export function writeDirectDebit(
       )
     )
     if (hasUltimate) {
-      throw new Error(
-        `ultimate party is not yet supported for variant ${variant}`
-      )
+      throw new Error(`ultimate party is not yet supported for variant ${variant}`)
     }
   }
 
@@ -154,9 +156,7 @@ export function writeDirectDebit(
       batch.collections.some((col) => col.structuredRemittance !== undefined)
     )
     if (hasStructuredRemittance) {
-      throw new Error(
-        `structured remittance is not yet supported for variant ${variant}`
-      )
+      throw new Error(`structured remittance is not yet supported for variant ${variant}`)
     }
   }
 
@@ -180,9 +180,7 @@ export function writeDirectDebit(
       batch.collections.some((col) => col.mandate.amendment !== undefined)
     )
     if (hasAmendment) {
-      throw new Error(
-        `mandate amendment is not yet supported for variant ${variant}`
-      )
+      throw new Error(`mandate amendment is not yet supported for variant ${variant}`)
     }
   }
 
@@ -410,7 +408,14 @@ function writeDirectDebitDK(doc: DirectDebitDocument, profile: BankProfile | und
     // Creditor (fans out doc-level creditor into each PmtInf)
     // PostalAddressSEPA (DK XSD) only allows Ctry and AdrLine (max 2).
     // emitPartyWithAddressDK throws on any unsupported field.
-    emitPartyWithAddressDK(lines, '      ', 'Cdtr', doc.creditor.name, doc.creditor.address, 'pain.008.003.02')
+    emitPartyWithAddressDK(
+      lines,
+      '      ',
+      'Cdtr',
+      doc.creditor.name,
+      doc.creditor.address,
+      'pain.008.003.02'
+    )
     emitIbanAcct(lines, '      ', 'CdtrAcct', doc.creditor.iban)
     // DK delta 2: CdtrAgt uses BIC or NOTPROVIDED (BranchAndFinancialInstitutionIdentificationSEPA3)
     emitDkFinInstnId(lines, '      ', 'CdtrAgt', doc.creditor.bic, true)
@@ -446,7 +451,14 @@ function writeDirectDebitDK(doc: DirectDebitDocument, profile: BankProfile | und
       // DK delta 3: DbtrAgt uses BIC or NOTPROVIDED (BranchAndFinancialInstitutionIdentificationSEPA3)
       emitDkFinInstnId(lines, '        ', 'DbtrAgt', col.debtor.bic, true)
       // PostalAddressSEPA: only Ctry + AdrLine (max 2) supported.
-      emitPartyWithAddressDK(lines, '        ', 'Dbtr', col.debtor.name, col.debtor.address, 'pain.008.003.02')
+      emitPartyWithAddressDK(
+        lines,
+        '        ',
+        'Dbtr',
+        col.debtor.name,
+        col.debtor.address,
+        'pain.008.003.02'
+      )
       emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
       emitRmtInf(lines, col.remittanceInfo)
       lines.push(`      </DrctDbtTxInf>`)

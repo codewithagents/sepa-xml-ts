@@ -15,25 +15,25 @@ message used across the SEPA zone.
 import { euros, type CreditTransferDocument, type PaymentBatch, type Transfer } from 'sepa-xml-ts'
 
 const doc: CreditTransferDocument = {
-  messageId: 'MSG-2026-0001',       // GrpHdr/MsgId: unique message identifier
+  messageId: 'MSG-2026-0001', // GrpHdr/MsgId: unique message identifier
   createdAt: '2026-06-01T10:30:00Z', // GrpHdr/CreDtTm: ISO 8601 datetime
-  initiatingParty: 'ACME GmbH',     // GrpHdr/InitgPty/Nm
+  initiatingParty: 'ACME GmbH', // GrpHdr/InitgPty/Nm
 
   batches: [
     {
-      id: 'BATCH-001',               // PmtInfId: unique within the message
-      executionDate: '2026-06-03',   // ReqdExctnDt/Dt: YYYY-MM-DD, never a datetime
+      id: 'BATCH-001', // PmtInfId: unique within the message
+      executionDate: '2026-06-03', // ReqdExctnDt/Dt: YYYY-MM-DD, never a datetime
       debtor: {
-        name: 'ACME GmbH',           // Dbtr/Nm
+        name: 'ACME GmbH', // Dbtr/Nm
         iban: 'DE89370400440532013000', // DbtrAcct/Id/IBAN
-        bic: 'COBADEFFXXX',          // DbtrAgt/FinInstnId/BICFI (optional since 2016 rulebook)
+        bic: 'COBADEFFXXX', // DbtrAgt/FinInstnId/BICFI (optional since 2016 rulebook)
       },
       transfers: [
         {
-          endToEndId: 'INV-1001',    // PmtId/EndToEndId
-          amount: euros('123.45'),   // Amt/InstdAmt Ccy="EUR"
+          endToEndId: 'INV-1001', // PmtId/EndToEndId
+          amount: euros('123.45'), // Amt/InstdAmt Ccy="EUR"
           creditor: {
-            name: 'Beispiel AG',     // Cdtr/Nm
+            name: 'Beispiel AG', // Cdtr/Nm
             iban: 'NL91ABNA0417164300', // CdtrAcct/Id/IBAN
             // bic is optional for pan-European SEPA transfers
           },
@@ -47,13 +47,13 @@ const doc: CreditTransferDocument = {
 
 ## Model types
 
-| Type | XSD element |
-|---|---|
-| `CreditTransferDocument` | `Document/CstmrCdtTrfInitn` |
-| `PaymentBatch` | `PmtInf` |
-| `Transfer` | `CdtTrfTxInf` |
-| `AccountParty` | `Dbtr` or `Cdtr` with account and agent |
-| `Money` | `Amt/InstdAmt` |
+| Type                     | XSD element                             |
+| ------------------------ | --------------------------------------- |
+| `CreditTransferDocument` | `Document/CstmrCdtTrfInitn`             |
+| `PaymentBatch`           | `PmtInf`                                |
+| `Transfer`               | `CdtTrfTxInf`                           |
+| `AccountParty`           | `Dbtr` or `Cdtr` with account and agent |
+| `Money`                  | `Amt/InstdAmt`                          |
 
 ## Writing to XML
 
@@ -75,15 +75,15 @@ if the model fails validation, so it cannot emit a structurally invalid file.
 
 The writer derives the following fields from the model. You do not supply them:
 
-| Field | How it is derived |
-|---|---|
-| `GrpHdr/NbOfTxs` | Total count of all transfers across all batches |
-| `GrpHdr/CtrlSum` | Sum of all transfer amounts (exact `bigint` addition) |
-| `PmtInf/NbOfTxs` | Count of transfers in this batch |
-| `PmtInf/CtrlSum` | Sum of transfer amounts in this batch |
-| `PmtInf/PmtMtd` | Always `TRF` |
-| `PmtInf/PmtTpInf/SvcLvl/Cd` | Always `SEPA` |
-| `PmtInf/ChrgBr` | Always `SLEV` |
+| Field                       | How it is derived                                     |
+| --------------------------- | ----------------------------------------------------- |
+| `GrpHdr/NbOfTxs`            | Total count of all transfers across all batches       |
+| `GrpHdr/CtrlSum`            | Sum of all transfer amounts (exact `bigint` addition) |
+| `PmtInf/NbOfTxs`            | Count of transfers in this batch                      |
+| `PmtInf/CtrlSum`            | Sum of transfer amounts in this batch                 |
+| `PmtInf/PmtMtd`             | Always `TRF`                                          |
+| `PmtInf/PmtTpInf/SvcLvl/Cd` | Always `SEPA`                                         |
+| `PmtInf/ChrgBr`             | Always `SLEV`                                         |
 
 ## Structured postal address
 
@@ -94,22 +94,24 @@ Each party (debtor and creditor) accepts an optional structured `address`, emitt
 ```typescript
 const doc = {
   // ...
-  batches: [{
-    // ...
-    debtor: {
-      name: 'Test Corp',
-      iban: 'DE89370400440532013000',
-      bic: 'COBADEFFXXX',
-      address: {
-        streetName: 'Rue de la Loi',
-        buildingNumber: '16',
-        postCode: '1000',
-        townName: 'Brussels',
-        country: 'BE', // 2-letter ISO country code
+  batches: [
+    {
+      // ...
+      debtor: {
+        name: 'Test Corp',
+        iban: 'DE89370400440532013000',
+        bic: 'COBADEFFXXX',
+        address: {
+          streetName: 'Rue de la Loi',
+          buildingNumber: '16',
+          postCode: '1000',
+          townName: 'Brussels',
+          country: 'BE', // 2-letter ISO country code
+        },
       },
+      // ...
     },
-    // ...
-  }],
+  ],
 }
 ```
 
@@ -133,7 +135,7 @@ const transfer = {
   endToEndId: 'INV-1001',
   amount: euros('123.45'),
   creditor: { name: 'Factoring GmbH', iban: 'NL91ABNA0417164300' },
-  ultimateCreditor: { name: 'Beispiel AG' },  // UltmtCdtr/Nm: who the money is really for
+  ultimateCreditor: { name: 'Beispiel AG' }, // UltmtCdtr/Nm: who the money is really for
   ultimateDebtor: { name: 'ACME Subsidiary' }, // UltmtDbtr/Nm: who really owes it
 }
 ```
@@ -157,8 +159,8 @@ const transfer = {
   creditor: { name: 'Beispiel AG', iban: 'NL91ABNA0417164300' },
   structuredRemittance: {
     creditorReference: 'RF18539007547034', // RmtInf/Strd/CdtrRefInf/Ref
-    referenceType: 'SCOR',                 // CdtrRefInf/Tp/CdOrPrtry/Cd, defaults to SCOR
-    issuer: 'ISO',                         // CdtrRefInf/Tp/Issr, optional
+    referenceType: 'SCOR', // CdtrRefInf/Tp/CdOrPrtry/Cd, defaults to SCOR
+    issuer: 'ISO', // CdtrRefInf/Tp/Issr, optional
   },
 }
 ```
@@ -184,16 +186,20 @@ A transfer can carry a purpose code (`Purp/Cd`), and a batch can carry a categor
 ```typescript
 const doc = {
   // ...
-  batches: [{
-    // ...
-    categoryPurpose: 'SALA',   // PmtTpInf/CtgyPurp/Cd, batch level
-    transfers: [{
-      endToEndId: 'INV-1001',
-      amount: euros('123.45'),
-      creditor: { name: 'Beispiel AG', iban: 'NL91ABNA0417164300' },
-      purpose: 'SUPP',         // Purp/Cd, transaction level
-    }],
-  }],
+  batches: [
+    {
+      // ...
+      categoryPurpose: 'SALA', // PmtTpInf/CtgyPurp/Cd, batch level
+      transfers: [
+        {
+          endToEndId: 'INV-1001',
+          amount: euros('123.45'),
+          creditor: { name: 'Beispiel AG', iban: 'NL91ABNA0417164300' },
+          purpose: 'SUPP', // Purp/Cd, transaction level
+        },
+      ],
+    },
+  ],
 }
 ```
 
@@ -225,7 +231,7 @@ const xml = writeCreditTransfer(doc, { profile: requireBic })
 See [Bank profiles](/guides/bank-profiles) for the full profile API.
 
 <Aside type="note">
-The BIC field on `AccountParty` is optional for standard pan-European SEPA transfers since the 2016
-SEPA rulebook change. Some banks still require it: use the `requireBic` profile to enforce it at
-validation time before submission.
+  The BIC field on `AccountParty` is optional for standard pan-European SEPA transfers since the
+  2016 SEPA rulebook change. Some banks still require it: use the `requireBic` profile to enforce it
+  at validation time before submission.
 </Aside>

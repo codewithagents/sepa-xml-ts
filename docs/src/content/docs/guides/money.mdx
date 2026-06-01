@@ -13,7 +13,7 @@ arithmetic can never corrupt an amount or a control sum.
 ```typescript
 type Money = {
   currencyCode: 'EUR'
-  minorUnits: bigint  // cents: 123.45 EUR = 12345n
+  minorUnits: bigint // cents: 123.45 EUR = 12345n
 }
 ```
 
@@ -26,10 +26,10 @@ Use `euros(amount: string)` to construct a `Money` value from a decimal string:
 ```typescript
 import { euros } from 'sepa-xml-ts'
 
-euros('123.45')  // { currencyCode: 'EUR', minorUnits: 12345n }
-euros('0.01')    // { currencyCode: 'EUR', minorUnits: 1n }
-euros('100')     // { currencyCode: 'EUR', minorUnits: 10000n }
-euros('123.4')   // .4 is padded to .40 -> { minorUnits: 12340n }
+euros('123.45') // { currencyCode: 'EUR', minorUnits: 12345n }
+euros('0.01') // { currencyCode: 'EUR', minorUnits: 1n }
+euros('100') // { currencyCode: 'EUR', minorUnits: 10000n }
+euros('123.4') // .4 is padded to .40 -> { minorUnits: 12340n }
 ```
 
 `euros` accepts a string, never a number. This is intentional: passing a float is a type error.
@@ -37,10 +37,10 @@ euros('123.4')   // .4 is padded to .40 -> { minorUnits: 12340n }
 ### Throwing cases
 
 ```typescript
-euros('1.234')   // throws: more than 2 decimal places
-euros('-1.00')   // throws: negative amounts are not valid SEPA amounts
-euros('0.00')    // throws: zero is not a valid SEPA transfer amount
-euros(123.45)    // TypeScript compile error: number is not assignable to string
+euros('1.234') // throws: more than 2 decimal places
+euros('-1.00') // throws: negative amounts are not valid SEPA amounts
+euros('0.00') // throws: zero is not a valid SEPA transfer amount
+euros(123.45) // TypeScript compile error: number is not assignable to string
 ```
 
 <Aside type="caution">
@@ -54,9 +54,9 @@ clarity and safety at the call site.
 ```typescript
 import { formatMoney, euros } from 'sepa-xml-ts'
 
-formatMoney(euros('123.45'))  // '123.45'
-formatMoney(euros('100'))     // '100.00'
-formatMoney(euros('0.01'))    // '0.01'
+formatMoney(euros('123.45')) // '123.45'
+formatMoney(euros('100')) // '100.00'
+formatMoney(euros('0.01')) // '0.01'
 ```
 
 `formatMoney` always returns exactly 2 decimal places, uses a dot separator, and no thousands

@@ -102,7 +102,11 @@ export function emitSvcLvl(lines: string[]): void {
  * @param indent  - leading spaces for the PstlAdr tag (one level deeper than the party tag)
  * @param address - optional PostalAddress from the model; nothing emitted when absent
  */
-export function emitPstlAdr(lines: string[], indent: string, address: PostalAddress | undefined): void {
+export function emitPstlAdr(
+  lines: string[],
+  indent: string,
+  address: PostalAddress | undefined
+): void {
   if (address === undefined) {
     return
   }
@@ -207,22 +211,34 @@ export function emitPstlAdrSEPA(
 
   // Fail loud on fields not supported by PostalAddressSEPA.
   if (address.streetName !== undefined) {
-    throw new Error(`field 'streetName' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+    throw new Error(
+      `field 'streetName' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`
+    )
   }
   if (address.buildingNumber !== undefined) {
-    throw new Error(`field 'buildingNumber' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+    throw new Error(
+      `field 'buildingNumber' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`
+    )
   }
   if (address.postCode !== undefined) {
-    throw new Error(`field 'postCode' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+    throw new Error(
+      `field 'postCode' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`
+    )
   }
   if (address.townName !== undefined) {
-    throw new Error(`field 'townName' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+    throw new Error(
+      `field 'townName' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`
+    )
   }
   if (address.countrySubDivision !== undefined) {
-    throw new Error(`field 'countrySubDivision' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+    throw new Error(
+      `field 'countrySubDivision' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`
+    )
   }
   if (address.addressLines !== undefined && address.addressLines.length > 2) {
-    throw new Error(`addressLines has ${address.addressLines.length} entries but PostalAddressSEPA in ${variant} allows at most 2 AdrLine elements`)
+    throw new Error(
+      `addressLines has ${address.addressLines.length} entries but PostalAddressSEPA in ${variant} allows at most 2 AdrLine elements`
+    )
   }
 
   lines.push(`${indent}<PstlAdr>`)

@@ -138,9 +138,7 @@ export function writeCreditTransfer(
       )
     )
     if (hasUltimate) {
-      throw new Error(
-        `ultimate party is not yet supported for variant ${variant}`
-      )
+      throw new Error(`ultimate party is not yet supported for variant ${variant}`)
     }
   }
 
@@ -151,9 +149,7 @@ export function writeCreditTransfer(
       batch.transfers.some((tx) => tx.structuredRemittance !== undefined)
     )
     if (hasStructuredRemittance) {
-      throw new Error(
-        `structured remittance is not yet supported for variant ${variant}`
-      )
+      throw new Error(`structured remittance is not yet supported for variant ${variant}`)
     }
   }
 
@@ -415,7 +411,14 @@ function writeCreditTransferDK(
     lines.push(`      <ReqdExctnDt>${xe(batch.executionDate)}</ReqdExctnDt>`)
     // PostalAddressSEPA (DK XSD) only allows Ctry and AdrLine (max 2).
     // emitPartyWithAddressDK throws on any unsupported field.
-    emitPartyWithAddressDK(lines, '      ', 'Dbtr', batch.debtor.name, batch.debtor.address, 'pain.001.003.03')
+    emitPartyWithAddressDK(
+      lines,
+      '      ',
+      'Dbtr',
+      batch.debtor.name,
+      batch.debtor.address,
+      'pain.001.003.03'
+    )
     emitIbanAcct(lines, '      ', 'DbtrAcct', batch.debtor.iban)
     // DK delta 2: DbtrAgt is required; uses BIC element (not BICFI); falls back to NOTPROVIDED
     emitDkFinInstnId(lines, '      ', 'DbtrAgt', batch.debtor.bic, true)
@@ -434,7 +437,14 @@ function writeCreditTransferDK(
       // DK delta 3: CdtrAgt is optional; uses BIC element (not BICFI); omitted when no BIC
       emitDkFinInstnId(lines, '        ', 'CdtrAgt', tx.creditor.bic, false)
       // PostalAddressSEPA: only Ctry + AdrLine (max 2) supported.
-      emitPartyWithAddressDK(lines, '        ', 'Cdtr', tx.creditor.name, tx.creditor.address, 'pain.001.003.03')
+      emitPartyWithAddressDK(
+        lines,
+        '        ',
+        'Cdtr',
+        tx.creditor.name,
+        tx.creditor.address,
+        'pain.001.003.03'
+      )
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
       emitRmtInf(lines, tx.remittanceInfo)
       lines.push(`      </CdtTrfTxInf>`)

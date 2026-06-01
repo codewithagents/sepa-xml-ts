@@ -132,24 +132,24 @@ if (!xsdResult.valid) {
     `12345n`. A float can never sneak into your CtrlSum.
   </Card>
   <Card title="Exact CtrlSum" icon="approve-check">
-    The control sum is derived by the writer with exact integer addition across all transfers.
-    Zero rounding tolerance.
+    The control sum is derived by the writer with exact integer addition across all transfers. Zero
+    rounding tolerance.
   </Card>
   <Card title="EPC charset enforced" icon="information">
     SEPA character set EPC217-08 is enforced as a concern separate from XML escaping. Non-SEPA
     characters are rejected, not silently dropped.
   </Card>
   <Card title="IBAN mod-97 check" icon="approve-check-circle">
-    Every IBAN is validated by mod-97 checksum, not just a regex. Invalid IBANs are caught before
-    a file is ever written.
+    Every IBAN is validated by mod-97 checksum, not just a regex. Invalid IBANs are caught before a
+    file is ever written.
   </Card>
   <Card title="Dates, not datetimes" icon="information">
     Execution and collection dates are plain `YYYY-MM-DD` values. The library never stamps a
     timezone on a date-only field.
   </Card>
   <Card title="XSD-as-oracle testing" icon="star">
-    Every build generates hundreds of random valid models, writes them to XML, and asserts each
-    file passes the official EPC XSD. The XSD is the ground truth.
+    Every build generates hundreds of random valid models, writes them to XML, and asserts each file
+    passes the official EPC XSD. The XSD is the ground truth.
   </Card>
 </CardGrid>
 
@@ -232,7 +232,7 @@ if (!xsdResult.valid) {
 
 - **You need bank connectivity.** This is a file library. EBICS, FinTS, and Peppol transmission
   are out of scope.
-- **You need pain.002 or camt.* parsing.** Only pain.001 and pain.008 are in scope today.
+- **You need pain.002 or camt.\* parsing.** Only pain.001 and pain.008 are in scope today.
 - **Your target is not TypeScript / Node.** This is an ESM TypeScript package.
 
 </Aside>

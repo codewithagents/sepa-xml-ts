@@ -28,7 +28,10 @@ const DEBTOR_IBAN_2 = 'NL91ABNA0417164300'
 const CREDITOR_ID = 'DE98ZZZ09999999999'
 
 /** Build a minimal valid DirectDebitDocument with configurable mandate options. */
-function makeDoc(mandateOverrides?: Partial<DirectDebitDocument['batches'][0]['collections'][0]['mandate']>, batchOverrides?: Partial<DirectDebitDocument['batches'][0]>): DirectDebitDocument {
+function makeDoc(
+  mandateOverrides?: Partial<DirectDebitDocument['batches'][0]['collections'][0]['mandate']>,
+  batchOverrides?: Partial<DirectDebitDocument['batches'][0]>
+): DirectDebitDocument {
   return {
     messageId: 'AMD-TEST-001',
     createdAt: '2024-06-01T09:00:00Z',
@@ -199,14 +202,18 @@ describe('amendment with sameMandateNewDebtorAccount (SMNDA) in FRST batch', () 
 
 describe('amendment with both originalMandateId and originalDebtorAccount', () => {
   it('produces XSD-valid XML', async () => {
-    const doc = makeDoc({ amendment: { originalMandateId: 'OLD-ID', originalDebtorAccount: DEBTOR_IBAN_2 } })
+    const doc = makeDoc({
+      amendment: { originalMandateId: 'OLD-ID', originalDebtorAccount: DEBTOR_IBAN_2 },
+    })
     const xml = writeDirectDebit(doc)
     const result = await validateXsd(xml)
     expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
   })
 
   it('round-trips (parse(write(model)) deep-equals original)', () => {
-    const doc = makeDoc({ amendment: { originalMandateId: 'OLD-ID', originalDebtorAccount: DEBTOR_IBAN_2 } })
+    const doc = makeDoc({
+      amendment: { originalMandateId: 'OLD-ID', originalDebtorAccount: DEBTOR_IBAN_2 },
+    })
     const xml = writeDirectDebit(doc)
     const parsed = parse(xml)
     expect(parsed.ok).toBe(true)
@@ -222,9 +229,7 @@ describe('amendment with both originalMandateId and originalDebtorAccount', () =
 
 describe('MandateAmendmentSchema validation', () => {
   it('rejects an empty amendment object (no fields set)', () => {
-    const result = DirectDebitDocumentSchema.safeParse(
-      makeDoc({ amendment: {} as never })
-    )
+    const result = DirectDebitDocumentSchema.safeParse(makeDoc({ amendment: {} as never }))
     expect(result.success).toBe(false)
     if (result.success) throw new Error('expected failure')
     const messages = result.error.issues.map((i) => i.message).join('; ')
@@ -243,7 +248,9 @@ describe('MandateAmendmentSchema validation', () => {
 
   it('rejects originalDebtorAccount + sameMandateNewDebtorAccount:true (mutual exclusion)', () => {
     const result = DirectDebitDocumentSchema.safeParse(
-      makeDoc({ amendment: { originalDebtorAccount: DEBTOR_IBAN_2, sameMandateNewDebtorAccount: true } })
+      makeDoc({
+        amendment: { originalDebtorAccount: DEBTOR_IBAN_2, sameMandateNewDebtorAccount: true },
+      })
     )
     expect(result.success).toBe(false)
     if (result.success) throw new Error('expected failure')
@@ -361,10 +368,7 @@ describe('R4: sameMandateNewDebtorAccount=true requires FRST sequenceType', () =
   })
 
   it('non-SMNDA amendment (originalMandateId) does not trigger R4 in RCUR batch', () => {
-    const doc = makeDoc(
-      { amendment: { originalMandateId: 'OLD-MAND' } },
-      { sequenceType: 'RCUR' }
-    )
+    const doc = makeDoc({ amendment: { originalMandateId: 'OLD-MAND' } }, { sequenceType: 'RCUR' })
     const issues = checkDirectDebitRules(doc)
     const r4Issues = issues.filter((i) => i.message.includes('R4'))
     expect(r4Issues).toHaveLength(0)
@@ -383,10 +387,7 @@ describe('R4: sameMandateNewDebtorAccount=true requires FRST sequenceType', () =
   it('SMNDA with sameMandateNewDebtorAccount: false does not trigger R4', () => {
     // sameMandateNewDebtorAccount: false is not a valid amendment on its own (schema rejects it),
     // but if somehow passed, it should not fire R4. Here we use a valid amendment with the flag omitted.
-    const doc = makeDoc(
-      { amendment: { originalMandateId: 'OLD-MAND' } },
-      { sequenceType: 'RCUR' }
-    )
+    const doc = makeDoc({ amendment: { originalMandateId: 'OLD-MAND' } }, { sequenceType: 'RCUR' })
     const issues = checkDirectDebitRules(doc)
     const r4Issues = issues.filter((i) => i.message.includes('R4'))
     expect(r4Issues).toHaveLength(0)

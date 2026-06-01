@@ -161,7 +161,9 @@ describe('PstlAdr in pain.008.001.08', () => {
 
 describe('PstlAdr in pain.001.001.03', () => {
   it('full structured address round-trips and is XSD-valid', async () => {
-    const xml = writeCreditTransfer(baseCt(FULL_ADDRESS, FULL_ADDRESS), { variant: 'pain.001.001.03' })
+    const xml = writeCreditTransfer(baseCt(FULL_ADDRESS, FULL_ADDRESS), {
+      variant: 'pain.001.001.03',
+    })
     const xsd = await validateXsd(xml)
     expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
     const r = parse(xml)
@@ -226,13 +228,17 @@ describe('PstlAdr in pain.001.003.03', () => {
 
   it('throws for buildingNumber', () => {
     expect(() =>
-      writeCreditTransfer(baseCt({ buildingNumber: '42', country: 'DE' }), { variant: 'pain.001.003.03' })
+      writeCreditTransfer(baseCt({ buildingNumber: '42', country: 'DE' }), {
+        variant: 'pain.001.003.03',
+      })
     ).toThrow(/field 'buildingNumber' is not supported in the pain.001.003.03 postal address/)
   })
 
   it('throws for postCode', () => {
     expect(() =>
-      writeCreditTransfer(baseCt({ postCode: '10115', country: 'DE' }), { variant: 'pain.001.003.03' })
+      writeCreditTransfer(baseCt({ postCode: '10115', country: 'DE' }), {
+        variant: 'pain.001.003.03',
+      })
     ).toThrow(/field 'postCode' is not supported in the pain.001.003.03 postal address/)
   })
 
@@ -244,14 +250,20 @@ describe('PstlAdr in pain.001.003.03', () => {
 
   it('throws for countrySubDivision', () => {
     expect(() =>
-      writeCreditTransfer(baseCt({ countrySubDivision: 'BY', country: 'DE' }), { variant: 'pain.001.003.03' })
+      writeCreditTransfer(baseCt({ countrySubDivision: 'BY', country: 'DE' }), {
+        variant: 'pain.001.003.03',
+      })
     ).toThrow(/field 'countrySubDivision' is not supported in the pain.001.003.03 postal address/)
   })
 
   it('throws when addressLines has more than 2 entries', () => {
     expect(() =>
-      writeCreditTransfer(baseCt({ country: 'DE', addressLines: ['L1', 'L2', 'L3'] }), { variant: 'pain.001.003.03' })
-    ).toThrow(/addressLines has 3 entries but PostalAddressSEPA in pain.001.003.03 allows at most 2/)
+      writeCreditTransfer(baseCt({ country: 'DE', addressLines: ['L1', 'L2', 'L3'] }), {
+        variant: 'pain.001.003.03',
+      })
+    ).toThrow(
+      /addressLines has 3 entries but PostalAddressSEPA in pain.001.003.03 allows at most 2/
+    )
   })
 })
 
@@ -304,12 +316,16 @@ describe('PstlAdr in pain.008.003.02', () => {
   })
 
   it('DK address on debtor (Ctry + AdrLine) round-trips and is XSD-valid', async () => {
-    const xml = writeDirectDebit(baseDdWithDebtorAddress(DK_ADDRESS), { variant: 'pain.008.003.02' })
+    const xml = writeDirectDebit(baseDdWithDebtorAddress(DK_ADDRESS), {
+      variant: 'pain.008.003.02',
+    })
     const xsd = await validateXsd(xml)
     expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
     const r = parse(xml)
     if (!r.ok || r.type !== 'pain.008') throw new Error('parse failed')
-    expect((r.data as DirectDebitDocument).batches[0]!.collections[0]!.debtor.address).toEqual(DK_ADDRESS)
+    expect((r.data as DirectDebitDocument).batches[0]!.collections[0]!.debtor.address).toEqual(
+      DK_ADDRESS
+    )
   })
 
   it('absent address emits no PstlAdr element', () => {
@@ -325,14 +341,20 @@ describe('PstlAdr in pain.008.003.02', () => {
 
   it('throws for streetName on debtor (not in PostalAddressSEPA)', () => {
     expect(() =>
-      writeDirectDebit(baseDdWithDebtorAddress({ streetName: 'Main St' }), { variant: 'pain.008.003.02' })
+      writeDirectDebit(baseDdWithDebtorAddress({ streetName: 'Main St' }), {
+        variant: 'pain.008.003.02',
+      })
     ).toThrow(/field 'streetName' is not supported in the pain.008.003.02 postal address/)
   })
 
   it('throws when addressLines has more than 2 entries on creditor', () => {
     expect(() =>
-      writeDirectDebit(baseDd({ country: 'DE', addressLines: ['L1', 'L2', 'L3'] }), { variant: 'pain.008.003.02' })
-    ).toThrow(/addressLines has 3 entries but PostalAddressSEPA in pain.008.003.02 allows at most 2/)
+      writeDirectDebit(baseDd({ country: 'DE', addressLines: ['L1', 'L2', 'L3'] }), {
+        variant: 'pain.008.003.02',
+      })
+    ).toThrow(
+      /addressLines has 3 entries but PostalAddressSEPA in pain.008.003.02 allows at most 2/
+    )
   })
 })
 

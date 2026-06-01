@@ -169,7 +169,9 @@ function extractPstlAdr(partyEl: unknown): PostalAddress | undefined {
   let addressLines: string[] | undefined
   const rawAdrLine = nav(pstlAdrEl, 'AdrLine')
   if (Array.isArray(rawAdrLine)) {
-    const lines = rawAdrLine.map((l: unknown) => str(l)).filter((l): l is string => l !== null && l !== '')
+    const lines = rawAdrLine
+      .map((l: unknown) => str(l))
+      .filter((l): l is string => l !== null && l !== '')
     if (lines.length > 0) {
       addressLines = lines
     }
@@ -293,7 +295,12 @@ function extractAccountParty(
 
   const address = extractPstlAdr(partyEl)
 
-  return { name, iban, ...(bic !== undefined ? { bic } : {}), ...(address !== undefined ? { address } : {}) }
+  return {
+    name,
+    iban,
+    ...(bic !== undefined ? { bic } : {}),
+    ...(address !== undefined ? { address } : {}),
+  }
 }
 
 function extractTransfer(txEl: unknown): Transfer | null {
@@ -441,7 +448,8 @@ function extractMandateAmendment(amdmntInfDtlsEl: unknown): MandateAmendment | u
   }
 
   const originalMandateId = str(nav(amdmntInfDtlsEl, 'OrgnlMndtId')) ?? undefined
-  const originalDebtorAccount = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN')) ?? undefined
+  const originalDebtorAccount =
+    str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN')) ?? undefined
 
   // SMNDA is signaled by OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA"
   const smndaId = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'Othr', 'Id'))
@@ -459,7 +467,8 @@ function extractMandateAmendment(amdmntInfDtlsEl: unknown): MandateAmendment | u
   const amd: MandateAmendment = {}
   if (originalMandateId !== undefined) amd.originalMandateId = originalMandateId
   if (originalDebtorAccount !== undefined) amd.originalDebtorAccount = originalDebtorAccount
-  if (sameMandateNewDebtorAccount !== undefined) amd.sameMandateNewDebtorAccount = sameMandateNewDebtorAccount
+  if (sameMandateNewDebtorAccount !== undefined)
+    amd.sameMandateNewDebtorAccount = sameMandateNewDebtorAccount
   return amd
 }
 
@@ -480,7 +489,10 @@ function extractCollection(txEl: unknown): Collection | null {
 
   // Optional amendment: AmdmntInfDtls (only extracted when AmdmntInd=true is present)
   const amdmntInd = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInd'))
-  const amendment = amdmntInd === 'true' ? extractMandateAmendment(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInfDtls')) : undefined
+  const amendment =
+    amdmntInd === 'true'
+      ? extractMandateAmendment(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInfDtls'))
+      : undefined
 
   const mandate: Mandate = {
     id: mandateId,
