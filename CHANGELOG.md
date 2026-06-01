@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.3.0...sepa-xml-ts-v0.4.0) (2026-06-01)
+
+
+### Features
+
+* add German DK pain.008.003.02 direct-debit write+read variant (XSD-verified) ([d76383e](https://github.com/codewithagents/sepa-xml-ts/commit/d76383e4c3e5ab98cd33aa70e399399a013a7a97))
+
 ## [0.3.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.2.0...sepa-xml-ts-v0.3.0) (2026-06-01)
 
 
