@@ -31,7 +31,7 @@ import { writeCreditTransfer } from '../src/writer/writer.js'
 import { euros } from '../src/model/schema.js'
 import { buildIban } from '../src/model/iban.js'
 import { sanitizeSepa } from '../src/model/charset.js'
-import type { CreditTransferDocument } from '../src/model/schema.js'
+import type { CreditTransferDocument, PostalAddress } from '../src/model/schema.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -446,17 +446,49 @@ function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
   )
 }
 
+/**
+ * Optional full structured address for pain.001.001.03, which uses PostalAddress6.
+ * PostalAddress6 supports the same field subset and element order as our emitPstlAdr
+ * (StrtNm, BldgNb, PstCd, TwnNm, CtrySubDvsn, Ctry, AdrLine), so the full model
+ * address is valid here. All text uses the trimmed SEPA charset to survive round-trip.
+ */
+function arbPostalAddress6(): fc.Arbitrary<PostalAddress> {
+  return fc
+    .record({
+      streetName: fc.option(arbSepaText(1, 70), { nil: undefined }),
+      buildingNumber: fc.option(arbSepaText(1, 16), { nil: undefined }),
+      postCode: fc.option(arbSepaText(1, 16), { nil: undefined }),
+      townName: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      countrySubDivision: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      country: fc.option(fc.constantFrom('DE', 'FR', 'NL', 'ES', 'IT', 'BE', 'AT'), {
+        nil: undefined,
+      }),
+      addressLines: fc.option(fc.array(arbSepaText(1, 70), { minLength: 1, maxLength: 7 }), {
+        nil: undefined,
+      }),
+    })
+    .map((a) => {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(a)) {
+        if (v !== undefined) out[k] = v
+      }
+      return out as PostalAddress
+    })
+    .filter((a) => Object.keys(a).length > 0)
+}
+
 function arbAccountParty() {
   return fc.record({
     name: arbPartyName(),
     iban: arbIban(),
     bic: fc.option(arbBic(), { nil: undefined }),
+    address: fc.option(arbPostalAddress6(), { nil: undefined }),
   }).map((p) => {
-    if (p.bic === undefined) {
-      const { bic: _bic, ...rest } = p
-      return rest
-    }
-    return p
+    const { address, ...rest } = p
+    const base: Record<string, unknown> = { ...rest }
+    if (base['bic'] === undefined) delete base['bic']
+    if (address !== undefined) base['address'] = address
+    return base
   })
 }
 

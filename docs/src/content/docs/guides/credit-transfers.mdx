@@ -114,9 +114,12 @@ const doc = {
 ```
 
 All address fields are optional, but the object must have at least one field set, and `country`
-must be a 2-letter uppercase code. This is supported for `pain.001.001.09` and `pain.008.001.08`.
-The legacy and DK variants do not yet emit `PstlAdr`: they throw a clear error if an address is
-present, rather than dropping it silently.
+must be a 2-letter uppercase code. The full field set is supported for `pain.001.001.09` and
+`pain.008.001.08` (PostalAddress24) and for the legacy `pain.001.001.03` (PostalAddress6). The German
+DK variants (`pain.001.003.03`, `pain.008.003.02`) use the restricted PostalAddressSEPA type, which
+supports only `country` and up to two `addressLines`: setting any other field (`streetName`,
+`buildingNumber`, `postCode`, `townName`, `countrySubDivision`) throws a clear error for those
+variants rather than dropping it silently.
 
 ## Ultimate parties
 

@@ -31,7 +31,7 @@ not talk to banks.
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `ibanBicCountryMatch`, `batchBooking`) | overlay | ✅ Supported |
 | pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3) | `pain.008` | ✅ Supported |
-| Structured creditor/debtor postal address (`PstlAdr`) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
+| Structured creditor/debtor postal address (`PstlAdr`) | all write variants (DK variants: `Ctry` + `AdrLine` only) | ✅ Supported |
 | Ultimate creditor/debtor at transaction level (`UltmtCdtr` / `UltmtDbtr`, name only) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Structured remittance / creditor reference (`RmtInf/Strd/CdtrRefInf`, conditional ISO 11649) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Purpose and category purpose codes (`Purp` / `CtgyPurp`, ISO external codes, not list-validated) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
@@ -51,8 +51,11 @@ samples, because a wrong flavor is worse than none.
 Note on structured address: the EPC makes a structured `PstlAdr` (separate town, postcode, country
 elements) mandatory for the modern messages from 22 November 2026, and many banks reject unstructured
 addresses already. The optional `address` field on each party is emitted as a structured `PstlAdr` for
-`pain.001.001.09` and `pain.008.001.08`. The legacy and DK variants do not yet emit it and throw a
-clear error if an address is present, rather than dropping it silently.
+every write variant. The modern messages (`pain.001.001.09`, `pain.008.001.08`) and the legacy
+`pain.001.001.03` (PostalAddress6) carry the full field set. The German DK variants
+(`pain.001.003.03`, `pain.008.003.02`) use the restricted PostalAddressSEPA type, which supports only
+`country` and up to two `addressLines`: any other field throws a clear error rather than being dropped
+silently.
 
 ## Why this exists
 

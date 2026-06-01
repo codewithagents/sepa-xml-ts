@@ -176,6 +176,97 @@ export function emitNmElement(lines: string[], indent: string, tag: string, name
 }
 
 /**
+ * Emit a PstlAdr element for the DK SEPA variants (pain.001.003.03 and pain.008.003.02).
+ *
+ * These variants use PostalAddressSEPA (XSD type name), which supports only:
+ *   Ctry   (optional, ISO 3166-1 alpha-2, occurs first in the sequence)
+ *   AdrLine (optional, max 2 occurrences)
+ *
+ * Throws a clear, specific error when the PostalAddress model contains any field
+ * not supported by this type (streetName, buildingNumber, postCode, townName,
+ * countrySubDivision), or when addressLines has more than 2 entries.
+ * This prevents silent data loss. To omit the address entirely, pass undefined.
+ *
+ * Confirmed against schemas/dk/pain.001.003.03.xsd and schemas/dk/pain.008.003.02.xsd:
+ * PostalAddressSEPA sequence: Ctry (minOccurs=0), AdrLine (minOccurs=0, maxOccurs=2).
+ *
+ * @param lines   - output line array
+ * @param indent  - leading spaces for the PstlAdr tag
+ * @param address - optional PostalAddress from the model; nothing emitted when absent
+ * @param variant - variant name used in error messages
+ */
+export function emitPstlAdrSEPA(
+  lines: string[],
+  indent: string,
+  address: PostalAddress | undefined,
+  variant: string
+): void {
+  if (address === undefined) {
+    return
+  }
+
+  // Fail loud on fields not supported by PostalAddressSEPA.
+  if (address.streetName !== undefined) {
+    throw new Error(`field 'streetName' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+  }
+  if (address.buildingNumber !== undefined) {
+    throw new Error(`field 'buildingNumber' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+  }
+  if (address.postCode !== undefined) {
+    throw new Error(`field 'postCode' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+  }
+  if (address.townName !== undefined) {
+    throw new Error(`field 'townName' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+  }
+  if (address.countrySubDivision !== undefined) {
+    throw new Error(`field 'countrySubDivision' is not supported in the ${variant} postal address (PostalAddressSEPA only allows Ctry and AdrLine)`)
+  }
+  if (address.addressLines !== undefined && address.addressLines.length > 2) {
+    throw new Error(`addressLines has ${address.addressLines.length} entries but PostalAddressSEPA in ${variant} allows at most 2 AdrLine elements`)
+  }
+
+  lines.push(`${indent}<PstlAdr>`)
+  const inner = `${indent}  `
+  // PostalAddressSEPA element order: Ctry, AdrLine
+  if (address.country !== undefined) {
+    lines.push(`${inner}<Ctry>${xe(address.country)}</Ctry>`)
+  }
+  if (address.addressLines !== undefined) {
+    for (const line of address.addressLines) {
+      lines.push(`${inner}<AdrLine>${xe(line)}</AdrLine>`)
+    }
+  }
+  lines.push(`${indent}</PstlAdr>`)
+}
+
+/**
+ * Emit a party element with Nm and optional PstlAdr for the DK SEPA variants.
+ * Used for Dbtr and Cdtr blocks in pain.001.003.03 and pain.008.003.02.
+ *
+ * PstlAdr follows Nm immediately (PostalAddressSEPA, per DK XSD).
+ * Throws if the address contains fields not supported by PostalAddressSEPA.
+ *
+ * @param indent  - leading spaces for the outer tag
+ * @param tag     - element name, e.g. "Dbtr" or "Cdtr"
+ * @param name    - party name (will be XML-escaped)
+ * @param address - optional structured postal address
+ * @param variant - variant name for error messages
+ */
+export function emitPartyWithAddressDK(
+  lines: string[],
+  indent: string,
+  tag: string,
+  name: string,
+  address: PostalAddress | undefined,
+  variant: string
+): void {
+  lines.push(`${indent}<${tag}>`)
+  lines.push(`${indent}  <Nm>${xe(name)}</Nm>`)
+  emitPstlAdrSEPA(lines, `${indent}  `, address, variant)
+  lines.push(`${indent}</${tag}>`)
+}
+
+/**
  * Emit an account element with an Id/IBAN child.
  * Used for DbtrAcct and CdtrAcct.
  *

@@ -30,8 +30,8 @@ import {
   emitGrpHdrNoCtrlSum,
   emitPmtInfHeader,
   emitSvcLvl,
-  emitNmElement,
   emitPartyWithAddress,
+  emitPartyWithAddressDK,
   emitIbanAcct,
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
@@ -131,21 +131,6 @@ export function writeDirectDebit(
   }
 
   const variant = options?.variant ?? 'pain.008.001.08'
-
-  // Postal address is only supported for pain.008.001.08. Fail loud rather than
-  // silently drop address data when the DK variant is selected.
-  if (variant !== 'pain.008.001.08') {
-    const hasAddress =
-      doc.creditor.address !== undefined ||
-      doc.batches.some((batch) =>
-        batch.collections.some((col) => col.debtor.address !== undefined)
-      )
-    if (hasAddress) {
-      throw new Error(
-        `postal address is not yet supported for variant ${variant}`
-      )
-    }
-  }
 
   // Ultimate parties are only supported for pain.008.001.08. Fail loud rather than
   // silently drop ultimate-party data when the DK variant is selected.
@@ -423,7 +408,9 @@ function writeDirectDebitDK(doc: DirectDebitDocument, profile: BankProfile | und
     lines.push(`      <ReqdColltnDt>${xe(batch.collectionDate)}</ReqdColltnDt>`)
 
     // Creditor (fans out doc-level creditor into each PmtInf)
-    emitNmElement(lines, '      ', 'Cdtr', doc.creditor.name)
+    // PostalAddressSEPA (DK XSD) only allows Ctry and AdrLine (max 2).
+    // emitPartyWithAddressDK throws on any unsupported field.
+    emitPartyWithAddressDK(lines, '      ', 'Cdtr', doc.creditor.name, doc.creditor.address, 'pain.008.003.02')
     emitIbanAcct(lines, '      ', 'CdtrAcct', doc.creditor.iban)
     // DK delta 2: CdtrAgt uses BIC or NOTPROVIDED (BranchAndFinancialInstitutionIdentificationSEPA3)
     emitDkFinInstnId(lines, '      ', 'CdtrAgt', doc.creditor.bic, true)
@@ -458,7 +445,8 @@ function writeDirectDebitDK(doc: DirectDebitDocument, profile: BankProfile | und
       lines.push(`        </DrctDbtTx>`)
       // DK delta 3: DbtrAgt uses BIC or NOTPROVIDED (BranchAndFinancialInstitutionIdentificationSEPA3)
       emitDkFinInstnId(lines, '        ', 'DbtrAgt', col.debtor.bic, true)
-      emitNmElement(lines, '        ', 'Dbtr', col.debtor.name)
+      // PostalAddressSEPA: only Ctry + AdrLine (max 2) supported.
+      emitPartyWithAddressDK(lines, '        ', 'Dbtr', col.debtor.name, col.debtor.address, 'pain.008.003.02')
       emitIbanAcct(lines, '        ', 'DbtrAcct', col.debtor.iban)
       emitRmtInf(lines, col.remittanceInfo)
       lines.push(`      </DrctDbtTxInf>`)

@@ -31,8 +31,8 @@ import {
   emitGrpHdr,
   emitPmtInfHeader,
   emitSvcLvl,
-  emitNmElement,
   emitPartyWithAddress,
+  emitPartyWithAddressDK,
   emitIbanAcct,
   emitAlwaysFinInstnId,
   emitDkFinInstnId,
@@ -128,21 +128,6 @@ export function writeCreditTransfer(
   }
 
   const variant = options?.variant ?? 'pain.001.001.09'
-
-  // Postal address is only supported for pain.001.001.09. Fail loud rather than
-  // silently drop address data when a legacy or DK variant is selected.
-  if (variant !== 'pain.001.001.09') {
-    const hasAddress = doc.batches.some(
-      (batch) =>
-        batch.debtor.address !== undefined ||
-        batch.transfers.some((tx) => tx.creditor.address !== undefined)
-    )
-    if (hasAddress) {
-      throw new Error(
-        `postal address is not yet supported for variant ${variant}`
-      )
-    }
-  }
 
   // Ultimate parties are only supported for pain.001.001.09. Fail loud rather than
   // silently drop ultimate-party data when a legacy or DK variant is selected.
@@ -343,7 +328,8 @@ function writeCreditTransfer03(
     lines.push(`      </PmtTpInf>`)
     // Delta 1: ReqdExctnDt is a plain ISODate (no <Dt> wrapper)
     lines.push(`      <ReqdExctnDt>${xe(batch.executionDate)}</ReqdExctnDt>`)
-    emitNmElement(lines, '      ', 'Dbtr', batch.debtor.name)
+    // PostalAddress6 (pain.001.001.03 XSD) supports all our model fields in the same order as PostalAddress24.
+    emitPartyWithAddress(lines, '      ', 'Dbtr', batch.debtor.name, batch.debtor.address)
     emitIbanAcct(lines, '      ', 'DbtrAcct', batch.debtor.iban)
     // Delta 2: DbtrAgt required; BIC element (not BICFI); empty FinInstnId when no BIC
     emitIso03FinInstnId(lines, '      ', 'DbtrAgt', batch.debtor.bic, true)
@@ -361,7 +347,8 @@ function writeCreditTransfer03(
       lines.push(`        </Amt>`)
       // Delta 3: CdtrAgt optional; BIC element (not BICFI); omitted when no BIC
       emitIso03FinInstnId(lines, '        ', 'CdtrAgt', tx.creditor.bic, false)
-      emitNmElement(lines, '        ', 'Cdtr', tx.creditor.name)
+      // PostalAddress6 supports all our model fields.
+      emitPartyWithAddress(lines, '        ', 'Cdtr', tx.creditor.name, tx.creditor.address)
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
       emitRmtInf(lines, tx.remittanceInfo)
       lines.push(`      </CdtTrfTxInf>`)
@@ -426,7 +413,9 @@ function writeCreditTransferDK(
     lines.push(`      </PmtTpInf>`)
     // DK delta 1: ReqdExctnDt is a plain ISODate (no <Dt> wrapper)
     lines.push(`      <ReqdExctnDt>${xe(batch.executionDate)}</ReqdExctnDt>`)
-    emitNmElement(lines, '      ', 'Dbtr', batch.debtor.name)
+    // PostalAddressSEPA (DK XSD) only allows Ctry and AdrLine (max 2).
+    // emitPartyWithAddressDK throws on any unsupported field.
+    emitPartyWithAddressDK(lines, '      ', 'Dbtr', batch.debtor.name, batch.debtor.address, 'pain.001.003.03')
     emitIbanAcct(lines, '      ', 'DbtrAcct', batch.debtor.iban)
     // DK delta 2: DbtrAgt is required; uses BIC element (not BICFI); falls back to NOTPROVIDED
     emitDkFinInstnId(lines, '      ', 'DbtrAgt', batch.debtor.bic, true)
@@ -444,7 +433,8 @@ function writeCreditTransferDK(
       lines.push(`        </Amt>`)
       // DK delta 3: CdtrAgt is optional; uses BIC element (not BICFI); omitted when no BIC
       emitDkFinInstnId(lines, '        ', 'CdtrAgt', tx.creditor.bic, false)
-      emitNmElement(lines, '        ', 'Cdtr', tx.creditor.name)
+      // PostalAddressSEPA: only Ctry + AdrLine (max 2) supported.
+      emitPartyWithAddressDK(lines, '        ', 'Cdtr', tx.creditor.name, tx.creditor.address, 'pain.001.003.03')
       emitIbanAcct(lines, '        ', 'CdtrAcct', tx.creditor.iban)
       emitRmtInf(lines, tx.remittanceInfo)
       lines.push(`      </CdtTrfTxInf>`)

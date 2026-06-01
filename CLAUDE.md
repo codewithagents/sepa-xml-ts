@@ -166,12 +166,17 @@ deep-equal.
   a documented territory-exception table. A test proves the creditor-id check excludes the business
   code (positions 5-7) per EPC262-08. Deliberately NOT added: a "FRST before RCUR" rule (the SDD Core
   Rulebook made FRST optional in v9.1, so requiring it would be stricter than the standard).
-- Structured postal address (PstlAdr) ships for pain.001.001.09 and pain.008.001.08: optional
-  `address` on each party, emitted in PostalAddress24 element order (StrtNm, BldgNb, PstCd, TwnNm,
-  CtrySubDvsn, Ctry, AdrLine), XSD-verified and round-trip tested. Absent address is byte-identical
-  to before. Legacy/DK variants throw if an address is present (no silent data loss). EPC makes this
-  mandatory on 2026-11-22. Follow-up: emit PstlAdr for the .03/DK variants too (their older
-  PostalAddress types).
+- Structured postal address (PstlAdr) ships for ALL write variants: optional `address` on each party.
+  pain.001.001.09 and pain.008.001.08 use PostalAddress24 (full field set, element order StrtNm,
+  BldgNb, PstCd, TwnNm, CtrySubDvsn, Ctry, AdrLine); the legacy pain.001.001.03 uses PostalAddress6
+  (same field subset and order, so it reuses emitPstlAdr). The German DK variants (pain.001.003.03,
+  pain.008.003.02) use the restricted PostalAddressSEPA type (emitPstlAdrSEPA / emitPartyWithAddressDK),
+  which supports ONLY Ctry + AdrLine (max 2): any other model field (streetName, buildingNumber,
+  postCode, townName, countrySubDivision) or >2 addressLines THROWS a clear per-field error rather than
+  dropping data silently. XSD-verified (PstlAdr exercised by the pain.001.001.09/.08 and pain.001.001.03
+  property suites at 200 runs; DK variants covered by unit tests including the throw cases) and
+  round-trip tested. Absent address is byte-identical to before. EPC makes structured address mandatory
+  on 2026-11-22.
 - Ultimate parties (UltmtDbtr / UltmtCdtr) ship for pain.001.001.09 and pain.008.001.08: optional
   `ultimateDebtor` and `ultimateCreditor` on each Transfer and Collection, name only first cut
   (UltimateParty = { name }). Emitted at the XSD-correct transaction-level positions
@@ -215,7 +220,7 @@ deep-equal.
   Follow-up: the richer AmdmntInfDtls fields (OrgnlCdtrSchmeId, OrgnlDbtr/Agt, OrgnlFrqcy,
   OrgnlFnlColltnDt, OrgnlRsn). The SMNDA property arbitrary path is covered by unit tests, not the
   property suite, because R4 couples it to the batch sequenceType.
-- ~538 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+- ~555 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate
