@@ -6,9 +6,38 @@ XML, with **every generated file validated against the official EPC/ISO 20022 XS
 
 [![npm](https://img.shields.io/npm/v/sepa-xml-ts.svg)](https://www.npmjs.com/package/sepa-xml-ts)
 
-> Status: early (`0.x`). The public API may still change before `1.0`. Scope today is
-> `pain.001.001.09` (SEPA Credit Transfer Initiation) and `pain.008.001.08` (SEPA Direct
-> Debit Initiation).
+> Status: early (`0.x`). The public API may still change before `1.0`.
+
+## What it covers
+
+What you can do today, what is planned, and what is deliberately out of scope. The library
+is a payment-**file** library: it produces, reads, and validates ISO 20022 SEPA XML. It does
+not talk to banks.
+
+| Use case | Standard / format | Status |
+|---|---|---|
+| Write credit transfers to SEPA XML | `pain.001.001.09` | ✅ Supported |
+| Write direct debits to SEPA XML | `pain.008.001.08` | ✅ Supported |
+| Write German DK credit transfers | `pain.001.003.03` | ✅ Supported |
+| Write German DK direct debits | `pain.008.003.02` | ✅ Supported |
+| Parse SEPA XML back to a typed model (auto-detects message type) | `pain.001` / `pain.008` | ✅ Supported |
+| Read older coexistence versions | `pain.001.001.03`, `pain.008.001.02` | ✅ Supported (read-only) |
+| Validate business rules (IBAN mod-97, EPC charset, exact CtrlSum, dates) | all | ✅ Supported |
+| Validate XML against the official ISO 20022 / EPC XSD | all 7 schemas | ✅ Supported |
+| SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
+| Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `batchBooking`) | overlay | ✅ Supported |
+| Further national write variants (e.g. Swiss `.ch`) | national `pain.001` / `pain.008` | 🟡 On request |
+| Additional named bank profiles | overlay | 🟡 On request |
+| pain.008 B2B specifics and sequence-type cross-field checks | `pain.008` | 🟡 Roadmap |
+| Payment status reports | `pain.002` | ⛔ Out of scope |
+| Account statements and reports | `camt.05x` | ⛔ Out of scope |
+| Bank connectivity and file transmission | EBICS, FinTS/HBCI, Peppol | ⛔ Out of scope |
+| Legacy pre-SEPA and SWIFT formats | DTAUS, SWIFT MT (MT103, MT940) | ⛔ Out of scope (deprecated) |
+| Non-EUR or non-SEPA payment schemes | | ⛔ Out of scope |
+
+Legend: ✅ available now, 🟡 planned or available on request, ⛔ not covered. Roadmap items are
+demand-driven: a national variant only ships alongside that schema's official XSD and golden
+samples, because a wrong flavor is worse than none.
 
 ## Why this exists
 
