@@ -1,0 +1,133 @@
+---
+title: Validation & XSD
+description: Business-rule validation and optional XSD validation against the official EPC schemas.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+`sepa-xml-ts` provides two layers of validation that can be used independently or together.
+
+## Layer 1: business-rule validation
+
+Business validation runs against the Zod schema, which is the single source of truth for the
+model. It enforces all semantic constraints:
+
+- IBAN mod-97 checksum
+- BIC format (when provided)
+- SEPA charset EPC217-08 on all string fields
+- Amount constraints (positive, max 2 decimal places)
+- Date format `YYYY-MM-DD` for execution and collection dates
+- SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10, strict)
+
+### `validate(input)`
+
+Validates any unknown input as a `CreditTransferDocument`. Returns a typed result.
+
+```typescript
+import { validate } from 'sepa-xml-ts'
+
+const result = validate(doc)
+
+if (!result.ok) {
+  // result.errors: ZodIssue[]
+  for (const err of result.errors) {
+    console.error(err.path.join('.'), err.message)
+  }
+} else {
+  // result.data: CreditTransferDocument (validated)
+  const xml = writeCreditTransfer(result.data)
+}
+```
+
+### `validateCreditTransfer(input, options?)`
+
+Same as `validate`, but accepts an optional `{ profile }` option to run bank-profile checks on
+top of the base Zod rules.
+
+```typescript
+import { validateCreditTransfer, requireBic } from 'sepa-xml-ts'
+
+const result = validateCreditTransfer(doc, { profile: requireBic })
+
+if (!result.ok) {
+  // result.errors: ZodIssue[] (base schema failures)
+  // result.profileIssues: ProfileIssue[] (bank-profile failures)
+  console.error(result.errors, result.profileIssues)
+}
+```
+
+### `validateDirectDebit(input, options?)`
+
+Same for `DirectDebitDocument`.
+
+```typescript
+import { validateDirectDebit, requireBic } from 'sepa-xml-ts'
+
+const result = validateDirectDebit(doc, { profile: requireBic })
+```
+
+## Result shape
+
+Both validate functions return a `ValidationResult`:
+
+```typescript
+type ValidationResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; errors: ZodIssue[]; profileIssues?: ProfileIssue[] }
+```
+
+`profileIssues` is only present when a profile was supplied.
+
+## Writers validate implicitly
+
+`writeCreditTransfer` and `writeDirectDebit` run the same validation internally. If the model
+fails, they throw a `ValidationError` with the same issue list. You do not have to call
+`validate` separately before writing unless you want the typed result shape.
+
+## Layer 2: XSD validation (optional)
+
+XSD validation checks the serialized XML against the official EPC ISO 20022 schema using
+`libxml2-wasm`. It is an opt-in extra that lives behind the `sepa-xml-ts/xsd` subpath.
+
+```typescript
+import { validateXsd } from 'sepa-xml-ts/xsd'
+
+const xsdResult = await validateXsd(xml)
+
+if (!xsdResult.valid) {
+  for (const err of xsdResult.errors) {
+    console.error(err)
+  }
+}
+```
+
+`validateXsd` auto-detects the message type and namespace from the XML and selects the correct
+XSD. It covers all seven schemas:
+
+- `pain.001.001.09`
+- `pain.001.003.03` (German DK)
+- `pain.001.001.03`
+- `pain.008.001.08`
+- `pain.008.003.02` (German DK)
+- `pain.008.001.02`
+
+<Aside type="tip">
+XSD validation loads `libxml2-wasm`, a native-compiled WASM module. It is intentionally kept
+behind a separate entry point so that write-only users never download the WASM blob. Only import
+`sepa-xml-ts/xsd` when you need it.
+</Aside>
+
+## When to use XSD validation
+
+You generally do not need XSD validation in production write paths. The library already enforces
+every constraint via the Zod schema and the writer. XSD validation is most useful for:
+
+- Verifying files produced by a third party before processing
+- Belt-and-suspenders CI checks after generating files
+- Debugging: when the XSD rejects a file, the error message points at the exact element
+
+## Testing strategy
+
+The library's own CI uses XSD validation as an oracle in property tests: for every build, it
+generates hundreds of random valid models, writes them to XML, and asserts each file passes the
+official EPC XSD. This is what "XSD-as-oracle" means in the documentation.

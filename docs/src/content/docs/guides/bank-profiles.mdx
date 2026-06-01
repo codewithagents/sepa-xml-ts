@@ -1,0 +1,137 @@
+---
+title: Bank profiles
+description: Add bank-specific validation and output tweaks as overlays on the SEPA core.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+A bank profile is an overlay on the always-correct SEPA core, never a fork of it. Profiles let
+you express what a specific bank requires beyond the standard SEPA XSD: extra validation rules
+and optional minor output tweaks.
+
+## What a profile is
+
+A `BankProfile` has two parts:
+
+1. **Check functions** (`checkCreditTransfer`, `checkDirectDebit`): return `ProfileIssue[]`.
+   An empty array means the document passes.
+2. **Output options** (`output`): minor additive tweaks such as `batchBooking`. These options only
+   set elements the XSD already permits. A profile can never make the output XSD-invalid.
+
+A profile is **additive**. It runs after the base Zod validation, as a second pass. It never
+replaces or weakens any base rule.
+
+A profile is **not** a different message schema. If you need a different XML namespace (e.g.
+German DK pain.001.003.03), use the `variant` option, not a profile. See
+[National variants](/guides/national-variants).
+
+<Aside type="caution">
+A wrong bank profile is worse than none: it might suppress a rejection that would have caught an
+error early. Never ship a speculative profile. Only create a profile when you have verified the
+bank's actual requirements.
+</Aside>
+
+## The `requireBic` profile
+
+Some banks reject IBAN-only files even though the SEPA rulebook and the XSD make BIC optional
+since 2016. The built-in `requireBic` profile catches this at validation time.
+
+```typescript
+import {
+  writeCreditTransfer,
+  validateCreditTransfer,
+  requireBic,
+} from 'sepa-xml-ts'
+
+// Validate with the profile
+const result = validateCreditTransfer(doc, { profile: requireBic })
+if (!result.ok) {
+  console.error(result.errors)       // base Zod issues
+  console.error(result.profileIssues) // requireBic issues (missing BIC)
+}
+
+// Write: throws if base validation or profile check fails
+const xml = writeCreditTransfer(doc, { profile: requireBic })
+```
+
+Same API for direct debit:
+
+```typescript
+import { writeDirectDebit, validateDirectDebit, requireBic } from 'sepa-xml-ts'
+
+const result = validateDirectDebit(doc, { profile: requireBic })
+const xml = writeDirectDebit(doc, { profile: requireBic })
+```
+
+## Output options: batchBooking
+
+Profiles can request minor output tweaks via `output`. The `batchBooking` option emits
+`<BtchBookg>true</BtchBookg>` (or `false`) in each `PmtInf` element, at the XSD-correct position
+after `PmtMtd` and before `NbOfTxs`. The output is XSD-valid. The parser ignores the element,
+so the round-trip is unaffected.
+
+```typescript
+import { writeCreditTransfer, type BankProfile } from 'sepa-xml-ts'
+
+const myBankProfile: BankProfile = {
+  id: 'my-bank',
+  output: { batchBooking: true },
+}
+
+const xml = writeCreditTransfer(doc, { profile: myBankProfile })
+// Each PmtInf now contains: <BtchBookg>true</BtchBookg>
+```
+
+## Authoring your own profile
+
+Implement the `BankProfile` interface. Check functions receive the validated model and return
+`ProfileIssue[]`. Use dot-delimited `path` values to point at the offending field.
+
+```typescript
+import type { BankProfile, ProfileIssue } from 'sepa-xml-ts'
+
+export const myProfile: BankProfile = {
+  id: 'my-bank-rules',
+  description: 'Extra rules required by My Bank AG',
+
+  checkCreditTransfer(doc): ProfileIssue[] {
+    const issues: ProfileIssue[] = []
+    for (const [bi, batch] of doc.batches.entries()) {
+      if (batch.transfers.length > 100) {
+        issues.push({
+          path: `batches.${bi}.transfers`,
+          message: 'My Bank AG rejects batches with more than 100 transfers',
+        })
+      }
+      for (const [ti, transfer] of batch.transfers.entries()) {
+        if (!transfer.creditor.bic) {
+          issues.push({
+            path: `batches.${bi}.transfers.${ti}.creditor.bic`,
+            message: 'My Bank AG requires BIC on all creditor accounts',
+          })
+        }
+      }
+    }
+    return issues
+  },
+
+  checkDirectDebit(doc): ProfileIssue[] {
+    // Return [] if no additional rules apply to direct debits
+    return []
+  },
+}
+```
+
+## Combining profile and variant
+
+The `profile` and `variant` options are independent and can be combined:
+
+```typescript
+const xml = writeCreditTransfer(doc, {
+  variant: 'pain.001.003.03',
+  profile: requireBic,
+})
+```
+
+The profile runs against the validated model. The variant controls the XML serialization. Both
+can be active at the same time.

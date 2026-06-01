@@ -1,0 +1,84 @@
+---
+title: Money
+description: How sepa-xml-ts handles monetary amounts safely with bigint arithmetic and no floats.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+`Money` is a first-class value in `sepa-xml-ts`. It uses `bigint` minor units so that floating-point
+arithmetic can never corrupt an amount or a control sum.
+
+## The Money type
+
+```typescript
+type Money = {
+  currencyCode: 'EUR'
+  minorUnits: bigint  // cents: 123.45 EUR = 12345n
+}
+```
+
+The only supported currency is `EUR`. SEPA is a Euro-denominated payment system.
+
+## Building a Money value
+
+Use `euros(amount: string)` to construct a `Money` value from a decimal string:
+
+```typescript
+import { euros } from 'sepa-xml-ts'
+
+euros('123.45')  // { currencyCode: 'EUR', minorUnits: 12345n }
+euros('0.01')    // { currencyCode: 'EUR', minorUnits: 1n }
+euros('100')     // { currencyCode: 'EUR', minorUnits: 10000n }
+euros('123.4')   // .4 is padded to .40 -> { minorUnits: 12340n }
+```
+
+`euros` accepts a string, never a number. This is intentional: passing a float is a type error.
+
+### Throwing cases
+
+```typescript
+euros('1.234')   // throws: more than 2 decimal places
+euros('-1.00')   // throws: negative amounts are not valid SEPA amounts
+euros('0.00')    // throws: zero is not a valid SEPA transfer amount
+euros(123.45)    // TypeScript compile error: number is not assignable to string
+```
+
+<Aside type="caution">
+Never construct `Money` by hand with a raw number. If you have an integer cents value, use
+`{ currencyCode: 'EUR', minorUnits: BigInt(cents) }`, but prefer `euros` with a string for
+clarity and safety at the call site.
+</Aside>
+
+## Formatting a Money value
+
+```typescript
+import { formatMoney, euros } from 'sepa-xml-ts'
+
+formatMoney(euros('123.45'))  // '123.45'
+formatMoney(euros('100'))     // '100.00'
+formatMoney(euros('0.01'))    // '0.01'
+```
+
+`formatMoney` always returns exactly 2 decimal places, uses a dot separator, and no thousands
+grouping. This is the format the XML serializer uses for `Ccy="EUR"` amounts.
+
+## CtrlSum correctness
+
+The writer sums all `minorUnits` values with `bigint` addition, then formats the result with
+`formatMoney`. No floating-point arithmetic is involved at any step. The result is exact.
+
+```typescript
+// Under the hood the writer computes:
+const total = transfers.reduce((sum, t) => sum + t.amount.minorUnits, 0n)
+const ctrlSum = formatMoney({ currencyCode: 'EUR', minorUnits: total })
+```
+
+With floats, `0.1 + 0.2 === 0.30000000000000004`. With `bigint`, `10n + 20n === 30n`. The
+difference matters at scale: a single rounding error in a batch of 10,000 transfers would produce
+a CtrlSum mismatch that causes the file to be rejected.
+
+## Amount limits
+
+The SEPA XSD allows amounts up to 18 digits including 2 decimal places. In practice the maximum
+meaningful SEPA transfer amount is 999,999,999.99 EUR (9 digits before the decimal point). The
+library does not impose an upper limit beyond the XSD constraint.

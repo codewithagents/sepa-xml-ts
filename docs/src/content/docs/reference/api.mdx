@@ -1,0 +1,129 @@
+---
+title: API surface
+description: Complete reference for all exports from sepa-xml-ts and sepa-xml-ts/xsd.
+---
+
+## `sepa-xml-ts` exports
+
+### Model types (pain.001)
+
+| Export | Description |
+|---|---|
+| `CreditTransferDocument` | Root document type for pain.001 |
+| `PaymentBatch` | A single `PmtInf` block: one debtor, one execution date, many transfers |
+| `Transfer` | A single credit transfer transaction (`CdtTrfTxInf`) |
+| `AccountParty` | `{ name: string, iban: string, bic?: string }` |
+| `Money` | `{ currencyCode: 'EUR', minorUnits: bigint }` |
+
+### Model types (pain.008)
+
+| Export | Description |
+|---|---|
+| `DirectDebitDocument` | Root document type for pain.008 |
+| `Creditor` | Document-level creditor with `creditorId` (SEPA Creditor Identifier) |
+| `DirectDebitBatch` | A single `PmtInf` block: collection date, sequence type, many collections |
+| `Collection` | A single direct debit transaction (`DrctDbtTxInf`) |
+| `Mandate` | `{ id: string, signatureDate: string }` |
+| `SequenceType` | `'FRST' \| 'RCUR' \| 'OOFF' \| 'FNAL'` |
+| `LocalInstrument` | `'CORE' \| 'B2B'` |
+
+### Zod schemas (single source of truth)
+
+| Export | Description |
+|---|---|
+| `CreditTransferDocumentSchema` | Full Zod schema for `CreditTransferDocument` |
+| `DirectDebitDocumentSchema` | Full Zod schema for `DirectDebitDocument` |
+
+### Money helpers
+
+| Export | Signature | Description |
+|---|---|---|
+| `euros` | `(amount: string): Money` | Build a `Money` value from a decimal string |
+| `formatMoney` | `(m: Money): string` | Format to `"123.45"` (2 decimals, dot, no grouping) |
+
+### Writers
+
+| Export | Signature | Description |
+|---|---|---|
+| `writeCreditTransfer` | `(model: CreditTransferDocument, options?: WriteCreditTransferOptions): string` | Write a pain.001 XML string |
+| `writeDirectDebit` | `(model: DirectDebitDocument, options?: WriteDirectDebitOptions): string` | Write a pain.008 XML string |
+
+Both writers validate the model internally and throw a `ValidationError` if validation fails.
+
+### Parser
+
+| Export | Signature | Description |
+|---|---|---|
+| `parse` | `(xml: string): ParseResult` | Parse SEPA XML to model, auto-detecting message type |
+
+`ParseResult` is a discriminated union:
+```typescript
+type ParseResult =
+  | { ok: true; type: 'pain.001'; data: CreditTransferDocument }
+  | { ok: true; type: 'pain.008'; data: DirectDebitDocument }
+  | { ok: false; error: string }
+```
+
+### Validation functions
+
+| Export | Signature | Description |
+|---|---|---|
+| `validate` | `(input: unknown): ValidationResult<CreditTransferDocument>` | Validate a credit-transfer model |
+| `validateCreditTransfer` | `(input: unknown, options?: { profile?: BankProfile }): ValidationResult<CreditTransferDocument>` | Validate with optional bank profile |
+| `validateDirectDebit` | `(input: unknown, options?: { profile?: BankProfile }): ValidationResult<DirectDebitDocument>` | Validate a direct-debit model with optional bank profile |
+
+`ValidationResult` shape:
+```typescript
+type ValidationResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; errors: ZodIssue[]; profileIssues?: ProfileIssue[] }
+```
+
+### Bank profiles
+
+| Export | Description |
+|---|---|
+| `BankProfile` | Interface for custom bank profiles |
+| `ProfileIssue` | `{ path: string, message: string }` |
+| `requireBic` | Built-in profile: rejects documents where any account is missing a BIC |
+
+### Writer option types
+
+| Export | Description |
+|---|---|
+| `WriteCreditTransferOptions` | `{ variant?: CreditTransferVariant, profile?: BankProfile }` |
+| `WriteDirectDebitOptions` | `{ variant?: DirectDebitVariant, profile?: BankProfile }` |
+| `CreditTransferVariant` | `'pain.001.001.09' \| 'pain.001.003.03'` |
+| `DirectDebitVariant` | `'pain.008.001.08' \| 'pain.008.003.02'` |
+
+---
+
+## `sepa-xml-ts/xsd` exports
+
+| Export | Signature | Description |
+|---|---|---|
+| `validateXsd` | `(xml: string): Promise<XsdResult>` | Validate XML against the official EPC XSD |
+
+`XsdResult` shape:
+```typescript
+type XsdResult =
+  | { valid: true }
+  | { valid: false; errors: string[] }
+```
+
+`validateXsd` auto-detects the message type and namespace. It covers all seven supported schemas.
+Lazy-loads `libxml2-wasm` on first call.
+
+---
+
+## Internal helpers (not exported)
+
+The following are intentionally internal and not part of the public API:
+
+- IBAN mod-97 validation
+- SEPA charset EPC217-08 transliteration
+- XML escaper
+- Raw creditor-id helpers (the public surface is `isValidCreditorId` and `buildCreditorId`)
+
+If you need IBAN validation or SEPA charset filtering in your own code, use a dedicated library
+for those concerns rather than depending on internals that may change.

@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 .fallow/
 coverage/
+docs/node_modules/
+docs/dist/
+docs/.astro/

@@ -1,0 +1,127 @@
+---
+title: Quickstart
+description: Build a CreditTransferDocument, validate it, write it to XML, and parse it back.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components'
+
+This guide walks through the full round-trip: build a model, validate it, write it to pain.001
+XML, and parse it back into the original model.
+
+<Steps>
+
+1. **Install.**
+
+   ```bash
+   npm install sepa-xml-ts
+   ```
+
+2. **Build a CreditTransferDocument.**
+
+   ```typescript
+   import { euros, type CreditTransferDocument } from 'sepa-xml-ts'
+
+   const doc: CreditTransferDocument = {
+     messageId: 'MSG-2026-0001',
+     createdAt: '2026-06-01T10:30:00Z',   // ISO 8601 datetime
+     initiatingParty: 'ACME GmbH',
+     batches: [
+       {
+         id: 'BATCH-001',
+         executionDate: '2026-06-03',       // YYYY-MM-DD, never a datetime
+         debtor: {
+           name: 'ACME GmbH',
+           iban: 'DE89370400440532013000',
+           bic: 'COBADEFFXXX',              // optional since 2016 SEPA rulebook
+         },
+         transfers: [
+           {
+             endToEndId: 'INV-1001',
+             amount: euros('123.45'),
+             creditor: {
+               name: 'Beispiel AG',
+               iban: 'NL91ABNA0417164300',
+             },
+             remittanceInfo: 'Invoice 1001', // optional, max 140 chars
+           },
+         ],
+       },
+     ],
+   }
+   ```
+
+   `euros('123.45')` returns `{ currencyCode: 'EUR', minorUnits: 12345n }`. Passing a float
+   or a string with more than two decimal places throws immediately.
+
+3. **Validate the model.**
+
+   ```typescript
+   import { validate } from 'sepa-xml-ts'
+
+   const result = validate(doc)
+   if (!result.ok) {
+     // result.errors is an array of Zod issues
+     console.error(result.errors)
+     process.exit(1)
+   }
+   // result.data is the validated CreditTransferDocument
+   ```
+
+   `validate` runs the full Zod schema including all business-rule refinements (IBAN checksum,
+   SEPA charset, money constraints). It returns a typed result instead of throwing.
+
+4. **Write to XML.**
+
+   ```typescript
+   import { writeCreditTransfer } from 'sepa-xml-ts'
+
+   const xml = writeCreditTransfer(result.data)
+   // xml starts with:
+   // <?xml version="1.0" encoding="UTF-8"?>
+   // <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09" ...>
+   ```
+
+   The writer derives `NbOfTxs`, `CtrlSum`, `PmtMtd=TRF`, `SvcLvl/Cd=SEPA`, and `ChrgBr=SLEV`
+   from the model. You cannot emit a structurally invalid file.
+
+5. **Parse back.**
+
+   ```typescript
+   import { parse } from 'sepa-xml-ts'
+
+   const parsed = parse(xml)
+   if (!parsed.ok) {
+     console.error(parsed.error)
+   } else if (parsed.type === 'pain.001') {
+     // parsed.data is a CreditTransferDocument
+     console.log(parsed.data.messageId) // 'MSG-2026-0001'
+   }
+   ```
+
+   `parse` auto-detects the message type and returns a discriminated union. The round-trip
+   property holds: `parse(write(model))` deep-equals the original model.
+
+6. **Optional: validate against the official EPC XSD.**
+
+   ```typescript
+   import { validateXsd } from 'sepa-xml-ts/xsd'
+
+   const xsdResult = await validateXsd(xml)
+   console.log(xsdResult.valid) // true
+   ```
+
+   This lazy-loads `libxml2-wasm`. It is an optional belt-and-suspenders check. The library
+   already enforces every constraint that the XSD covers via the Zod schema and the writer.
+
+</Steps>
+
+## Direct debit quickstart
+
+For a direct-debit equivalent, replace `CreditTransferDocument` with `DirectDebitDocument` and
+`writeCreditTransfer` with `writeDirectDebit`. See [Direct debits](/guides/direct-debits) for the
+full model and writer API.
+
+<Aside type="tip">
+The `parse` function handles both message types. You do not need separate parsers for pain.001 and
+pain.008: check `parsed.type` to branch.
+</Aside>

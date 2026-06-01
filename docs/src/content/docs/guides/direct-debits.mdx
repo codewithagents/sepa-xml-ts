@@ -1,0 +1,145 @@
+---
+title: Direct debits (pain.008)
+description: Build and write pain.008 SEPA Direct Debit Initiation files with sepa-xml-ts.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+A direct debit is a pull payment: a creditor (payee) collects money from one or more debtors,
+each authorized by a signed mandate. The pain.008.001.08 message type is the modern ISO 20022
+Direct Debit Initiation message used across the SEPA zone.
+
+## The model
+
+```typescript
+import { euros, type DirectDebitDocument } from 'sepa-xml-ts'
+
+const doc: DirectDebitDocument = {
+  messageId: 'DD-2026-0001',
+  createdAt: '2026-06-01T09:00:00Z',
+  initiatingParty: 'ACME GmbH',
+
+  // The creditor is specified once at document level.
+  // The writer fans it out into every PmtInf automatically.
+  creditor: {
+    name: 'ACME GmbH',
+    iban: 'DE89370400440532013000',
+    bic: 'COBADEFFXXX',
+    creditorId: 'DE98ZZZ09999999999', // SEPA Creditor Identifier
+  },
+
+  batches: [
+    {
+      id: 'BATCH-001',
+      collectionDate: '2026-06-10',    // ReqdColltnDt/Dt: YYYY-MM-DD
+      sequenceType: 'FRST',            // FRST | RCUR | OOFF | FNAL
+      localInstrument: 'CORE',         // CORE | B2B (defaults to CORE)
+
+      collections: [
+        {
+          endToEndId: 'SUB-1001',
+          amount: euros('49.99'),
+          debtor: {
+            name: 'Kunde Eins',
+            iban: 'NL91ABNA0417164300',
+          },
+          mandate: {
+            id: 'MND-001',
+            signatureDate: '2026-01-15', // YYYY-MM-DD
+          },
+          remittanceInfo: 'Subscription June', // optional
+        },
+      ],
+    },
+  ],
+}
+```
+
+## Model types
+
+| Type | XSD element |
+|---|---|
+| `DirectDebitDocument` | `Document/CstmrDrctDbtInitn` |
+| `Creditor` | `Cdtr` + `CdtrAcct` + `CdtrAgt` + `CdtrSchmeId` |
+| `DirectDebitBatch` | `PmtInf` |
+| `Collection` | `DrctDbtTxInf` |
+| `Mandate` | `DrctDbtTx/MndtRltdInf` |
+| `SequenceType` | `PmtTpInf/SeqTp` |
+| `LocalInstrument` | `PmtTpInf/LclInstrm/Cd` |
+
+## Sequence types
+
+| Value | Meaning |
+|---|---|
+| `FRST` | First collection under a mandate |
+| `RCUR` | Recurring collection |
+| `OOFF` | One-off collection (mandate used once) |
+| `FNAL` | Final collection, mandate will be cancelled |
+
+## SEPA Creditor Identifier
+
+The `creditorId` field on `Creditor` is a SEPA Creditor Identifier (e.g. `DE98ZZZ09999999999`).
+The library validates the check digits strictly using ISO 7064 MOD 97-10, the same algorithm as
+IBAN validation. An incorrect check digit is caught at validation time before the file is written.
+
+The structure is:
+- 2-letter country code
+- 2 check digits (ISO 7064 MOD 97-10)
+- 3-char creditor business code (e.g. `ZZZ`)
+- national identifier (1 to 28 alphanumeric characters)
+
+Use `buildCreditorId(country, businessCode, nationalId)` from the library to compute a correct
+identifier programmatically.
+
+## Writing to XML
+
+```typescript
+import { writeDirectDebit } from 'sepa-xml-ts'
+
+const xml = writeDirectDebit(doc)
+```
+
+`writeDirectDebit` validates the model internally before writing. It throws if the model is
+invalid.
+
+### Derived fields
+
+The writer derives the following fields. You do not supply them:
+
+| Field | How it is derived |
+|---|---|
+| `GrpHdr/NbOfTxs` | Total count of all collections across all batches |
+| `GrpHdr/CtrlSum` | Sum of all collection amounts (exact `bigint` addition) |
+| `PmtInf/NbOfTxs` | Count of collections in this batch |
+| `PmtInf/CtrlSum` | Sum of collection amounts in this batch |
+| `PmtInf/PmtMtd` | Always `DD` |
+| `PmtInf/PmtTpInf/SvcLvl/Cd` | Always `SEPA` |
+| `PmtInf/ChrgBr` | Always `SLEV` |
+| `CdtrSchmeId/.../SchmeNm/Prtry` | Always `SEPA` |
+
+### Structural gotchas
+
+`CdtrAgt` (at PmtInf level) and `DbtrAgt` (per transaction) are structurally required by the XSD
+even when no BIC is present. The writer emits the correct empty-institution placeholder
+automatically when `bic` is absent:
+
+```xml
+<CdtrAgt><FinInstnId/></CdtrAgt>
+```
+
+This is handled transparently. You only need to supply `bic` when you know it.
+
+## Variants
+
+To write a German DK pain.008.003.02 file:
+
+```typescript
+const xml = writeDirectDebit(doc, { variant: 'pain.008.003.02' })
+```
+
+See [National variants](/guides/national-variants) for the structural differences and XSD details.
+
+<Aside type="note">
+`localInstrument` defaults to `CORE` on write. Arbitraries and round-trip tests must set it
+explicitly to keep `parse(write(model))` deep-equal.
+</Aside>

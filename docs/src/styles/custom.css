@@ -1,0 +1,140 @@
+/* sepa-xml-ts docs brand overrides for Starlight.
+   Primary: Emerald (#10b981), Accent: Pink (#ec4899).
+   Maps onto Starlight CSS custom properties for both light and dark themes. */
+
+:root {
+  /* Accent color: Emerald for links, active states, and CTAs */
+  --sl-color-accent-low: #d1fae5;
+  --sl-color-accent: #10b981;
+  --sl-color-accent-high: #065f46;
+
+  /* NOTE: do not override --sl-color-white. In Starlight it is the
+     highest-contrast text color (near-black in light mode), not literal white.
+     Forcing it to #ffffff makes the page H1 and sidebar group labels invisible. */
+
+  /* Link / accent text color */
+  --sl-color-text-accent: #10b981;
+}
+
+:root[data-theme='dark'] {
+  /* Dark theme: shift accent toward lighter emerald so it reads on dark surfaces */
+  --sl-color-accent-low: #022c22;
+  --sl-color-accent: #34d399;
+  --sl-color-accent-high: #a7f3d0;
+
+  --sl-color-text-accent: #34d399;
+}
+
+/* Prose links: emerald by default, DARKEN (not whiten) on hover.
+   Starlight's default hover color is --sl-color-white, which is fragile across
+   themes; set it explicitly so links are never invisible. accent-high is a dark
+   emerald in light mode and a light emerald in dark mode, so this reads in both. */
+.sl-markdown-content a {
+  color: var(--sl-color-text-accent);
+}
+.sl-markdown-content a:hover {
+  color: var(--sl-color-accent-high);
+}
+
+/* Use the pink accent sparingly on "badge" style elements */
+.sl-badge.tip,
+.badge.tip {
+  background-color: #fce7f3;
+  color: #be185d;
+  border-color: #f9a8d4;
+}
+
+:root[data-theme='dark'] .sl-badge.tip,
+:root[data-theme='dark'] .badge.tip {
+  background-color: #4a0d2a;
+  color: #f472b6;
+  border-color: #831843;
+}
+
+/* Legal links in the footer (Impressum / Datenschutz on the main domain). */
+.legal-links {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--sl-color-gray-5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-3);
+}
+.legal-links a {
+  color: var(--sl-color-gray-2);
+  text-decoration: none;
+}
+.legal-links a:hover {
+  color: var(--sl-color-accent-high);
+  text-decoration: underline;
+}
+
+/* =========================================================
+   SECTION DIVIDERS: branded emerald eyebrow treatment
+   Replaces plain <hr> gray rules so sections have identity.
+   ========================================================= */
+
+/* Horizontal rules on the splash page get an emerald gradient accent */
+.sl-markdown-content hr {
+  border: none;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--sl-color-accent) 30%,
+    var(--sl-color-accent) 70%,
+    transparent
+  );
+  opacity: 0.35;
+  margin: 2.5rem 0;
+}
+
+/* Section headings (h2) get a subtle emerald top-border accent */
+.sl-markdown-content h2 {
+  padding-top: 0.75rem;
+  border-top: 2px solid var(--sl-color-accent);
+  border-image: linear-gradient(
+      to right,
+      var(--sl-color-accent),
+      var(--sl-color-accent-low) 60%,
+      transparent
+    )
+    1;
+  margin-top: 2.5rem;
+}
+
+/* =========================================================
+   CARD HOVER LIFT
+   Transition is set here so it applies even without JS.
+   ========================================================= */
+.sl-markdown-content starlight-card,
+.sl-markdown-content .card {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sl-markdown-content starlight-card:hover,
+  .sl-markdown-content .card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.16);
+  }
+}
+
+/* =========================================================
+   GET STARTED CTA area: pink deliberate accent
+   The final section uses pink to create a visual endpoint.
+   ========================================================= */
+.cta-section {
+  border-top: 2px solid #ec4899;
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+:root[data-theme='dark'] .cta-section {
+  border-top-color: #f472b6;
+}

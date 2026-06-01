@@ -1,0 +1,114 @@
+---
+title: Credit transfers (pain.001)
+description: Build and write pain.001 SEPA Credit Transfer Initiation files with sepa-xml-ts.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+A credit transfer is a push payment: a debtor (payer) instructs their bank to send money to one or
+more creditors. The pain.001.001.09 message type is the modern ISO 20022 Credit Transfer Initiation
+message used across the SEPA zone.
+
+## The model
+
+```typescript
+import { euros, type CreditTransferDocument, type PaymentBatch, type Transfer } from 'sepa-xml-ts'
+
+const doc: CreditTransferDocument = {
+  messageId: 'MSG-2026-0001',       // GrpHdr/MsgId: unique message identifier
+  createdAt: '2026-06-01T10:30:00Z', // GrpHdr/CreDtTm: ISO 8601 datetime
+  initiatingParty: 'ACME GmbH',     // GrpHdr/InitgPty/Nm
+
+  batches: [
+    {
+      id: 'BATCH-001',               // PmtInfId: unique within the message
+      executionDate: '2026-06-03',   // ReqdExctnDt/Dt: YYYY-MM-DD, never a datetime
+      debtor: {
+        name: 'ACME GmbH',           // Dbtr/Nm
+        iban: 'DE89370400440532013000', // DbtrAcct/Id/IBAN
+        bic: 'COBADEFFXXX',          // DbtrAgt/FinInstnId/BICFI (optional since 2016 rulebook)
+      },
+      transfers: [
+        {
+          endToEndId: 'INV-1001',    // PmtId/EndToEndId
+          amount: euros('123.45'),   // Amt/InstdAmt Ccy="EUR"
+          creditor: {
+            name: 'Beispiel AG',     // Cdtr/Nm
+            iban: 'NL91ABNA0417164300', // CdtrAcct/Id/IBAN
+            // bic is optional for pan-European SEPA transfers
+          },
+          remittanceInfo: 'Invoice 1001', // RmtInf/Ustrd (optional)
+        },
+      ],
+    },
+  ],
+}
+```
+
+## Model types
+
+| Type | XSD element |
+|---|---|
+| `CreditTransferDocument` | `Document/CstmrCdtTrfInitn` |
+| `PaymentBatch` | `PmtInf` |
+| `Transfer` | `CdtTrfTxInf` |
+| `AccountParty` | `Dbtr` or `Cdtr` with account and agent |
+| `Money` | `Amt/InstdAmt` |
+
+## Writing to XML
+
+```typescript
+import { writeCreditTransfer, validate } from 'sepa-xml-ts'
+
+const result = validate(doc)
+if (!result.ok) {
+  console.error(result.errors)
+} else {
+  const xml = writeCreditTransfer(result.data)
+}
+```
+
+`writeCreditTransfer` validates the model internally before writing. It throws a `ValidationError`
+if the model fails validation, so it cannot emit a structurally invalid file.
+
+### Derived fields
+
+The writer derives the following fields from the model. You do not supply them:
+
+| Field | How it is derived |
+|---|---|
+| `GrpHdr/NbOfTxs` | Total count of all transfers across all batches |
+| `GrpHdr/CtrlSum` | Sum of all transfer amounts (exact `bigint` addition) |
+| `PmtInf/NbOfTxs` | Count of transfers in this batch |
+| `PmtInf/CtrlSum` | Sum of transfer amounts in this batch |
+| `PmtInf/PmtMtd` | Always `TRF` |
+| `PmtInf/PmtTpInf/SvcLvl/Cd` | Always `SEPA` |
+| `PmtInf/ChrgBr` | Always `SLEV` |
+
+## Variants
+
+To write a German DK pain.001.003.03 file, pass `{ variant: 'pain.001.003.03' }`:
+
+```typescript
+const xml = writeCreditTransfer(doc, { variant: 'pain.001.003.03' })
+```
+
+See [National variants](/guides/national-variants) for the structural differences and XSD details.
+
+## Bank profiles
+
+To add bank-specific validation or output tweaks:
+
+```typescript
+import { requireBic } from 'sepa-xml-ts'
+
+const xml = writeCreditTransfer(doc, { profile: requireBic })
+```
+
+See [Bank profiles](/guides/bank-profiles) for the full profile API.
+
+<Aside type="note">
+The BIC field on `AccountParty` is optional for standard pan-European SEPA transfers since the 2016
+SEPA rulebook change. Some banks still require it: use the `requireBic` profile to enforce it at
+validation time before submission.
+</Aside>

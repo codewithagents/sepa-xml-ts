@@ -1,0 +1,75 @@
+---
+title: Introduction
+description: What sepa-xml-ts is, what it provides, and the philosophy behind it.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+`sepa-xml-ts` is a TypeScript library for producing and consuming SEPA payment files. It covers
+three operations behind one type-safe model:
+
+- **Write:** build a model and serialize it to valid ISO 20022 XML
+- **Parse:** turn SEPA XML back into a typed model
+- **Validate:** check a model against business rules, and optionally against the official EPC XSD
+
+## Install
+
+```bash
+npm install sepa-xml-ts
+# or
+pnpm add sepa-xml-ts
+```
+
+ESM-only. Ships its own TypeScript declarations. Node 18+ required.
+
+## Two entry points
+
+| Entry point | What it contains |
+|---|---|
+| `sepa-xml-ts` | Model types, writer, parser, business validation (the 90% path) |
+| `sepa-xml-ts/xsd` | XSD validation via `libxml2-wasm`, lazy-loaded, opt-in only |
+
+The `./xsd` subpath lazy-loads a WASM blob. Write-only users never download it. Import it only when
+you need belt-and-suspenders XSD validation.
+
+## What is supported
+
+| Message type | Write | Parse | XSD validate |
+|---|---|---|---|
+| `pain.001.001.09` (SEPA Credit Transfer) | Yes | Yes | Yes |
+| `pain.001.003.03` (German DK CT variant) | Yes | Yes | Yes |
+| `pain.008.001.08` (SEPA Direct Debit) | Yes | Yes | Yes |
+| `pain.008.003.02` (German DK SDD variant) | Yes | Yes | Yes |
+| `pain.001.001.03` (older ISO) | No | Yes (coexistence) | Yes |
+| `pain.008.001.02` (older ISO) | No | Yes (coexistence) | Yes |
+
+## The model, not the XML
+
+You work with a model that reflects how you think about a payment:
+
+- A `CreditTransferDocument` has `batches`, each with a `debtor` and a list of `transfers`.
+- A `DirectDebitDocument` has a document-level `creditor` and `batches`, each with `collections`.
+- `AccountParty` is `{ name, iban, bic? }`, not three sibling XSD elements.
+- `Money` is a first-class value with `bigint` minor units, not a raw decimal string.
+
+The library derives `NbOfTxs`, `CtrlSum`, `PmtMtd`, `SvcLvl`, and `ChrgBr` from the model so you
+never compute them by hand.
+
+## Correctness as the product
+
+<Aside type="caution" title="Why this matters">
+A subtly wrong payments file is worse than no library. An incorrect CtrlSum or invalid IBAN will
+cause the file to be rejected by your bank or payment processor, often silently, often with a delay.
+</Aside>
+
+Every correctness invariant is enforced before output is ever generated:
+
+- **No-float money.** Amounts are `bigint` minor units. Float arithmetic is structurally excluded.
+- **Exact CtrlSum.** Derived with exact integer addition. Zero rounding tolerance.
+- **IBAN mod-97 validation.** Not just a regex: the checksum is verified.
+- **SEPA charset.** EPC217-08 characters enforced, as a separate concern from XML escaping.
+- **Dates, not datetimes.** Execution and collection dates are plain `YYYY-MM-DD`.
+- **XSD-oracle property testing.** The CI generates hundreds of random valid models, writes them,
+  and asserts every file passes the official EPC XSD. The XSD is the ground truth.
+
+Continue to the [Quickstart](/getting-started/quickstart) to see a full end-to-end example.

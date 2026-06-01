@@ -1,0 +1,257 @@
+---
+title: SEPA XML for TypeScript
+description: Type-safe SEPA payment files. Parse, write, and validate ISO 20022 pain.001 credit transfers and pain.008 direct debits, with every file validated against the official EPC XSD.
+template: splash
+head:
+  - tag: title
+    content: 'SEPA XML for TypeScript: type-safe SEPA payment files'
+hero:
+  title: A subtly wrong payments file is worse than none.
+  tagline: Parse, write, and validate ISO 20022 pain.001 credit transfers and pain.008 direct debits. No-float money, exact CtrlSum, IBAN mod-97, EPC charset, XSD-oracle property testing. Correctness is the whole product.
+  actions:
+    - text: Get Started
+      link: /getting-started
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/codewithagents/sepa-xml-ts
+      icon: external
+      variant: secondary
+---
+
+import {
+  Card,
+  CardGrid,
+  Tabs,
+  TabItem,
+  Steps,
+  Aside,
+  LinkButton,
+} from '@astrojs/starlight/components'
+
+---
+
+## See it in action
+
+Real code from the library. Model first, XML second.
+
+<Tabs>
+  <TabItem label="Model">
+
+```typescript
+import { euros, type CreditTransferDocument } from 'sepa-xml-ts'
+
+const doc: CreditTransferDocument = {
+  messageId: 'MSG-2026-0001',
+  createdAt: '2026-06-01T10:30:00Z',
+  initiatingParty: 'ACME GmbH',
+  batches: [
+    {
+      id: 'BATCH-001',
+      executionDate: '2026-06-03', // a date, never a datetime
+      debtor: {
+        name: 'ACME GmbH',
+        iban: 'DE89370400440532013000',
+        bic: 'COBADEFFXXX',
+      },
+      transfers: [
+        {
+          endToEndId: 'INV-1001',
+          amount: euros('123.45'),
+          creditor: { name: 'Beispiel AG', iban: 'NL91ABNA0417164300' },
+          remittanceInfo: 'Invoice 1001',
+        },
+      ],
+    },
+  ],
+}
+```
+
+  </TabItem>
+  <TabItem label="Write">
+
+```typescript
+import { writeCreditTransfer, validate } from 'sepa-xml-ts'
+
+// validate() returns a typed result instead of throwing
+const result = validate(doc)
+if (!result.ok) {
+  console.error(result.errors)
+} else {
+  const xml = writeCreditTransfer(result.data)
+  // <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09">...
+  // NbOfTxs and CtrlSum are derived with exact integer arithmetic.
+}
+```
+
+  </TabItem>
+  <TabItem label="Parse">
+
+```typescript
+import { parse } from 'sepa-xml-ts'
+
+const parsed = parse(xml)
+if (!parsed.ok) {
+  console.error(parsed.error)
+} else if (parsed.type === 'pain.001') {
+  // parsed.data is a CreditTransferDocument
+  const total = parsed.data.batches
+    .flatMap((b) => b.transfers)
+    .reduce((sum, t) => sum + t.amount.minorUnits, 0n)
+  console.log('credit transfer total:', total)
+} else {
+  // parsed.type === 'pain.008' -> parsed.data is a DirectDebitDocument
+  console.log('collections:', parsed.data.batches.flatMap((b) => b.collections).length)
+}
+```
+
+  </TabItem>
+  <TabItem label="Validate against XSD">
+
+```typescript
+import { validateXsd } from 'sepa-xml-ts/xsd'
+
+// Optional belt-and-suspenders check against the official EPC XSD.
+// Lazy-loads libxml2-wasm; write-only users never download it.
+const xsdResult = await validateXsd(xml)
+if (!xsdResult.valid) {
+  console.error(xsdResult.errors)
+}
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## Correctness guarantees
+
+<CardGrid>
+  <Card title="No-float money" icon="approve-check-circle">
+    Amounts are `bigint` minor units, never JS `number` arithmetic. `euros("123.45")` gives
+    `12345n`. A float can never sneak into your CtrlSum.
+  </Card>
+  <Card title="Exact CtrlSum" icon="approve-check">
+    The control sum is derived by the writer with exact integer addition across all transfers.
+    Zero rounding tolerance.
+  </Card>
+  <Card title="EPC charset enforced" icon="information">
+    SEPA character set EPC217-08 is enforced as a concern separate from XML escaping. Non-SEPA
+    characters are rejected, not silently dropped.
+  </Card>
+  <Card title="IBAN mod-97 check" icon="approve-check-circle">
+    Every IBAN is validated by mod-97 checksum, not just a regex. Invalid IBANs are caught before
+    a file is ever written.
+  </Card>
+  <Card title="Dates, not datetimes" icon="information">
+    Execution and collection dates are plain `YYYY-MM-DD` values. The library never stamps a
+    timezone on a date-only field.
+  </Card>
+  <Card title="XSD-as-oracle testing" icon="star">
+    Every build generates hundreds of random valid models, writes them to XML, and asserts each
+    file passes the official EPC XSD. The XSD is the ground truth.
+  </Card>
+</CardGrid>
+
+---
+
+## Up and running in minutes
+
+<Steps>
+
+1. **Install the package.**
+
+   ```bash
+   npm install sepa-xml-ts
+   # or
+   pnpm add sepa-xml-ts
+   ```
+
+   ESM-only, ships its own type declarations. Node 18+.
+
+2. **Build a document.**
+
+   ```typescript
+   import { euros, type CreditTransferDocument } from 'sepa-xml-ts'
+
+   const doc: CreditTransferDocument = {
+     messageId: 'MSG-001',
+     createdAt: new Date().toISOString(),
+     initiatingParty: 'My Company GmbH',
+     batches: [
+       {
+         id: 'BATCH-001',
+         executionDate: '2026-06-10',
+         debtor: {
+           name: 'My Company GmbH',
+           iban: 'DE89370400440532013000',
+         },
+         transfers: [
+           {
+             endToEndId: 'PAY-001',
+             amount: euros('99.50'),
+             creditor: { name: 'Supplier AG', iban: 'NL91ABNA0417164300' },
+           },
+         ],
+       },
+     ],
+   }
+   ```
+
+3. **Write and validate.**
+
+   ```typescript
+   import { writeCreditTransfer, validate } from 'sepa-xml-ts'
+
+   const result = validate(doc)
+   if (result.ok) {
+     const xml = writeCreditTransfer(result.data)
+     // xml is a valid pain.001.001.09 string, ready to submit
+   }
+   ```
+
+</Steps>
+
+---
+
+## Is this for you?
+
+<Aside type="tip" title="Use it when">
+
+- **You generate SEPA credit transfer or direct debit files** and need confidence the output is
+  structurally and semantically correct.
+- **You work in TypeScript** and want a model that reads like a payment, not like XSD element names.
+- **You need the German DK variants** (pain.001.003.03 / pain.008.003.02): they ship with their
+  official XSD and are verified in CI.
+- **Correctness matters more than speed of integration.** Every model change is tested against
+  the official XSD as a property test over hundreds of random inputs.
+
+</Aside>
+
+<Aside type="note" title="Look elsewhere if">
+
+- **You need bank connectivity.** This is a file library. EBICS, FinTS, and Peppol transmission
+  are out of scope.
+- **You need pain.002 or camt.* parsing.** Only pain.001 and pain.008 are in scope today.
+- **Your target is not TypeScript / Node.** This is an ESM TypeScript package.
+
+</Aside>
+
+---
+
+<div class="cta-section">
+
+## Get started
+
+<CardGrid>
+  <Card title="Quickstart" icon="right-arrow">
+    Build a credit transfer document, validate it, write it to XML, and parse it back in five
+    minutes. [Read the quickstart](/getting-started/quickstart)
+  </Card>
+  <Card title="GitHub" icon="github">
+    Source code, issues, and the test suite with XSD-oracle property tests. [View on
+    GitHub](https://github.com/codewithagents/sepa-xml-ts)
+  </Card>
+</CardGrid>
+
+</div>
