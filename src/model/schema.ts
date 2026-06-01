@@ -53,9 +53,6 @@ function sepaIdentifier(maxLen: number) {
     })
 }
 
-/** Max35Text with SEPA charset validation */
-const SepaMax35Text = sepaText(35)
-
 /** Max140Text with SEPA charset validation */
 const SepaMax140Text = sepaText(140)
 
