@@ -9,6 +9,8 @@
  * - CtrlSum uses exact bigint arithmetic, never floating-point
  * - All string values are XML-escaped (SEPA charset enforced by the schema)
  * - ReqdExctnDt is emitted as Dt (date only), never DtTm
+ * - PmtTpInf/SvcLvl/Cd=SEPA is emitted in each PmtInf (SEPA rulebook requirement)
+ * - ChrgBr=SLEV is emitted in each PmtInf (SEPA rulebook requirement)
  * - RmtInf/Ustrd is emitted when remittanceInfo is present on a Transfer
  */
 
@@ -81,6 +83,12 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
     lines.push(
       `      <CtrlSum>${formatAmountForXml({ currencyCode: 'EUR', minorUnits: batchCtrlSum })}</CtrlSum>`
     )
+    // PmtTpInf/SvcLvl/Cd=SEPA: SEPA rulebook requirement (XSD position: after CtrlSum, before ReqdExctnDt)
+    lines.push(`      <PmtTpInf>`)
+    lines.push(`        <SvcLvl>`)
+    lines.push(`          <Cd>SEPA</Cd>`)
+    lines.push(`        </SvcLvl>`)
+    lines.push(`      </PmtTpInf>`)
     lines.push(`      <ReqdExctnDt>`)
     lines.push(`        <Dt>${xe(batch.executionDate)}</Dt>`)
     lines.push(`      </ReqdExctnDt>`)
@@ -99,6 +107,8 @@ export function writeCreditTransfer(input: CreditTransferDocument): string {
     }
     lines.push(`        </FinInstnId>`)
     lines.push(`      </DbtrAgt>`)
+    // ChrgBr=SLEV: SEPA rulebook requirement (XSD position: after DbtrAgt, before CdtTrfTxInf)
+    lines.push(`      <ChrgBr>SLEV</ChrgBr>`)
 
     // Credit Transfer Transactions
     for (const tx of batch.transfers) {

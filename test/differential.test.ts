@@ -13,13 +13,16 @@
  * Known cosmetic differences (NOT asserted, documented here):
  *   - sepa emits pain.001.001.03; our library emits pain.001.001.09. Different xmlns, schemaLocation.
  *   - sepa emits compact (no-whitespace) XML; our library emits indented XML.
- *   - sepa emits BtchBookg, ChrgBr (SLEV), PmtTpInf/SvcLvl/Cd (SEPA) at PmtInf level; we do not.
+ *   - sepa emits BtchBookg at PmtInf level; we do not.
  *   - sepa emits PmtId/InstrId at transaction level; we do not.
  *   - sepa prefixes PmtInfId with the document id (e.g. "DIFF-001.0"); we use the user-supplied id.
  *   - sepa emits empty <RmtInf><Ustrd/></RmtInf> when no remittance info; we omit the element.
  *   - sepa emits DbtrAgt/FinInstnId/BIC (pain.001.001.03 uses BIC, not BICFI); we emit BICFI.
  *   - sepa strips the timezone offset from CreDtTm (emits local time without Z); we preserve it.
  *   - sepa emits ReqdExctnDt as a plain text element; our .09 writer wraps it in ReqdExctnDt/Dt.
+ *
+ * Previously cosmetic (now matching):
+ *   - Both libraries now emit PmtTpInf/SvcLvl/Cd=SEPA and ChrgBr=SLEV at PmtInf level.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -82,6 +85,29 @@ interface SepaXmlDoc {
   nbOfTxs: string
   ctrlSum: string
   batches: SepaXmlBatch[]
+}
+
+/** SEPA rulebook fields that must now agree between both libraries at PmtInf level. */
+interface SepaRulebookBatch {
+  svcLvlCd: string | null
+  chrgBr: string | null
+}
+
+/**
+ * Extract PmtTpInf/SvcLvl/Cd and ChrgBr from each PmtInf in an XML string.
+ * Works for both pain.001.001.03 (sepa) and pain.001.001.09 (ours) because
+ * the element names are identical.
+ */
+function extractRulebookFields(xml: string): SepaRulebookBatch[] {
+  const parsed = sepaXmlParser.parse(xml)
+  const root = nav(parsed, 'Document', 'CstmrCdtTrfInitn')
+  if (!root) throw new Error('Missing Document/CstmrCdtTrfInitn')
+  const pmtInfArr = nav(root, 'PmtInf')
+  if (!Array.isArray(pmtInfArr)) throw new Error('Missing PmtInf array')
+  return pmtInfArr.map((pmtInf) => ({
+    svcLvlCd: str(nav(pmtInf, 'PmtTpInf', 'SvcLvl', 'Cd')),
+    chrgBr: str(nav(pmtInf, 'ChrgBr')),
+  }))
 }
 
 function extractSepaXmlDoc(xml: string): SepaXmlDoc {
@@ -627,5 +653,60 @@ describe('differential: sepa vs ours -- edge-case amounts', () => {
     expect(ourParsed.ctrlSum).toBe(sepaParsed.ctrlSum)
     expect(ourParsed.batches[0]?.transactions[0]?.creditorIban).toBe(CREDITOR_IBAN_2)
     expect(sepaParsed.batches[0]?.transactions[0]?.creditorIban).toBe(CREDITOR_IBAN_2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Differential test: SEPA rulebook fields now agree (SvcLvl/Cd and ChrgBr)
+// ---------------------------------------------------------------------------
+
+describe('differential: SEPA rulebook fields now agree at PmtInf level', () => {
+  it('both libraries emit PmtTpInf/SvcLvl/Cd=SEPA for single-batch document', () => {
+    const ourXml = writeCreditTransfer(ourSingleBatchDoc)
+    const sepaXml = buildSepaDocSingleBatch()
+
+    const ourFields = extractRulebookFields(ourXml)
+    const sepaFields = extractRulebookFields(sepaXml)
+
+    expect(ourFields).toHaveLength(1)
+    expect(sepaFields).toHaveLength(1)
+    expect(ourFields[0]?.svcLvlCd).toBe('SEPA')
+    expect(sepaFields[0]?.svcLvlCd).toBe('SEPA')
+    // Both now agree
+    expect(ourFields[0]?.svcLvlCd).toBe(sepaFields[0]?.svcLvlCd)
+  })
+
+  it('both libraries emit ChrgBr=SLEV for single-batch document', () => {
+    const ourXml = writeCreditTransfer(ourSingleBatchDoc)
+    const sepaXml = buildSepaDocSingleBatch()
+
+    const ourFields = extractRulebookFields(ourXml)
+    const sepaFields = extractRulebookFields(sepaXml)
+
+    expect(ourFields[0]?.chrgBr).toBe('SLEV')
+    expect(sepaFields[0]?.chrgBr).toBe('SLEV')
+    // Both now agree
+    expect(ourFields[0]?.chrgBr).toBe(sepaFields[0]?.chrgBr)
+  })
+
+  it('both libraries emit PmtTpInf/SvcLvl/Cd=SEPA and ChrgBr=SLEV for multi-batch document', () => {
+    const ourXml = writeCreditTransfer(ourMultiBatchDoc)
+    const sepaXml = buildSepaDocMultiBatch()
+
+    const ourFields = extractRulebookFields(ourXml)
+    const sepaFields = extractRulebookFields(sepaXml)
+
+    expect(ourFields).toHaveLength(2)
+    expect(sepaFields).toHaveLength(2)
+
+    for (let i = 0; i < 2; i++) {
+      expect(ourFields[i]?.svcLvlCd).toBe('SEPA')
+      expect(sepaFields[i]?.svcLvlCd).toBe('SEPA')
+      expect(ourFields[i]?.svcLvlCd).toBe(sepaFields[i]?.svcLvlCd)
+
+      expect(ourFields[i]?.chrgBr).toBe('SLEV')
+      expect(sepaFields[i]?.chrgBr).toBe('SLEV')
+      expect(ourFields[i]?.chrgBr).toBe(sepaFields[i]?.chrgBr)
+    }
   })
 })
