@@ -1,7 +1,24 @@
 {
   "name": "sepa-xml-ts",
   "version": "0.1.0",
-  "description": "Type-safe SEPA payment file library for pain.001",
+  "description": "Type-safe SEPA payment file library for pain.001, with output validated against the official ISO 20022 XSD.",
+  "license": "MIT",
+  "author": "Benjamin Eckstein",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codewithagents/sepa-xml-ts.git"
+  },
+  "homepage": "https://github.com/codewithagents/sepa-xml-ts#readme",
+  "bugs": "https://github.com/codewithagents/sepa-xml-ts/issues",
+  "keywords": [
+    "sepa",
+    "pain.001",
+    "iso20022",
+    "credit-transfer",
+    "xml",
+    "zod",
+    "typescript"
+  ],
   "type": "module",
   "sideEffects": false,
   "files": [
