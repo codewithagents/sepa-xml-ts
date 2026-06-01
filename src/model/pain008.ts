@@ -68,7 +68,7 @@ const ISODateSchema = z
 
 const IBANSchema = z
   .string()
-  .regex(/^[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}$/, 'Invalid IBAN format')
+  .regex(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/, 'Invalid IBAN format')
   .refine((v) => isValidIban(v), {
     message: 'IBAN failed mod-97 checksum validation',
   })
@@ -110,7 +110,7 @@ const CreditorIdSchema = z
   .min(1)
   .max(35)
   .regex(
-    /^[A-Z]{2}[0-9]{2}[A-Z0-9]{3}[a-zA-Z0-9]{1,28}$/,
+    /^[A-Z]{2}[0-9]{2}[A-Z0-9]{3}[A-Z0-9]{1,28}$/,
     'Invalid SEPA Creditor Identifier format (expected: CC + 2 digits + 3 char business code + identifier)'
   )
   .refine((v) => isValidCreditorId(v), {

@@ -39,8 +39,12 @@ function mod97(numeric: string): number {
  * Does NOT check country-specific formats, only the checksum.
  */
 export function isValidIban(iban: string): boolean {
-  // Basic structural check first (matches XSD pattern)
-  if (!/^[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}$/.test(iban)) {
+  // Basic structural check: uppercase-only body, BBAN length 11-30 (total 15-34).
+  // Stricter than the XSD pattern ({1,30}, mixed case) by design:
+  // - Floor of 11 BBAN chars (total 15) enforces the ISO 13616 minimum length.
+  // - Uppercase-only body rejects lowercase input rather than silently accepting it.
+  // The XSD-oracle property test still holds because every IBAN we accept is XSD-valid.
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) {
     return false
   }
   return mod97(ibanToNumeric(iban.toUpperCase())) === 1
