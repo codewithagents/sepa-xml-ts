@@ -16,6 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
+import { detectSepaNamespace } from './xmlns-detect.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -56,12 +57,12 @@ let cachedValidator008_003_02: unknown = null
 
 /**
  * Detect the ISO 20022 namespace declared on the root Document element.
- * Uses a simple regex rather than a full XML parse to keep this fast.
- * Looks for: xmlns="urn:iso:std:iso:20022:tech:xsd:pain.NNN.NNN.NN"
+ * Delegates to the shared detectSepaNamespace helper (see src/xmlns-detect.ts),
+ * which strips XML comments before matching and anchors the search to the
+ * <Document> opening tag to prevent namespace-steering via crafted comments.
  */
 function detectNamespace(xml: string): string | null {
-  const match = xml.match(/xmlns\s*=\s*["']([^"']+)["']/)
-  return match ? (match[1] ?? null) : null
+  return detectSepaNamespace(xml)
 }
 
 /**
@@ -82,7 +83,17 @@ function detectNamespace(xml: string): string | null {
  * @returns XsdResult with valid flag and any error messages
  */
 export async function validateXsd(xml: string): Promise<XsdResult> {
-  const { XmlDocument, XsdValidator, XmlValidateError } = await import('libxml2-wasm')
+  // Reject DOCTYPE/DTD declarations. SEPA documents never legitimately contain a
+  // DTD, and allowing them into the libxml2 parse path would expose the library
+  // to XXE (external-entity expansion) and entity-bomb attacks.
+  if (/<!DOCTYPE/i.test(xml)) {
+    return {
+      valid: false,
+      errors: ['DOCTYPE/DTD is not permitted in SEPA documents'],
+    }
+  }
+
+  const { XmlDocument, XsdValidator, XmlValidateError, ParseOption } = await import('libxml2-wasm')
 
   const ns = detectNamespace(xml)
 
@@ -152,7 +163,11 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
 
   let xmlDoc: InstanceType<typeof XmlDocument> | null = null
   try {
-    xmlDoc = XmlDocument.fromString(xml)
+    // XML_PARSE_NO_XXE: explicitly disable loading of external DTDs and external
+    // entities (both general and parameter entities). This is a defense-in-depth
+    // measure alongside the DOCTYPE guard above. The ParseOption enum is
+    // well-documented in the libxml2-wasm type declarations (document.d.mts).
+    xmlDoc = XmlDocument.fromString(xml, { option: ParseOption.XML_PARSE_NO_XXE })
     validator.validate(xmlDoc)
     return { valid: true, errors: [] }
   } catch (err) {
