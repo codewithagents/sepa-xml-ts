@@ -33,6 +33,8 @@ import {
   type PrivateIdentification,
   type DateAndPlaceOfBirth,
   type StructuredRemittance,
+  type ReferredDocument,
+  type RemittanceAmount,
   type Purpose,
   type CategoryPurpose,
 } from '../model/schema.js'
@@ -365,43 +367,152 @@ function extractPartyId(partyEl: unknown): PartyIdentification | undefined {
 // ---------------------------------------------------------------------------
 
 /**
+ * Coerce a value that may be a single object or an array into an array. Used for
+ * XSD-repeatable elements that fast-xml-parser does not force into arrays (e.g.
+ * RfrdDocInf, which is an object when single and an array when repeated).
+ */
+function asArray(val: unknown): unknown[] {
+  if (val === null || val === undefined) return []
+  return Array.isArray(val) ? val : [val]
+}
+
+/**
+ * Extract a CdOrPrtry choice (Cd string XOR { proprietary }) from a CdOrPrtry
+ * wrapper element. Returns undefined when neither child is present.
+ *
+ * @param cdOrPrtryEl - the CdOrPrtry element (or null/undefined when absent)
+ */
+function extractCdOrPrtry(cdOrPrtryEl: unknown): string | { proprietary: string } | undefined {
+  if (cdOrPrtryEl === null || cdOrPrtryEl === undefined) return undefined
+  const cd = str(nav(cdOrPrtryEl, 'Cd'))
+  if (cd !== null && cd !== '') return cd
+  const prtry = str(nav(cdOrPrtryEl, 'Prtry'))
+  if (prtry !== null && prtry !== '') return { proprietary: prtry }
+  return undefined
+}
+
+/**
+ * Parse an EUR amount element (e.g. DuePyblAmt) which carries a Ccy attribute and
+ * a text value: <DuePyblAmt Ccy="EUR">12.34</DuePyblAmt>. Returns null when absent
+ * or not a valid EUR amount.
+ */
+function parseAmtElement(amtEl: unknown): Money | null {
+  if (amtEl === null || amtEl === undefined) return null
+  let amountStr: string | null
+  let ccy = 'EUR'
+  if (typeof amtEl === 'object') {
+    const obj = amtEl as Record<string, unknown>
+    amountStr = str(obj['#text'])
+    const rawCcy = obj['@_Ccy']
+    ccy = typeof rawCcy === 'string' ? rawCcy : 'EUR'
+  } else {
+    amountStr = str(amtEl)
+  }
+  if (amountStr === null) return null
+  return parseMoneyString(amountStr, ccy)
+}
+
+/**
+ * Extract one referred document (ReferredDocumentInformation7) from a RfrdDocInf
+ * element. Reads Tp/CdOrPrtry, Nb, RltdDt. Returns undefined when no field is set.
+ */
+function extractRfrdDocInf(docEl: unknown): ReferredDocument | undefined {
+  const type = extractCdOrPrtry(nav(docEl, 'Tp', 'CdOrPrtry'))
+  const number = str(nav(docEl, 'Nb')) ?? undefined
+  const relatedDate = str(nav(docEl, 'RltdDt')) ?? undefined
+  if (type === undefined && number === undefined && relatedDate === undefined) {
+    return undefined
+  }
+  return {
+    ...(type !== undefined ? { type: type as ReferredDocument['type'] } : {}),
+    ...(number !== undefined && number !== '' ? { number } : {}),
+    ...(relatedDate !== undefined && relatedDate !== '' ? { relatedDate } : {}),
+  }
+}
+
+/**
+ * Extract the referred-document amounts (RemittanceAmount2) from a RfrdDocAmt
+ * element. Reads DuePyblAmt, CdtNoteAmt, RmtdAmt. Returns undefined when none set.
+ */
+function extractRfrdDocAmt(amtEl: unknown): RemittanceAmount | undefined {
+  if (amtEl === null || amtEl === undefined) return undefined
+  const duePayableAmount = parseAmtElement(nav(amtEl, 'DuePyblAmt')) ?? undefined
+  const creditNoteAmount = parseAmtElement(nav(amtEl, 'CdtNoteAmt')) ?? undefined
+  const remittedAmount = parseAmtElement(nav(amtEl, 'RmtdAmt')) ?? undefined
+  if (
+    duePayableAmount === undefined &&
+    creditNoteAmount === undefined &&
+    remittedAmount === undefined
+  ) {
+    return undefined
+  }
+  return {
+    ...(duePayableAmount !== undefined ? { duePayableAmount } : {}),
+    ...(creditNoteAmount !== undefined ? { creditNoteAmount } : {}),
+    ...(remittedAmount !== undefined ? { remittedAmount } : {}),
+  }
+}
+
+/**
+ * Extract the CdtrRefInf fields (creditorReference, referenceType, issuer) from a
+ * CdtrRefInf element. Returns a partial object (creditorReference set when present).
+ */
+function extractCdtrRefInf(cdtrRefInfEl: unknown): Partial<StructuredRemittance> {
+  if (cdtrRefInfEl === null || cdtrRefInfEl === undefined) return {}
+  const creditorReference = str(nav(cdtrRefInfEl, 'Ref'))
+  if (creditorReference === null || creditorReference === '') return {}
+  // Tp/CdOrPrtry is the reference type (Cd enum XOR Prtry). We cast the raw value
+  // here; out-of-enum Cd values are rejected by post-parse model validation.
+  const referenceType = extractCdOrPrtry(nav(cdtrRefInfEl, 'Tp', 'CdOrPrtry'))
+  const issuer = str(nav(cdtrRefInfEl, 'Tp', 'Issr')) ?? undefined
+  return {
+    creditorReference,
+    ...(referenceType !== undefined
+      ? { referenceType: referenceType as StructuredRemittance['referenceType'] }
+      : {}),
+    ...(issuer !== undefined ? { issuer } : {}),
+  }
+}
+
+/**
  * Extract structured remittance information from a transaction element.
  *
- * Reads RmtInf/Strd/CdtrRefInf:
- *   creditorReference <- Ref
- *   referenceType     <- Tp/CdOrPrtry/Cd
- *   issuer            <- Tp/Issr
+ * Reads RmtInf/Strd:
+ *   referredDocuments      <- RfrdDocInf (0..n)
+ *   referredDocumentAmount <- RfrdDocAmt
+ *   creditorReference      <- CdtrRefInf/Ref (+ referenceType, issuer)
  *
- * Returns undefined when absent so round-trip deep-equal holds for documents
- * without structured remittance. The Ustrd path is handled separately.
+ * Returns undefined when Strd is absent or carries no meaningful content, so
+ * round-trip deep-equal holds for documents without structured remittance. The
+ * Ustrd path is handled separately.
  *
  * @param txEl - the transaction element (CdtTrfTxInf or DrctDbtTxInf)
  */
 function extractStructuredRemittance(txEl: unknown): StructuredRemittance | undefined {
-  const cdtrRefInfEl = nav(txEl, 'RmtInf', 'Strd', 'CdtrRefInf')
-  if (cdtrRefInfEl === null || cdtrRefInfEl === undefined) {
+  const strdEl = nav(txEl, 'RmtInf', 'Strd')
+  if (strdEl === null || strdEl === undefined) {
     return undefined
   }
 
-  const creditorReference = str(nav(cdtrRefInfEl, 'Ref'))
-  if (creditorReference === null || creditorReference === '') {
+  const referredDocuments = asArray(nav(strdEl, 'RfrdDocInf'))
+    .map((d) => extractRfrdDocInf(d))
+    .filter((d): d is ReferredDocument => d !== undefined)
+  const referredDocumentAmount = extractRfrdDocAmt(nav(strdEl, 'RfrdDocAmt'))
+  const cdtrRef = extractCdtrRefInf(nav(strdEl, 'CdtrRefInf'))
+
+  if (
+    referredDocuments.length === 0 &&
+    referredDocumentAmount === undefined &&
+    cdtrRef.creditorReference === undefined
+  ) {
     return undefined
   }
 
-  // Tp/CdOrPrtry/Cd is the reference type code (e.g. "SCOR")
-  const referenceType = str(nav(cdtrRefInfEl, 'Tp', 'CdOrPrtry', 'Cd')) ?? undefined
-  // Tp/Issr is the issuer (optional)
-  const issuer = str(nav(cdtrRefInfEl, 'Tp', 'Issr')) ?? undefined
-
-  const result: StructuredRemittance = { creditorReference }
-  // Cd is the DocumentType3Code enum. We cast the raw string here; if the XML
-  // carried an out-of-enum value, post-parse model validation rejects it rather
-  // than silently accepting an invalid reference type.
-  if (referenceType !== undefined) {
-    result.referenceType = referenceType as StructuredRemittance['referenceType']
+  return {
+    ...(referredDocuments.length > 0 ? { referredDocuments } : {}),
+    ...(referredDocumentAmount !== undefined ? { referredDocumentAmount } : {}),
+    ...cdtrRef,
   }
-  if (issuer !== undefined) result.issuer = issuer
-  return result
 }
 
 /**

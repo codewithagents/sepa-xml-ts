@@ -24,6 +24,9 @@ import type {
   PartyIdentification,
   GenericIdentification,
   StructuredRemittance,
+  ReferredDocument,
+  RemittanceAmount,
+  ReferenceType,
   Purpose,
   CategoryPurpose,
 } from '../model/schema.js'
@@ -385,17 +388,125 @@ export function emitRmtInf(lines: string[], remittanceInfo: string | undefined):
 }
 
 /**
- * Emit a conditional RmtInf/Strd/CdtrRefInf element at 8-space indent.
+ * Emit the inner Cd or Prtry line of a CdOrPrtry choice at the given indent.
+ * A plain string is the Cd path; an object { proprietary } is the Prtry path.
+ * Used by referred-document type (ReferredDocumentType3Choice) and creditor
+ * reference type (CreditorReferenceType1Choice).
+ *
+ * @param indent - leading spaces for the Cd/Prtry line
+ * @param value  - the Cd string or the { proprietary } object
+ */
+function emitCdOrPrtryAt(
+  lines: string[],
+  indent: string,
+  value: string | { proprietary: string }
+): void {
+  if (typeof value === 'string') {
+    lines.push(`${indent}<Cd>${xe(value)}</Cd>`)
+  } else {
+    lines.push(`${indent}<Prtry>${xe(value.proprietary)}</Prtry>`)
+  }
+}
+
+/**
+ * Emit an EUR amount element (ActiveOrHistoricCurrencyAndAmount) with Ccy="EUR".
+ * Uses the same 2-decimal formatting as the transaction InstdAmt. These amounts
+ * are informational (RfrdDocAmt sub-amounts) and never affect CtrlSum.
+ *
+ * @param indent - leading spaces for the element
+ * @param tag    - element name, e.g. "DuePyblAmt" or "RmtdAmt"
+ * @param money  - the EUR Money value
+ */
+function emitAmtEur(lines: string[], indent: string, tag: string, money: Money): void {
+  lines.push(`${indent}<${tag} Ccy="EUR">${formatAmountForXml(money)}</${tag}>`)
+}
+
+/**
+ * Emit one RfrdDocInf element (ReferredDocumentInformation7) at 12-space indent.
+ *
+ * XSD element order: Tp (ReferredDocumentType4: CdOrPrtry then Issr), Nb, RltdDt.
+ * Only present fields are emitted; the model guarantees at least one is set.
+ *
+ * @param doc - a referred document model value
+ */
+function emitRfrdDocInf(lines: string[], doc: ReferredDocument): void {
+  lines.push(`            <RfrdDocInf>`)
+  if (doc.type !== undefined) {
+    lines.push(`              <Tp>`)
+    lines.push(`                <CdOrPrtry>`)
+    emitCdOrPrtryAt(lines, '                  ', doc.type)
+    lines.push(`                </CdOrPrtry>`)
+    lines.push(`              </Tp>`)
+  }
+  if (doc.number !== undefined) {
+    lines.push(`              <Nb>${xe(doc.number)}</Nb>`)
+  }
+  if (doc.relatedDate !== undefined) {
+    lines.push(`              <RltdDt>${xe(doc.relatedDate)}</RltdDt>`)
+  }
+  lines.push(`            </RfrdDocInf>`)
+}
+
+/**
+ * Emit the RfrdDocAmt element (RemittanceAmount2) at 12-space indent.
+ *
+ * XSD element order for the fields we model: DuePyblAmt, CdtNoteAmt, RmtdAmt.
+ * Only present amounts are emitted; the model guarantees at least one is set.
+ *
+ * @param amount - the referred-document amount model value
+ */
+function emitRfrdDocAmt(lines: string[], amount: RemittanceAmount): void {
+  lines.push(`            <RfrdDocAmt>`)
+  if (amount.duePayableAmount !== undefined) {
+    emitAmtEur(lines, '              ', 'DuePyblAmt', amount.duePayableAmount)
+  }
+  if (amount.creditNoteAmount !== undefined) {
+    emitAmtEur(lines, '              ', 'CdtNoteAmt', amount.creditNoteAmount)
+  }
+  if (amount.remittedAmount !== undefined) {
+    emitAmtEur(lines, '              ', 'RmtdAmt', amount.remittedAmount)
+  }
+  lines.push(`            </RfrdDocAmt>`)
+}
+
+/**
+ * Emit the CdtrRefInf element (CreditorReferenceInformation2) at 12-space indent.
+ *
+ * XSD element order: Tp (CreditorReferenceType2: CdOrPrtry then Issr) before Ref.
+ * The reference type defaults to "SCOR" when absent; issuer is emitted only when
+ * present. Called only when creditorReference is set, so Ref is always emitted.
+ *
+ * @param sr - the structured remittance model value (creditorReference is defined)
+ */
+function emitCdtrRefInf(lines: string[], sr: StructuredRemittance): void {
+  const refType: ReferenceType = sr.referenceType ?? 'SCOR'
+  lines.push(`            <CdtrRefInf>`)
+  lines.push(`              <Tp>`)
+  lines.push(`                <CdOrPrtry>`)
+  emitCdOrPrtryAt(lines, '                  ', refType)
+  lines.push(`                </CdOrPrtry>`)
+  if (sr.issuer !== undefined) {
+    lines.push(`                <Issr>${xe(sr.issuer)}</Issr>`)
+  }
+  lines.push(`              </Tp>`)
+  lines.push(`              <Ref>${xe(sr.creditorReference ?? '')}</Ref>`)
+  lines.push(`            </CdtrRefInf>`)
+}
+
+/**
+ * Emit a conditional RmtInf/Strd element at 8-space indent.
  * Used in CdtTrfTxInf (pain.001.001.09) and DrctDbtTxInf (pain.008.001.08).
  *
  * XSD element ordering (confirmed against both XSDs):
  *   RemittanceInformation16: Ustrd before Strd
- *   StructuredRemittanceInformation16: CdtrRefInf (optional)
- *   CreditorReferenceInformation2: Tp (optional) before Ref (optional)
- *   CreditorReferenceType2: CdOrPrtry (required) before Issr (optional)
+ *   StructuredRemittanceInformation16: RfrdDocInf (0..n), RfrdDocAmt (0..1), CdtrRefInf (0..1)
+ *   ReferredDocumentInformation7: Tp, Nb, RltdDt
+ *   RemittanceAmount2: DuePyblAmt, ..., CdtNoteAmt, ..., RmtdAmt
+ *   CreditorReferenceInformation2: Tp (CdOrPrtry then Issr) before Ref
  *   CreditorReferenceType1Choice: Cd or Prtry
  *
- * referenceType defaults to "SCOR" when absent. issuer is emitted only when present.
+ * The CdtrRefInf-only path (referredDocuments and referredDocumentAmount both
+ * absent) emits byte-identical output to before this gained RfrdDocInf/RfrdDocAmt.
  *
  * @param structuredRemittance - optional structured remittance; nothing emitted if undefined
  */
@@ -406,20 +517,19 @@ export function emitStructuredRmtInf(
   if (structuredRemittance === undefined) {
     return
   }
-  const refType = structuredRemittance.referenceType ?? 'SCOR'
   lines.push(`        <RmtInf>`)
   lines.push(`          <Strd>`)
-  lines.push(`            <CdtrRefInf>`)
-  lines.push(`              <Tp>`)
-  lines.push(`                <CdOrPrtry>`)
-  lines.push(`                  <Cd>${xe(refType)}</Cd>`)
-  lines.push(`                </CdOrPrtry>`)
-  if (structuredRemittance.issuer !== undefined) {
-    lines.push(`                <Issr>${xe(structuredRemittance.issuer)}</Issr>`)
+  if (structuredRemittance.referredDocuments !== undefined) {
+    for (const doc of structuredRemittance.referredDocuments) {
+      emitRfrdDocInf(lines, doc)
+    }
   }
-  lines.push(`              </Tp>`)
-  lines.push(`              <Ref>${xe(structuredRemittance.creditorReference)}</Ref>`)
-  lines.push(`            </CdtrRefInf>`)
+  if (structuredRemittance.referredDocumentAmount !== undefined) {
+    emitRfrdDocAmt(lines, structuredRemittance.referredDocumentAmount)
+  }
+  if (structuredRemittance.creditorReference !== undefined) {
+    emitCdtrRefInf(lines, structuredRemittance)
+  }
   lines.push(`          </Strd>`)
   lines.push(`        </RmtInf>`)
 }

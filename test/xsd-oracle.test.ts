@@ -347,24 +347,142 @@ const VALID_RF_REFS = ['RF18539007547034']
  *    deep-equal. Setting it explicitly avoids that asymmetry (the omitted-default
  *    behavior is pinned in the structured-remittance unit test instead).
  */
+/**
+ * Reference type (CdtrRefInf/Tp/CdOrPrtry): a DocumentType3Code Cd string XOR a
+ * Prtry object. Always set explicitly so the writer's SCOR default never breaks
+ * round-trip deep-equal (see arbStructuredRemittanceValue note 2).
+ */
+function arbReferenceTypeValue(): fc.Arbitrary<StructuredRemittance['referenceType']> {
+  const arbCd = fc.constantFrom<string>('RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR')
+  const arbPrtry = arbSepaText(1, 35).map((v) => ({ proprietary: v }))
+  return fc.oneof(arbCd, arbPrtry) as fc.Arbitrary<StructuredRemittance['referenceType']>
+}
+
+/** DocumentType6Code values for a referred-document type Cd. */
+const DOC_TYPE6_CODES = [
+  'MSIN',
+  'CNFA',
+  'CINV',
+  'CREN',
+  'DEBN',
+  'HIRI',
+  'SOAC',
+  'BOLD',
+  'VCHR',
+] as const
+
+/**
+ * One referred document (RfrdDocInf): an optional type (Cd XOR Prtry), number,
+ * and related date. Always sets at least one field (the model requires it). All
+ * text is SEPA-charset and dates are YYYY-MM-DD so the value survives round-trip.
+ */
+function arbReferredDocument(): fc.Arbitrary<
+  NonNullable<StructuredRemittance['referredDocuments']>[number]
+> {
+  const arbType = fc.oneof(
+    fc.constantFrom<string>(...DOC_TYPE6_CODES),
+    arbSepaText(1, 35).map((v) => ({ proprietary: v }))
+  )
+  return fc
+    .record({
+      type: fc.option(arbType, { nil: undefined }),
+      number: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      relatedDate: fc.option(arbDate(), { nil: undefined }),
+    })
+    .map((d) => {
+      const out: Record<string, unknown> = {}
+      if (d.type !== undefined) out['type'] = d.type
+      if (d.number !== undefined) out['number'] = d.number
+      if (d.relatedDate !== undefined) out['relatedDate'] = d.relatedDate
+      // Guarantee at least one field is present (the model rejects an empty RfrdDocInf).
+      if (Object.keys(out).length === 0) out['number'] = d.number ?? 'INV-1'
+      return out as NonNullable<StructuredRemittance['referredDocuments']>[number]
+    })
+}
+
+/**
+ * Referred-document amounts (RfrdDocAmt): any non-empty subset of duePayableAmount,
+ * creditNoteAmount, remittedAmount, each an in-range EUR Money. Informational only.
+ */
+function arbRemittanceAmountValue(): fc.Arbitrary<
+  NonNullable<StructuredRemittance['referredDocumentAmount']>
+> {
+  return fc
+    .record({
+      duePayableAmount: fc.option(arbMoney(), { nil: undefined }),
+      creditNoteAmount: fc.option(arbMoney(), { nil: undefined }),
+      remittedAmount: fc.option(arbMoney(), { nil: undefined }),
+    })
+    .map((a) => {
+      const out: Record<string, unknown> = {}
+      if (a.duePayableAmount !== undefined) out['duePayableAmount'] = a.duePayableAmount
+      if (a.creditNoteAmount !== undefined) out['creditNoteAmount'] = a.creditNoteAmount
+      if (a.remittedAmount !== undefined) out['remittedAmount'] = a.remittedAmount
+      // Guarantee at least one amount (the model rejects an empty RfrdDocAmt).
+      if (Object.keys(out).length === 0)
+        out['remittedAmount'] = a.remittedAmount ?? arbMoneyFallback
+      return out as NonNullable<StructuredRemittance['referredDocumentAmount']>
+    })
+}
+
+/** A constant in-range EUR amount used as the empty-subset fallback above. */
+const arbMoneyFallback = { currencyCode: 'EUR' as const, minorUnits: 100n }
+
+/**
+ * Arbitrary for a full structured remittance value (RmtInf/Strd), exercising
+ * RfrdDocInf (including multiple), RfrdDocAmt, and CdtrRefInf with both the Cd and
+ * Prtry reference-type paths.
+ *
+ * Round-trip-safety constraints:
+ * 1. creditorReference is EITHER a non-RF reference (so the conditional ISO 11649
+ *    check never triggers) OR one of the known-valid RF references. We never
+ *    generate "RF" + random digits, which would fail the check digit.
+ * 2. When creditorReference is present, referenceType is ALWAYS set explicitly.
+ *    The writer defaults an omitted referenceType to "SCOR", so the parser would
+ *    read back "SCOR" and break deep-equal. The omitted-default behaviour is
+ *    pinned in the structured-remittance unit test instead.
+ * 3. referenceType and issuer are only emitted when creditorReference is present,
+ *    matching the model refinement, so they are omitted on the docs/amount-only path.
+ * 4. At least one of referredDocuments / referredDocumentAmount / creditorReference
+ *    is always present (an empty Strd is rejected by the model).
+ */
 function arbStructuredRemittanceValue(): fc.Arbitrary<StructuredRemittance> {
   const arbRef = fc.oneof(
     arbSepaText(1, 35).filter((s) => !s.trimStart().startsWith('RF')),
     fc.constantFrom(...VALID_RF_REFS)
   )
+  const arbCdtrRef = fc.record({
+    creditorReference: arbRef,
+    referenceType: arbReferenceTypeValue(),
+    issuer: fc.option(arbSepaText(1, 35), { nil: undefined }),
+  })
   return fc
     .record({
-      creditorReference: arbRef,
-      // Cd is the DocumentType3Code enum in the XSD: only these values are valid.
-      referenceType: fc.constantFrom('RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR'),
-      issuer: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      referredDocuments: fc.option(
+        fc.array(arbReferredDocument(), { minLength: 1, maxLength: 3 }),
+        {
+          nil: undefined,
+        }
+      ),
+      referredDocumentAmount: fc.option(arbRemittanceAmountValue(), { nil: undefined }),
+      cdtrRef: fc.option(arbCdtrRef, { nil: undefined }),
     })
     .map((sr) => {
-      const out: Record<string, unknown> = {
-        creditorReference: sr.creditorReference,
-        referenceType: sr.referenceType,
+      const out: Record<string, unknown> = {}
+      if (sr.referredDocuments !== undefined) out['referredDocuments'] = sr.referredDocuments
+      if (sr.referredDocumentAmount !== undefined) {
+        out['referredDocumentAmount'] = sr.referredDocumentAmount
       }
-      if (sr.issuer !== undefined) out['issuer'] = sr.issuer
+      if (sr.cdtrRef !== undefined) {
+        out['creditorReference'] = sr.cdtrRef.creditorReference
+        out['referenceType'] = sr.cdtrRef.referenceType
+        if (sr.cdtrRef.issuer !== undefined) out['issuer'] = sr.cdtrRef.issuer
+      }
+      // Guarantee at least one component is present (an empty Strd is rejected).
+      if (Object.keys(out).length === 0) {
+        out['creditorReference'] = '12345'
+        out['referenceType'] = 'SCOR'
+      }
       return out as StructuredRemittance
     })
 }
