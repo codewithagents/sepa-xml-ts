@@ -309,7 +309,7 @@ describe('parse() fuzz: arbitrary random strings never throw (numRuns >= 300)', 
     let runCount = 0
 
     fc.assert(
-      fc.property(fc.fullUnicodeString(), (input) => {
+      fc.property(fc.string({ unit: 'grapheme' }), (input) => {
         runCount++
         expect(() => parse(input)).not.toThrow()
         const result = parse(input)
@@ -360,7 +360,7 @@ describe('parse() fuzz: mutated valid XML never throws (numRuns >= 300)', () => 
     fc.assert(
       fc.property(
         fc.integer({ min: 0, max: validXml.length - 1 }),
-        fc.ascii(),
+        fc.string({ unit: 'grapheme-ascii', minLength: 1, maxLength: 1 }),
         (replacePos, replaceChar) => {
           runCount++
           const mutated =

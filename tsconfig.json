@@ -13,6 +13,7 @@
     "noImplicitOverride": true,
     "exactOptionalPropertyTypes": true,
     "lib": ["ES2022"],
+    "types": ["node"],
     "skipLibCheck": true
   },
   "include": ["src/**/*"],
