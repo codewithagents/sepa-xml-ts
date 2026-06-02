@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.5.0...sepa-xml-ts-v1.0.0) (2026-06-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* removed the `validate` export (use `validateCreditTransfer`) and the deprecated `ParseSuccess` type (use `ParseSuccess001 | ParseSuccess008`).
+
+### Features
+
+* freeze public API for 1.0.0 ([bb6a7d1](https://github.com/codewithagents/sepa-xml-ts/commit/bb6a7d173fbf8211f80cf1e942accdd56b86dbc9))
+
 ## [0.5.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.4.0...sepa-xml-ts-v0.5.0) (2026-06-02)
 
 
