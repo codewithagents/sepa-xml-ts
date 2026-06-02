@@ -1,0 +1,13 @@
+# Code owners for sepa-xml-ts.
+# These owners are requested for review on PRs that touch matching paths.
+# A branch ruleset can later require code-owner review once a second
+# maintainer exists; today it documents ownership.
+
+# Default owner for everything in the repo.
+*       @benjamineckstein
+
+# Security-sensitive surfaces get explicit ownership so changes here are
+# always attributed to a maintainer.
+/.github/        @benjamineckstein
+/src/model/      @benjamineckstein
+/schemas/        @benjamineckstein
