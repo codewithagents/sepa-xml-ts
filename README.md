@@ -5,8 +5,35 @@ Type-safe SEPA payment files for TypeScript. **Parse, write, and validate** ISO 
 XML, with **every generated file validated against the official EPC/ISO 20022 XSD in CI**.
 
 [![npm](https://img.shields.io/npm/v/sepa-xml-ts.svg)](https://www.npmjs.com/package/sepa-xml-ts)
+[![CI](https://github.com/codewithagents/sepa-xml-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/codewithagents/sepa-xml-ts/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > Status: early (`0.x`). The public API may still change before `1.0`.
+
+## Table of contents
+
+- [What it covers](#what-it-covers)
+- [Why this exists](#why-this-exists)
+- [The model, not the XML](#the-model-not-the-xml)
+- [Install](#install)
+- [Write](#write)
+- [Parse](#parse)
+- [Direct debit (pain.008)](#direct-debit-pain008)
+- [Money](#money)
+- [Advanced fields](#advanced-fields)
+- [Bank profiles](#bank-profiles)
+  - [The `requireBic` profile](#the-requirebic-profile)
+  - [The `ibanBicCountryMatch` profile](#the-ibanbiccountrymatch-profile)
+  - [Output options: batchBooking](#output-options-batchbooking)
+  - [Authoring your own profile](#authoring-your-own-profile)
+- [National variants](#national-variants)
+  - [pain.001.001.03 (legacy ISO credit transfer)](#pain001001003-legacy-iso-credit-transfer)
+  - [German DK variant: pain.001.003.03](#german-dk-variant-pain001003003)
+  - [German DK variant: pain.008.003.02](#german-dk-variant-pain008003002)
+- [Validate against the official XSD (optional)](#validate-against-the-official-xsd-optional)
+- [API surface](#api-surface)
+- [Scope](#scope)
+- [License](#license)
 
 ## What it covers
 
@@ -30,9 +57,9 @@ not talk to banks.
 | Validate XML against the official ISO 20022 / EPC XSD | all 6 schemas | ✅ Supported |
 | SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | direct debit | ✅ Supported |
 | Bank profiles: extra rules plus minor output tweaks (e.g. `requireBic`, `ibanBicCountryMatch`, `batchBooking`) | overlay | ✅ Supported |
-| pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3) | `pain.008` | ✅ Supported |
+| pain.008 B2B specifics and sequence-type cross-field checks (R1/R2/R3/R4) | `pain.008` | ✅ Supported |
 | Structured creditor/debtor postal address (`PstlAdr`) | all write variants (DK variants: `Ctry` + `AdrLine` only) | ✅ Supported |
-| Ultimate creditor/debtor at transaction level (`UltmtCdtr` / `UltmtDbtr`, name only) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
+| Ultimate creditor/debtor at transaction level (`UltmtCdtr` / `UltmtDbtr`, name + optional structured id OrgId/PrvtId) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Structured remittance / creditor reference (`RmtInf/Strd/CdtrRefInf`, conditional ISO 11649) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | Purpose and category purpose codes (`Purp` / `CtgyPurp`, ISO external codes, not list-validated) | `pain.001.001.09` / `pain.008.001.08` | ✅ Supported |
 | SDD mandate amendment (`AmdmntInd` + `AmdmntInfDtls`, incl. SMNDA, minimal fields) | `pain.008.001.08` | ✅ Supported |
@@ -66,10 +93,15 @@ and it is enforced, not hoped for:
 - **CtrlSum is exact.** The control sum equals the sum of transfers with zero rounding tolerance.
 - **SEPA character set enforced** (EPC217-08), as a concern separate from XML escaping.
 - **IBANs validated by mod-97**, not just a regex.
+- **SEPA Creditor Identifier check digits validated** (ISO 7064 MOD 97-10, with the business code
+  excluded per EPC262-08). A creditor id that passes a regex but fails the check digit is caught
+  before a file is ever emitted.
 - **Dates are dates**, never timezone-stamped datetimes.
 - **The model is anchored on the official XSD.** The test suite generates thousands of random
   valid models and asserts every serialized file validates against that XSD, and that every
   file parses back into the exact model it came from.
+- **The parse path is fuzz-hardened.** It never throws: malformed input, entity injections, and
+  DTD/DOCTYPE payloads all return a typed failure rather than raising an exception.
 
 ## The model, not the XML
 
@@ -81,7 +113,7 @@ from valid `pain.001` XML for you, and derives `NbOfTxs` and `CtrlSum` so you ne
 by hand.
 
 ```ts
-import { CreditTransferDocument } from "sepa-xml-ts";
+import { euros, type CreditTransferDocument } from "sepa-xml-ts";
 
 const doc: CreditTransferDocument = {
   messageId: "MSG-2026-0001",
@@ -117,6 +149,9 @@ npm install sepa-xml-ts
 ```
 
 ESM-only, ships its own type declarations. Node 18+.
+
+Every release is published to npm with provenance via OIDC Trusted Publishing, so you can
+verify the build attestation on the npm package page.
 
 ## Write
 
@@ -166,8 +201,14 @@ of generated inputs, for both message types.
 
 ## Direct debit (pain.008)
 
-Direct debit is the reverse of a credit transfer: one **creditor** collects money from many
-**debtors**, each authorized by a **mandate**. The model mirrors that, and `writeDirectDebit`
+In a direct debit scheme, one **creditor** (e.g. a subscription service or utility) collects
+money directly from many **debtors** (customers), each of whom has signed a **mandate**
+authorizing future collections. Unlike a credit transfer (where the payer pushes funds), a
+direct debit pulls funds on the agreed collection date. The creditor holds the mandate and
+presents it with every collection; the debtor's bank verifies the mandate and debits the
+account. The SEPA Direct Debit (SDD) Core scheme is the standard used across the SEPA area.
+
+`writeDirectDebit`
 emits valid `pain.008.001.08` XML (deriving `NbOfTxs`, `CtrlSum`, and fanning the creditor and
 its SEPA Creditor Identifier into each batch for you).
 
@@ -208,11 +249,64 @@ const xml = writeDirectDebit(doc);
 
 Note: `localInstrument` defaults to `CORE` when omitted.
 
-`validateDirectDebit` and `writeDirectDebit` enforce three cross-field mandate rules from the SEPA
+`validateDirectDebit` and `writeDirectDebit` enforce four cross-field mandate rules from the SEPA
 rulebook. R1: `mandate.signatureDate` must not be after the batch `collectionDate` (equal dates are
 allowed). R2: a mandate id used in any OOFF batch must appear in exactly one collection across the
 whole document. R3: a mandate id must not appear under both CORE and B2B local instruments in the
-same document.
+same document. R4: if any collection in a batch has `mandate.amendment.sameMandateNewDebtorAccount
+=== true` (SMNDA, "same mandate, new debtor account at the same bank"), that batch's `sequenceType`
+must be `FRST`.
+
+### Mandate amendment (SMNDA)
+
+When a debtor's bank account changes at the same bank (Same Mandate New Debtor Account), set
+`mandate.amendment.sameMandateNewDebtorAccount: true` and place the collection in a `FRST` batch
+(required by R4 and enforced by the writer):
+
+```ts
+import { euros, writeDirectDebit, type DirectDebitDocument } from "sepa-xml-ts";
+
+const doc: DirectDebitDocument = {
+  messageId: "DD-AMEND-001",
+  createdAt: "2026-06-01T09:00:00Z",
+  initiatingParty: "ACME GmbH",
+  creditor: {
+    name: "ACME GmbH",
+    iban: "DE89370400440532013000",
+    bic: "COBADEFFXXX",
+    creditorId: "DE98ZZZ09999999999",
+  },
+  batches: [
+    {
+      id: "BATCH-SMNDA",
+      collectionDate: "2026-06-20",
+      sequenceType: "FRST", // R4: SMNDA requires FRST
+      collections: [
+        {
+          endToEndId: "AMEND-001",
+          amount: euros("49.99"),
+          debtor: { name: "Kunde Eins", iban: "DE75512108001245126199" },
+          mandate: {
+            id: "MND-001",
+            signatureDate: "2026-01-15",
+            amendment: {
+              // Debtor opened a new account at the same bank; old account not disclosed
+              sameMandateNewDebtorAccount: true,
+            },
+          },
+        },
+      ],
+    },
+  ],
+};
+
+const xml = writeDirectDebit(doc);
+// Emits AmdmntInd=true + OrgnlDbtrAgt/FinInstnId/Othr/Id=SMNDA
+```
+
+For other amendment scenarios (original mandate id change, original creditor scheme id, original
+debtor account, original debtor agent BIC, original frequency, original final collection date,
+original reason), set the corresponding optional fields on the `amendment` object.
 
 ## Money
 
@@ -230,6 +324,78 @@ euros("-1.00"); // throws: negative
 
 formatMoney(euros("123.45")); // "123.45" (always 2 decimals, dot, no grouping)
 ```
+
+## Advanced fields
+
+Structured remittance, ultimate parties, postal address, and purpose codes are all optional
+additive fields on `Transfer` (pain.001) and `Collection` (pain.008). The snippet below shows
+all of them together on a credit transfer; the shapes are identical for direct debit collections.
+
+```ts
+import {
+  euros,
+  writeCreditTransfer,
+  type CreditTransferDocument,
+  type Transfer,
+} from "sepa-xml-ts";
+
+const transfer: Transfer = {
+  endToEndId: "INV-2001",
+  amount: euros("250.00"),
+  creditor: {
+    name: "Beispiel AG",
+    iban: "NL91ABNA0417164300",
+    // Optional structured postal address (mandatory from EPC 2026-11-22)
+    address: {
+      streetName: "Hauptstrasse",
+      buildingNumber: "1",
+      postCode: "10115",
+      townName: "Berlin",
+      country: "DE",
+    },
+  },
+  // Ultimate creditor: the party who ultimately receives the funds (e.g. a factor)
+  ultimateCreditor: {
+    name: "Factor GmbH",
+    // Optional structured id: OrgId XOR PrvtId
+    id: { organisationId: { other: { id: "FACTOR-001" } } },
+  },
+  // Ultimate debtor: the party on whose behalf the payment is made
+  ultimateDebtor: { name: "End Customer" },
+  // Structured remittance (mutually exclusive with remittanceInfo)
+  structuredRemittance: {
+    creditorReference: "RF18539007547034", // ISO 11649 RF reference: check digits validated
+    referenceType: "SCOR", // DocumentType3Code enum (RADM/RPIN/FXDR/DISP/PUOR/SCOR)
+    // referredDocuments and referredDocumentAmount are also supported (see types)
+  },
+  // Purpose code: ISO external code (SALA, SUPP, etc.), 1-4 chars, not enum-validated
+  purpose: "SUPP",
+};
+
+const doc: CreditTransferDocument = {
+  messageId: "MSG-ADV-001",
+  createdAt: "2026-06-01T10:30:00Z",
+  initiatingParty: "ACME GmbH",
+  batches: [
+    {
+      id: "BATCH-ADV-001",
+      executionDate: "2026-06-03",
+      debtor: { name: "ACME GmbH", iban: "DE89370400440532013000" },
+      categoryPurpose: "SUPP", // batch-level category purpose (PmtTpInf/CtgyPurp)
+      transfers: [transfer],
+    },
+  ],
+};
+
+const xml = writeCreditTransfer(doc);
+```
+
+Notes:
+- `structuredRemittance` and `remittanceInfo` are mutually exclusive on the same transaction.
+- `ultimateCreditor`, `ultimateDebtor`, structured remittance, and purpose codes are supported
+  for `pain.001.001.09` and `pain.008.001.08` only. Legacy and DK variants throw if present.
+- `address` is emitted as PostalAddress24 for the modern ISO variants and as PostalAddress6 for
+  `pain.001.001.03`. DK variants support only `country` and up to two `addressLines`.
 
 ## Bank profiles
 
@@ -280,6 +446,36 @@ import { writeDirectDebit, validateDirectDebit, requireBic } from "sepa-xml-ts";
 
 const result = validateDirectDebit(doc, { profile: requireBic });
 const xml = writeDirectDebit(doc, { profile: requireBic });
+```
+
+### The `ibanBicCountryMatch` profile
+
+When a party has both an IBAN and a BIC, their country codes should normally match (e.g. a DE
+IBAN paired with a BIC whose country code is also DE). A mismatch can indicate a data-entry
+error. The `ibanBicCountryMatch` profile checks this for every party that has both.
+
+This check is deliberately **opt-in** rather than a core rule. Several territories use a
+different IBAN country code from the BIC country code for legitimate historical reasons:
+French overseas departments and collectivities (GP, GF, MQ, RE, YT, PM, BL, MF) use IBANs
+with their own country prefix but BICs registered under FR; British Crown Dependencies (GG, JE,
+IM) have their own IBAN prefixes but BICs under GB. Encoding this as a core rule without a
+complete and maintained exception table would risk false positives on valid files. The profile
+ships with a documented exception table and you opt in when you know your bank performs this
+check.
+
+```ts
+import {
+  writeCreditTransfer,
+  validateCreditTransfer,
+  ibanBicCountryMatch,
+} from "sepa-xml-ts";
+
+const result = validateCreditTransfer(doc, { profile: ibanBicCountryMatch });
+if (!result.ok) {
+  console.error(result.profileIssues); // e.g. "IBAN country (DE) does not match BIC country (NL)"
+}
+
+const xml = writeCreditTransfer(doc, { profile: ibanBicCountryMatch });
 ```
 
 ### Output options: batchBooking
@@ -334,6 +530,28 @@ export const myProfile: BankProfile = {
 Some countries use national extensions of the SEPA schemas under different namespaces. These are
 distinct from bank profiles: a profile is additive on top of an existing schema, while a national
 variant is a different XML schema with its own element ordering and element names.
+
+### pain.001.001.03 (legacy ISO credit transfer)
+
+The legacy ISO credit transfer schema `pain.001.001.03` is supported as a write target for
+systems that have not yet migrated to the modern `pain.001.001.09`. Pass `variant:
+'pain.001.001.03'` to emit the older namespace. The model input is the same
+`CreditTransferDocument`; only the serialization differs.
+
+```ts
+import { euros, writeCreditTransfer, type CreditTransferDocument } from "sepa-xml-ts";
+
+const xml = writeCreditTransfer(doc, { variant: "pain.001.001.03" });
+// <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">...
+```
+
+Structural deltas from `pain.001.001.09`:
+- `ReqdExctnDt` is a plain ISODate value (no `<Dt>` child wrapper, unlike the .09 `DateAndDateTime2Choice`)
+- Agent elements use `<BIC>` element name (not `<BICFI>`)
+- The debtor `FinInstnId` is always emitted at PmtInf level, even when `debtor.bic` is absent
+  (an empty `<FinInstnId/>` is required by the .03 XSD)
+- Ultimate parties, structured remittance, and purpose codes are not supported; the writer throws
+  if any are present (no silent data loss)
 
 ### German DK variant: pain.001.003.03
 
@@ -433,24 +651,37 @@ From `sepa-xml-ts`:
 | Export | Description |
 |---|---|
 | `CreditTransferDocument`, `PaymentBatch`, `Transfer`, `AccountParty`, `Money` | pain.001 model types |
-| `DirectDebitDocument`, `DirectDebitBatch`, `Collection`, `Creditor`, `Mandate`, `SequenceType`, `LocalInstrument` | pain.008 model types |
+| `PostalAddress`, `UltimateParty`, `PartyIdentification` | Optional party/address types (pain.001 + pain.008) |
+| `StructuredRemittance`, `ReferenceType`, `ReferredDocument`, `RemittanceAmount` | Structured remittance types |
+| `Purpose`, `CategoryPurpose` | Purpose and category-purpose types |
+| `DirectDebitDocument`, `DirectDebitBatch`, `Collection`, `Creditor`, `Mandate`, `MandateAmendment`, `SequenceType`, `LocalInstrument` | pain.008 model types |
 | `CreditTransferDocumentSchema`, `DirectDebitDocumentSchema` | The Zod schemas (single source of truth) |
 | `euros(amount: string): Money` | Build a `Money` value safely |
 | `formatMoney(m: Money): string` | Format a `Money` value to `"123.45"` |
 | `writeCreditTransfer(model, options?): string` | Model to `pain.001` XML (`options.variant` selects schema) |
 | `writeDirectDebit(model, options?): string` | Model to `pain.008` XML (`options.variant` selects schema) |
 | `parse(xml: string): ParseResult` | SEPA XML to model, auto-detecting message type |
-| `validate(input: unknown): ValidationResult` | Validate a credit-transfer model against the schema |
+| `ParseResult`, `ParseSuccess001`, `ParseSuccess008`, `ParseFailure` | Discriminated union from `parse`. `ParseSuccess001` has `type: "pain.001"`, `ParseSuccess008` has `type: "pain.008"`. (`ParseSuccess` is a deprecated alias for `ParseSuccess001`.) |
+| `validateCreditTransfer(input, options?): ValidationResult` | Validate a credit-transfer model (schema + optional profile) |
+| `validateDirectDebit(input, options?): DirectDebitValidationResult` | Validate a direct-debit model (schema + rules R1-R4 + optional profile) |
+| `validate(input, options?): ValidationResult` | Alias for `validateCreditTransfer` (backward compat, shipped in 0.1.0) |
+| `ValidationResult`, `ValidationSuccess`, `ValidationFailure` | Result types for `validateCreditTransfer` |
+| `DirectDebitValidationResult`, `DirectDebitValidationSuccess`, `DirectDebitValidationFailure` | Result types for `validateDirectDebit` (adds `ruleIssues` for R1-R4 violations) |
+| `ValidateOptions` | Options type for `validateCreditTransfer` / `validateDirectDebit` |
+| `checkDirectDebitRules(doc): ProfileIssue[]` | Run the R1-R4 cross-field rule checks standalone |
 | `WriteCreditTransferOptions` | Options type for `writeCreditTransfer` |
-| `CreditTransferVariant` | `'pain.001.001.09' \| 'pain.001.003.03'` |
+| `CreditTransferVariant` | `'pain.001.001.09' \| 'pain.001.001.03' \| 'pain.001.003.03'` |
 | `WriteDirectDebitOptions` | Options type for `writeDirectDebit` |
 | `DirectDebitVariant` | `'pain.008.001.08' \| 'pain.008.003.02'` |
+| `BankProfile`, `ProfileIssue` | Types for authoring overlay bank profiles |
+| `requireBic` | Built-in profile: requires a BIC on every agent |
+| `ibanBicCountryMatch` | Built-in profile: opt-in IBAN vs BIC country consistency check |
 
 From `sepa-xml-ts/xsd`:
 
 | Export | Description |
 |---|---|
-| `validateXsd(xml: string): Promise<XsdResult>` | Validate XML against the official EPC XSD |
+| `validateXsd(xml: string): Promise<XsdResult>` | Validate XML against the official EPC XSD (all 6 supported schemas) |
 
 Internal helpers (IBAN, SEPA charset, XML escaping) are intentionally not exported.
 
