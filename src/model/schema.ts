@@ -57,7 +57,7 @@ function sepaIdentifier(maxLen: number) {
 const SepaMax140Text = sepaText(140)
 
 /**
- * Purpose code: ExternalPurpose1Code and ExternalCategoryPurpose1Code.
+ * Purpose code (Cd): ExternalPurpose1Code and ExternalCategoryPurpose1Code.
  *
  * Both XSD types are open strings (xs:restriction base="xs:string", minLength 1, maxLength 4),
  * NOT enumerations. Validation is deliberately limited to charset and length.
@@ -72,6 +72,36 @@ const SepaMax140Text = sepaText(140)
  * ExternalCategoryPurpose1Code: minLength=1, maxLength=4 (open string)
  */
 const PurposeCodeSchema = sepaText(4)
+
+/**
+ * Proprietary purpose value (Prtry), a Max35Text open string. SEPA charset, 1..35 chars.
+ * Confirmed against the XSD: Purpose2Choice/Prtry and CategoryPurpose1Choice/Prtry are
+ * both typed as Max35Text.
+ */
+const ProprietaryPurposeSchema = z.object({
+  /** Proprietary purpose value (Prtry), max 35 chars, SEPA charset. */
+  proprietary: sepaText(35),
+})
+
+/**
+ * Purpose (Purp), modelling Purpose2Choice: Cd XOR Prtry.
+ *
+ * The XSD is a true choice (exactly one of Cd or Prtry). To keep the 90% path
+ * non-breaking, a plain string means the Cd code path (byte-identical output as
+ * before), while an object { proprietary } means the Prtry path. The two shapes are
+ * structurally disjoint (string vs object), so the union itself enforces "exactly one".
+ */
+export const PurposeSchema = z.union([PurposeCodeSchema, ProprietaryPurposeSchema])
+
+export type Purpose = z.infer<typeof PurposeSchema>
+
+/**
+ * Category purpose (CtgyPurp), modelling CategoryPurpose1Choice: Cd XOR Prtry.
+ * Same Cd-string-or-{ proprietary } convention as PurposeSchema.
+ */
+export const CategoryPurposeSchema = z.union([PurposeCodeSchema, ProprietaryPurposeSchema])
+
+export type CategoryPurpose = z.infer<typeof CategoryPurposeSchema>
 
 /** ISODateTime: full datetime string */
 const ISODateTimeSchema = z
@@ -532,14 +562,13 @@ const TransferSchema = z
      */
     structuredRemittance: StructuredRemittanceSchema.optional(),
     /**
-     * Transaction-level purpose code (CdtTrfTxInf/Purp/Cd).
-     * Maps to ExternalPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
-     * Common values: SALA (salary), SUPP (supplier payment), TAXS (tax), GDDS (goods).
-     * The code list is NOT validated against the ISO external list; only charset and
-     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Transaction-level purpose (CdtTrfTxInf/Purp), Purpose2Choice (Cd XOR Prtry).
+     * A plain string is the Cd code path (ExternalPurpose1Code, open string, 1-4 chars,
+     * not validated against the ISO external list). An object { proprietary } is the
+     * Prtry path (Max35Text). Common Cd values: SALA, SUPP, TAXS, GDDS.
      * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
      */
-    purpose: PurposeCodeSchema.optional(),
+    purpose: PurposeSchema.optional(),
   })
   .refine((tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined), {
     message:
@@ -564,14 +593,13 @@ const PaymentBatchSchema = z
     /** Debtor party (Dbtr + DbtrAcct/IBAN + DbtrAgt/BIC). */
     debtor: AccountPartySchema,
     /**
-     * Batch-level category purpose code (PmtTpInf/CtgyPurp/Cd).
-     * Maps to ExternalCategoryPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
-     * Common values: SALA (salary), SUPP (supplier payment), CASH (cash management), SECU (securities).
-     * The code list is NOT validated against the ISO external list; only charset and
-     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Batch-level category purpose (PmtTpInf/CtgyPurp), CategoryPurpose1Choice (Cd XOR Prtry).
+     * A plain string is the Cd code path (ExternalCategoryPurpose1Code, open string, 1-4 chars,
+     * not validated against the ISO external list). An object { proprietary } is the Prtry path
+     * (Max35Text). Common Cd values: SALA, SUPP, CASH, SECU.
      * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
      */
-    categoryPurpose: PurposeCodeSchema.optional(),
+    categoryPurpose: CategoryPurposeSchema.optional(),
     /** Credit transfers in this batch. At least one required. */
     transfers: z.array(TransferSchema).min(1),
   })

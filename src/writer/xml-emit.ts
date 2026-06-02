@@ -24,6 +24,8 @@ import type {
   PartyIdentification,
   GenericIdentification,
   StructuredRemittance,
+  Purpose,
+  CategoryPurpose,
 } from '../model/schema.js'
 
 /**
@@ -109,6 +111,7 @@ export function emitSvcLvl(lines: string[]): void {
  * @param indent  - leading spaces for the PstlAdr tag (one level deeper than the party tag)
  * @param address - optional PostalAddress from the model; nothing emitted when absent
  */
+// fallow-ignore-next-line unused-exports
 export function emitPstlAdr(
   lines: string[],
   indent: string,
@@ -180,6 +183,7 @@ export function emitPartyWithAddress(
  * @param tag    - element name, e.g. "Dbtr" or "Cdtr"
  * @param name   - party name (will be XML-escaped)
  */
+// fallow-ignore-next-line unused-exports
 export function emitNmElement(lines: string[], indent: string, tag: string, name: string): void {
   lines.push(`${indent}<${tag}>`)
   lines.push(`${indent}  <Nm>${xe(name)}</Nm>`)
@@ -206,6 +210,7 @@ export function emitNmElement(lines: string[], indent: string, tag: string, name
  * @param address - optional PostalAddress from the model; nothing emitted when absent
  * @param variant - variant name used in error messages
  */
+// fallow-ignore-next-line unused-exports
 export function emitPstlAdrSEPA(
   lines: string[],
   indent: string,
@@ -610,7 +615,23 @@ export function emitUltimateParty(
 }
 
 /**
- * Emit a conditional Purp/Cd element at 8-space indent.
+ * Emit the inner Cd or Prtry line of a purpose choice (Purpose2Choice /
+ * CategoryPurpose1Choice). A plain string is the Cd path; an object { proprietary }
+ * is the Prtry path. Exactly one is emitted, matching the XSD choice.
+ *
+ * @param lines - output buffer
+ * @param value - the Cd string or the { proprietary } object
+ */
+function emitCdOrPrtryLine(lines: string[], value: string | { proprietary: string }): void {
+  if (typeof value === 'string') {
+    lines.push(`          <Cd>${xe(value)}</Cd>`)
+  } else {
+    lines.push(`          <Prtry>${xe(value.proprietary)}</Prtry>`)
+  }
+}
+
+/**
+ * Emit a conditional Purp element at 8-space indent (Purpose2Choice: Cd XOR Prtry).
  * Used in both CdtTrfTxInf (pain.001.001.09) and DrctDbtTxInf (pain.008.001.08).
  *
  * XSD positions (confirmed against both XSDs):
@@ -619,34 +640,36 @@ export function emitUltimateParty(
  * - pain.008 DirectDebitTransactionInformation23: after InstrForCdtrAgt, before RgltryRptg
  *   (in our writer: after UltmtDbtr, before RmtInf)
  *
- * Maps to Purpose2Choice/Cd (ExternalPurpose1Code: open string, minLength 1, maxLength 4).
+ * Cd maps to ExternalPurpose1Code (open string, 1-4 chars); Prtry maps to Max35Text.
+ * The Cd output is byte-identical to before this gained the Prtry alternative.
  *
- * @param purpose - optional 1-4 char ISO purpose code; nothing emitted when absent
+ * @param purpose - optional purpose: a Cd string or a { proprietary } object; nothing emitted when absent
  */
-export function emitPurp(lines: string[], purpose: string | undefined): void {
+export function emitPurp(lines: string[], purpose: Purpose | undefined): void {
   if (purpose !== undefined) {
     lines.push(`        <Purp>`)
-    lines.push(`          <Cd>${xe(purpose)}</Cd>`)
+    emitCdOrPrtryLine(lines, purpose)
     lines.push(`        </Purp>`)
   }
 }
 
 /**
- * Emit a conditional CtgyPurp/Cd element inside a PmtTpInf block (8-space indent).
- * Used in both PmtInf (pain.001.001.09) and PmtInf (pain.008.001.08).
+ * Emit a conditional CtgyPurp element inside a PmtTpInf block (8-space indent).
+ * CategoryPurpose1Choice: Cd XOR Prtry. Used in PmtInf of both message types.
  *
  * XSD positions (confirmed against both XSDs):
  * - pain.001 PaymentTypeInformation26: LAST child, after SvcLvl (and optional LclInstrm)
  * - pain.008 PaymentTypeInformation29: LAST child, after SvcLvl, LclInstrm, SeqTp
  *
- * Maps to CategoryPurpose1Choice/Cd (ExternalCategoryPurpose1Code: open string, minLength 1, maxLength 4).
+ * Cd maps to ExternalCategoryPurpose1Code (open string, 1-4 chars); Prtry maps to Max35Text.
+ * The Cd output is byte-identical to before this gained the Prtry alternative.
  *
- * @param categoryPurpose - optional 1-4 char ISO category purpose code; nothing emitted when absent
+ * @param categoryPurpose - optional category purpose: a Cd string or a { proprietary } object
  */
-export function emitCtgyPurp(lines: string[], categoryPurpose: string | undefined): void {
+export function emitCtgyPurp(lines: string[], categoryPurpose: CategoryPurpose | undefined): void {
   if (categoryPurpose !== undefined) {
     lines.push(`        <CtgyPurp>`)
-    lines.push(`          <Cd>${xe(categoryPurpose)}</Cd>`)
+    emitCdOrPrtryLine(lines, categoryPurpose)
     lines.push(`        </CtgyPurp>`)
   }
 }

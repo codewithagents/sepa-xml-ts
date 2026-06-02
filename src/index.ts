@@ -41,6 +41,8 @@ export {
   GenericIdentificationSchema,
   DateAndPlaceOfBirthSchema,
   StructuredRemittanceSchema,
+  PurposeSchema,
+  CategoryPurposeSchema,
   euros,
   formatMoney,
 } from './model/schema.js'
@@ -58,6 +60,8 @@ export type {
   GenericIdentification,
   DateAndPlaceOfBirth,
   StructuredRemittance,
+  Purpose,
+  CategoryPurpose,
   Money,
 } from './model/schema.js'
 
