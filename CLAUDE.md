@@ -61,12 +61,12 @@ official XSD + golden samples. A wrong flavor is worse than none.
 | `Transfer.endToEndId` | `PmtId/EndToEndId` |
 | `Transfer.amount` (`Money`) | `Amt/InstdAmt` (`Ccy="EUR"`) |
 | `Transfer.creditor` (`AccountParty`) | `Cdtr/Nm` + `CdtrAcct/Id/IBAN` + `CdtrAgt/FinInstnId/BICFI` |
-| `Transfer.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
-| `Transfer.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
-| `Transfer.purpose?` (4-char ISO code, not list-validated) | `Purp/Cd` |
-| `PaymentBatch.categoryPurpose?` (4-char ISO code) | `PmtTpInf/CtgyPurp/Cd` |
+| `Transfer.ultimateDebtor?` (`UltimateParty` = { name, id? }) | `UltmtDbtr/Nm` + `Id` (OrgId/PrvtId) |
+| `Transfer.ultimateCreditor?` (`UltimateParty` = { name, id? }) | `UltmtCdtr/Nm` + `Id` (OrgId/PrvtId) |
+| `Transfer.purpose?` (4-char Cd string XOR `{ proprietary }`) | `Purp/Cd` or `Purp/Prtry` |
+| `PaymentBatch.categoryPurpose?` (Cd string XOR `{ proprietary }`) | `PmtTpInf/CtgyPurp/Cd` or `/Prtry` |
 | `Transfer.remittanceInfo?` | `RmtInf/Ustrd` |
-| `Transfer.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` (`Ref` + `Tp/CdOrPrtry/Cd` + `Tp/Issr?`) |
+| `Transfer.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd`: `RfrdDocInf[]?` + `RfrdDocAmt?` + `CdtrRefInf?` (`Ref` + `Tp/CdOrPrtry/Cd`-or-`Prtry` + `Tp/Issr?`) |
 
 `AccountParty = { name, iban, bic?, address? }` where `address` is an optional structured
 `PostalAddress` (`PstlAdr`, PostalAddress24): `{ streetName?, buildingNumber?, postCode?, townName?,
@@ -90,13 +90,13 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 | `DirectDebitBatch.collections[]` (`Collection`) | `DrctDbtTxInf[]` |
 | `Collection.amount` (`Money`) | `InstdAmt` (`Ccy="EUR"`) |
 | `Collection.debtor` (`AccountParty`) | `Dbtr/Nm` + `DbtrAcct/Id/IBAN` + `DbtrAgt/FinInstnId/BICFI` |
-| `Collection.ultimateCreditor?` (`UltimateParty`, name only) | `UltmtCdtr/Nm` |
-| `Collection.ultimateDebtor?` (`UltimateParty`, name only) | `UltmtDbtr/Nm` |
-| `Collection.purpose?` (4-char ISO code) | `Purp/Cd` |
-| `DirectDebitBatch.categoryPurpose?` (4-char ISO code) | `PmtTpInf/CtgyPurp/Cd` |
-| `Collection.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd/CdtrRefInf` |
+| `Collection.ultimateCreditor?` (`UltimateParty` = { name, id? }) | `UltmtCdtr/Nm` + `Id` (OrgId/PrvtId) |
+| `Collection.ultimateDebtor?` (`UltimateParty` = { name, id? }) | `UltmtDbtr/Nm` + `Id` (OrgId/PrvtId) |
+| `Collection.purpose?` (4-char Cd string XOR `{ proprietary }`) | `Purp/Cd` or `Purp/Prtry` |
+| `DirectDebitBatch.categoryPurpose?` (Cd string XOR `{ proprietary }`) | `PmtTpInf/CtgyPurp/Cd` or `/Prtry` |
+| `Collection.structuredRemittance?` (mutually exclusive with remittanceInfo) | `RmtInf/Strd`: `RfrdDocInf[]?` + `RfrdDocAmt?` + `CdtrRefInf?` |
 | `Collection.mandate` (`{ id, signatureDate, amendment? }`) | `DrctDbtTx/MndtRltdInf/MndtId` + `DtOfSgntr` (+ `AmdmntInd`/`AmdmntInfDtls` when amended) |
-| `Mandate.amendment?` (`{ originalMandateId?, originalDebtorAccount?, sameMandateNewDebtorAccount? }`) | `AmdmntInfDtls/OrgnlMndtId` + `OrgnlDbtrAcct/Id/IBAN` + `OrgnlDbtrAgt/FinInstnId/Othr/Id`=SMNDA |
+| `Mandate.amendment?` (`{ originalMandateId?, originalDebtorAccount?, sameMandateNewDebtorAccount?, originalCreditorSchemeId?, originalDebtor?, originalDebtorAgent?, originalFrequency?, originalFinalCollectionDate?, originalReason? }`) | `AmdmntInfDtls`: `OrgnlMndtId` + `OrgnlCdtrSchmeId` + `OrgnlDbtr` + `OrgnlDbtrAcct/Id/IBAN` + `OrgnlDbtrAgt` (SMNDA or BIC) + `OrgnlFrqcy` + `OrgnlFnlColltnDt` + `OrgnlRsn` |
 | `Collection.remittanceInfo?` | `RmtInf/Ustrd` |
 
 Writer-derived for pain.008: `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=DD`, `PmtTpInf/SvcLvl/Cd=SEPA`,
@@ -178,13 +178,15 @@ deep-equal.
   round-trip tested. Absent address is byte-identical to before. EPC makes structured address mandatory
   on 2026-11-22.
 - Ultimate parties (UltmtDbtr / UltmtCdtr) ship for pain.001.001.09 and pain.008.001.08: optional
-  `ultimateDebtor` and `ultimateCreditor` on each Transfer and Collection, name only first cut
-  (UltimateParty = { name }). Emitted at the XSD-correct transaction-level positions
+  `ultimateDebtor` and `ultimateCreditor` on each Transfer and Collection. UltimateParty is now
+  { name, id? } where `id` is an optional structured identifier (OrgId or PrvtId), emitted via the
+  shared emitUltimateParty helper (decomposed into emitOrgId/emitPrvtId/emitGenericOther to stay
+  under the complexity thresholds). Emitted at the XSD-correct transaction-level positions
   (CreditTransferTransaction34: UltmtDbtr after Amt/before CdtrAgt, UltmtCdtr after CdtrAcct;
   DirectDebitTransactionInformation23: UltmtCdtr after DrctDbtTx/before DbtrAgt, UltmtDbtr after
-  DbtrAcct), XSD-verified and round-trip tested. Absent parties stay structurally identical to
-  before. Legacy/DK variants throw if an ultimate party is present (no silent data loss).
-  Follow-up: add structured identifiers (Id/OrgId/PrvtId) beyond the name-only first cut.
+  DbtrAcct), with Id at its XSD position inside the party. XSD-verified and round-trip tested.
+  Absent parties and absent ids stay structurally identical to before. Legacy/DK variants throw if
+  an ultimate party is present (no silent data loss). Shipped in #16/#20.
 - Structured remittance (RmtInf/Strd/CdtrRefInf) ships for pain.001.001.09 and pain.008.001.08:
   optional `structuredRemittance` ({ creditorReference, referenceType?, issuer? }) on each Transfer
   and Collection, mutually exclusive with the unstructured `remittanceInfo` (the SEPA rulebook allows
@@ -196,8 +198,14 @@ deep-equal.
   prefix. National/proprietary references (no RF prefix) pass through unchecked to avoid false
   positives. isValidIso11649Ref reuses the IBAN mod-97 machinery in src/model/iban.ts. XSD-verified
   via the oracle suite and round-trip tested; absent structured remittance stays structurally
-  identical. Legacy/DK variants throw if present. Follow-up: proprietary reference types via Prtry,
-  and the richer Strd sub-elements (RfrdDocInf, RfrdDocAmt) if demand appears.
+  identical. Legacy/DK variants throw if present. The proprietary reference type (Tp/CdOrPrtry/Prtry)
+  and the richer Strd sub-elements now ship (shipped in #17/#23): `referenceType` accepts the Cd enum
+  OR { proprietary } (exactly one); `referredDocuments[]` (RfrdDocInf, repeatable: type Cd/Prtry,
+  number, related date) and `referredDocumentAmount` (RfrdDocAmt: duePayableAmount / creditNoteAmount
+  / remittedAmount, EUR, reusing the Money model) are emitted before CdtrRefInf in XSD order. These
+  remittance amounts are informational and never affect CtrlSum or InstdAmt. `creditorReference` is
+  now optional; the schema requires at least one of referredDocuments / referredDocumentAmount /
+  creditorReference (no empty Strd), and referenceType/issuer still require creditorReference.
 - Purpose codes ship for pain.001.001.09 and pain.008.001.08: optional `purpose` on each Transfer and
   Collection (Purp/Cd) and `categoryPurpose` on each PaymentBatch and DirectDebitBatch
   (PmtTpInf/CtgyPurp/Cd). These are 4-char ISO external codes (ExternalPurpose1Code /
@@ -208,7 +216,10 @@ deep-equal.
   IS the DocumentType3Code enum (hence referenceType is a Zod enum). Purp sits after
   InstrForCdtrAgt/before RmtInf in the tx info element; CtgyPurp is the last child of PmtTpInf.
   XSD-verified via the oracle suite and round-trip tested on both message types; legacy/DK variants
-  throw if present. Follow-up: proprietary purpose via Prtry.
+  throw if present. Proprietary purpose/category-purpose via Prtry now ships (shipped in #18/#21):
+  `purpose` and `categoryPurpose` accept either the existing 4-char Cd string OR a { proprietary }
+  object (Max35Text), modeled as a Cd-XOR-Prtry choice that keeps the plain-string Cd path backward
+  compatible. The Cd path stays byte-identical; legacy/DK variants still throw if present.
 - SDD mandate amendment ships for pain.008.001.08: optional `Mandate.amendment` (minimal common-case
   fields { originalMandateId?, originalDebtorAccount?, sameMandateNewDebtorAccount? }) emits
   MndtRltdInf/AmdmntInd=true + AmdmntInfDtls (OrgnlMndtId, OrgnlDbtrAcct/Id/IBAN, and
@@ -217,12 +228,16 @@ deep-equal.
   XOR sameMandateNewDebtorAccount (SMNDA does not disclose the new account, so an explicit old account
   contradicts it). Cross-field rule R4 (enforced, agreed) requires SMNDA collections to sit in a FRST
   batch. XSD-verified and round-trip tested; absent amendment is byte-identical; DK variant throws.
-  Follow-up: the richer AmdmntInfDtls fields (OrgnlCdtrSchmeId, OrgnlDbtr/Agt, OrgnlFrqcy,
-  OrgnlFnlColltnDt, OrgnlRsn). The SMNDA property arbitrary path is covered by unit tests, not the
-  property suite, because R4 couples it to the batch sequenceType.
-- ~555 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  The richer AmdmntInfDtls fields now ship (shipped in #19/#22): optional OrgnlCdtrSchmeId, OrgnlDbtr,
+  OrgnlDbtrAgt (reconciled with the existing SMNDA OrgnlDbtrAgt usage so both coexist), OrgnlFrqcy,
+  OrgnlFnlColltnDt, and OrgnlRsn (Cd/Prtry). All new fields optional and byte-identical when absent;
+  the parser extractor was decomposed (extractAmendmentScalarFields / extractOrgnlDbtrAgt /
+  extractOrgnlCdtrSchmeId) to stay under the complexity thresholds. The SMNDA property arbitrary path
+  is covered by unit tests, not the property suite, because R4 couples it to the batch sequenceType.
+- ~671 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
-  validation-rules + creditor-id + external-fixtures suites. Property arbitraries are constrained to
+  validation-rules + creditor-id + external-fixtures + ultimate-parties + purpose-codes +
+  mandate-amendment + structured-remittance suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate
   ids), and the suite has been stress-run 15x with zero flakes.
 - External cross-implementation fixtures live at test/fixtures/external/ (MIT samples from sepa_king:
