@@ -82,7 +82,7 @@ fields): `NbOfTxs`, `CtrlSum` (both levels), `PmtMtd=TRF`.
 |---|---|
 | `DirectDebitDocument` | `Document/CstmrDrctDbtInitn` |
 | `.creditor` (`Creditor`, document-level; writer fans out into every PmtInf) | `Cdtr/Nm` + `CdtrAcct/Id/IBAN` + `CdtrAgt/FinInstnId/BICFI` + `CdtrSchmeId/Id/PrvtId/Othr/Id` (+ `SchmeNm/Prtry=SEPA`) |
-| `Creditor.creditorId` | SEPA Creditor Identifier (format-validated only, check-digit is a TODO) |
+| `Creditor.creditorId` | SEPA Creditor Identifier (format + ISO 7064 MOD 97-10 check-digit validated via isValidCreditorId) |
 | `.batches[]` (`DirectDebitBatch`) | `PmtInf[]` |
 | `DirectDebitBatch.collectionDate` | `ReqdColltnDt/Dt` |
 | `DirectDebitBatch.sequenceType` (FRST/RCUR/OOFF/FNAL) | `PmtTpInf/SeqTp` |
