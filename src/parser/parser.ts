@@ -577,45 +577,111 @@ function extractInstdAmt(txEl: unknown): Money | null {
 }
 
 /**
+ * Extract OrgnlCdtrSchmeId (PartyIdentification135) from an AmdmntInfDtls element.
+ * Reads Nm and the SEPA Creditor Identifier (Id/PrvtId/Othr/Id). Returns undefined when neither is present.
+ */
+function extractOrgnlCdtrSchmeId(
+  amdmntInfDtlsEl: unknown
+): MandateAmendment['originalCreditorSchemeId'] {
+  const schemeEl = nav(amdmntInfDtlsEl, 'OrgnlCdtrSchmeId')
+  if (schemeEl === null || schemeEl === undefined) return undefined
+  const name = str(nav(schemeEl, 'Nm')) ?? undefined
+  const creditorId = str(nav(schemeEl, 'Id', 'PrvtId', 'Othr', 'Id')) ?? undefined
+  if (name === undefined && creditorId === undefined) return undefined
+  const scheme: MandateAmendment['originalCreditorSchemeId'] = {}
+  if (name !== undefined) scheme.name = name
+  if (creditorId !== undefined) scheme.creditorId = creditorId
+  return scheme
+}
+
+/**
+ * Extract OrgnlRsn (MandateSetupReason1Choice) from an AmdmntInfDtls element.
+ * Reads Cd (returned as a plain string) or Prtry (returned as { proprietary }).
+ */
+function extractOrgnlRsn(amdmntInfDtlsEl: unknown): MandateAmendment['originalReason'] {
+  const rsnEl = nav(amdmntInfDtlsEl, 'OrgnlRsn')
+  if (rsnEl === null || rsnEl === undefined) return undefined
+  const cd = str(nav(rsnEl, 'Cd'))
+  if (cd !== null && cd !== '') return cd
+  const prtry = str(nav(rsnEl, 'Prtry'))
+  if (prtry !== null && prtry !== '') return { proprietary: prtry }
+  return undefined
+}
+
+/**
+ * Extract the OrgnlDbtrAgt branch of an amendment as a partial MandateAmendment.
+ * OrgnlDbtrAgt has two disjoint shapes: the SMNDA marker (FinInstnId/Othr/Id="SMNDA")
+ * or a real agent BIC (FinInstnId/BICFI). Returns whichever is present (or both keys absent).
+ */
+function extractOrgnlDbtrAgt(amdmntInfDtlsEl: unknown): Partial<MandateAmendment> {
+  const smndaId = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'Othr', 'Id'))
+  const bic = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'BICFI')) ?? undefined
+  return {
+    ...(smndaId === 'SMNDA' ? { sameMandateNewDebtorAccount: true } : {}),
+    ...(bic !== undefined ? { originalDebtorAgent: bic } : {}),
+  }
+}
+
+/**
+ * Extract the scalar (plain string / date) fields of an amendment that need no special
+ * sub-structure handling: originalMandateId, originalDebtorAccount, originalFinalCollectionDate,
+ * originalFrequency, and originalReason.
+ * Returns a Partial with only the keys that are present in the XML.
+ */
+function extractAmendmentScalarFields(amdmntInfDtlsEl: unknown): Partial<MandateAmendment> {
+  const originalMandateId = str(nav(amdmntInfDtlsEl, 'OrgnlMndtId')) ?? undefined
+  const originalDebtorAccount =
+    str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN')) ?? undefined
+  const originalFinalCollectionDate = str(nav(amdmntInfDtlsEl, 'OrgnlFnlColltnDt')) ?? undefined
+  // The raw frequency string is cast to the FrequencyCode enum; post-parse model
+  // validation rejects an out-of-enum value rather than silently accepting it.
+  const originalFrequency = str(nav(amdmntInfDtlsEl, 'OrgnlFrqcy', 'Tp')) ?? undefined
+  const originalReason = extractOrgnlRsn(amdmntInfDtlsEl)
+  return {
+    ...(originalMandateId !== undefined ? { originalMandateId } : {}),
+    ...(originalDebtorAccount !== undefined ? { originalDebtorAccount } : {}),
+    ...(originalFinalCollectionDate !== undefined ? { originalFinalCollectionDate } : {}),
+    ...(originalFrequency !== undefined
+      ? { originalFrequency: originalFrequency as MandateAmendment['originalFrequency'] }
+      : {}),
+    ...(originalReason !== undefined ? { originalReason } : {}),
+  }
+}
+
+/**
  * Extract a MandateAmendment from an AmdmntInfDtls element, if present.
  * Returns undefined when the element is absent or has no recognized fields.
  * Never returns an empty object, preserving round-trip deep-equality.
  *
  * Extracted fields (AmendmentInformationDetails13):
- *   OrgnlMndtId          -> originalMandateId
- *   OrgnlDbtrAcct/Id/IBAN -> originalDebtorAccount
- *   OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA" -> sameMandateNewDebtorAccount: true
+ *   OrgnlMndtId                                  -> originalMandateId
+ *   OrgnlCdtrSchmeId (Nm, Id/PrvtId/Othr/Id)     -> originalCreditorSchemeId
+ *   OrgnlDbtr/Nm                                 -> originalDebtor
+ *   OrgnlDbtrAcct/Id/IBAN                         -> originalDebtorAccount
+ *   OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA"     -> sameMandateNewDebtorAccount: true
+ *   OrgnlDbtrAgt/FinInstnId/BICFI                 -> originalDebtorAgent
+ *   OrgnlFnlColltnDt                              -> originalFinalCollectionDate
+ *   OrgnlFrqcy/Tp                                 -> originalFrequency
+ *   OrgnlRsn (Cd or Prtry)                        -> originalReason
  *
- * Other sub-fields (OrgnlCdtrSchmeId, OrgnlDbtr, etc.) are not modelled and are ignored.
+ * The OrgnlCdtrAgt(Acct), OrgnlDbtrAgtAcct and OrgnlTrckgDays sub-fields are not modelled and ignored.
  */
 function extractMandateAmendment(amdmntInfDtlsEl: unknown): MandateAmendment | undefined {
   if (amdmntInfDtlsEl === null || amdmntInfDtlsEl === undefined) {
     return undefined
   }
 
-  const originalMandateId = str(nav(amdmntInfDtlsEl, 'OrgnlMndtId')) ?? undefined
-  const originalDebtorAccount =
-    str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN')) ?? undefined
+  const originalCreditorSchemeId = extractOrgnlCdtrSchmeId(amdmntInfDtlsEl)
+  const originalDebtorName = str(nav(amdmntInfDtlsEl, 'OrgnlDbtr', 'Nm')) ?? undefined
 
-  // SMNDA is signaled by OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA"
-  const smndaId = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'Othr', 'Id'))
-  const sameMandateNewDebtorAccount = smndaId === 'SMNDA' ? true : undefined
-
-  // If no field was populated, return undefined (no empty object, preserves round-trip deep-equality)
-  if (
-    originalMandateId === undefined &&
-    originalDebtorAccount === undefined &&
-    sameMandateNewDebtorAccount === undefined
-  ) {
-    return undefined
+  const amd: MandateAmendment = {
+    ...extractAmendmentScalarFields(amdmntInfDtlsEl),
+    ...(originalCreditorSchemeId !== undefined ? { originalCreditorSchemeId } : {}),
+    ...(originalDebtorName !== undefined ? { originalDebtor: { name: originalDebtorName } } : {}),
+    ...extractOrgnlDbtrAgt(amdmntInfDtlsEl),
   }
 
-  const amd: MandateAmendment = {}
-  if (originalMandateId !== undefined) amd.originalMandateId = originalMandateId
-  if (originalDebtorAccount !== undefined) amd.originalDebtorAccount = originalDebtorAccount
-  if (sameMandateNewDebtorAccount !== undefined)
-    amd.sameMandateNewDebtorAccount = sameMandateNewDebtorAccount
-  return amd
+  return Object.keys(amd).length === 0 ? undefined : amd
 }
 
 function extractCollection(txEl: unknown): Collection | null {

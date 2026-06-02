@@ -404,6 +404,70 @@ function arbPurposeCode(): fc.Arbitrary<Purpose | undefined> {
   return fc.option(fc.oneof(arbCd, arbPrtry), { nil: undefined })
 }
 
+/** Frequency6Code values supported by originalFrequency (Frequency36Choice/Tp). */
+const FREQUENCY_CODES = [
+  'YEAR',
+  'MNTH',
+  'QURT',
+  'MIAN',
+  'WEEK',
+  'DAIL',
+  'ADHO',
+  'INDA',
+  'FRTN',
+] as const
+
+/**
+ * Arbitrary for the additive AmendmentInformationDetails13 fields introduced in #19.
+ * Each field is independently optional. SMNDA is intentionally excluded (see arbMandateAmendment),
+ * so originalDebtorAgent (a real BIC) is always free of the SMNDA mutual-exclusion conflict.
+ */
+function arbAmendmentExtraFields(): fc.Arbitrary<Partial<MandateAmendment>> {
+  return fc
+    .record({
+      originalCreditorSchemeId: fc.option(
+        fc.record(
+          { name: fc.option(arbPartyName(), { nil: undefined }), creditorId: arbCreditorId() },
+          { requiredKeys: ['creditorId'] }
+        ),
+        { nil: undefined }
+      ),
+      originalDebtor: fc.option(
+        arbPartyName().map((name) => ({ name })),
+        { nil: undefined }
+      ),
+      originalDebtorAgent: fc.option(arbBic(), { nil: undefined }),
+      originalFinalCollectionDate: fc.option(arbDate(), { nil: undefined }),
+      originalFrequency: fc.option(fc.constantFrom(...FREQUENCY_CODES), { nil: undefined }),
+      originalReason: fc.option(
+        fc.oneof(
+          arbSepaText(1, 4),
+          arbSepaText(1, 70).map((p) => ({ proprietary: p }))
+        ),
+        { nil: undefined }
+      ),
+    })
+    .map((extra) => {
+      const out: Partial<MandateAmendment> = {}
+      if (extra.originalCreditorSchemeId !== undefined) {
+        const scheme: { name?: string; creditorId: string } = {
+          creditorId: extra.originalCreditorSchemeId.creditorId,
+        }
+        if (extra.originalCreditorSchemeId.name !== undefined)
+          scheme.name = extra.originalCreditorSchemeId.name
+        out.originalCreditorSchemeId = scheme
+      }
+      if (extra.originalDebtor !== undefined) out.originalDebtor = extra.originalDebtor
+      if (extra.originalDebtorAgent !== undefined)
+        out.originalDebtorAgent = extra.originalDebtorAgent
+      if (extra.originalFinalCollectionDate !== undefined)
+        out.originalFinalCollectionDate = extra.originalFinalCollectionDate
+      if (extra.originalFrequency !== undefined) out.originalFrequency = extra.originalFrequency
+      if (extra.originalReason !== undefined) out.originalReason = extra.originalReason
+      return out
+    })
+}
+
 /**
  * Arbitrary for an optional MandateAmendment (general-purpose, safe for any sequenceType).
  *
@@ -412,15 +476,14 @@ function arbPurposeCode(): fc.Arbitrary<Purpose | undefined> {
  * the batch sequenceType, so generating SMNDA would cause non-FRST batches to throw.
  * SMNDA and R4 are covered by the dedicated unit tests in mandate-amendment.test.ts.
  *
- * Generated variants (all satisfy the not-empty and mutual-exclusion Zod refinements):
- *   - undefined (no amendment, ~50% of cases)
- *   - { originalMandateId }
- *   - { originalDebtorAccount }
- *   - { originalMandateId, originalDebtorAccount }
+ * Generated variants (all satisfy the not-empty and mutual-exclusion Zod refinements). A base
+ * variant (originalMandateId and/or originalDebtorAccount) is merged with the additive #19 fields
+ * (originalCreditorSchemeId, originalDebtor, originalDebtorAgent, originalFinalCollectionDate,
+ * originalFrequency, originalReason). Because a base always sets at least one meaningful field,
+ * the not-empty refinement always holds even when the extra fields happen to be empty.
  */
 function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
-  return fc.oneof(
-    fc.constant<MandateAmendment | undefined>(undefined),
+  const arbBase: fc.Arbitrary<MandateAmendment> = fc.oneof(
     arbSepaText(1, 35).map((id): MandateAmendment => ({ originalMandateId: id })),
     arbIban().map((iban): MandateAmendment => ({ originalDebtorAccount: iban })),
     fc.record({ originalMandateId: arbSepaText(1, 35), originalDebtorAccount: arbIban() }).map(
@@ -429,6 +492,12 @@ function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
         originalDebtorAccount: a.originalDebtorAccount,
       })
     )
+  )
+  return fc.oneof(
+    fc.constant<MandateAmendment | undefined>(undefined),
+    fc
+      .record({ base: arbBase, extra: arbAmendmentExtraFields() })
+      .map(({ base, extra }): MandateAmendment => ({ ...base, ...extra }))
   )
 }
 
