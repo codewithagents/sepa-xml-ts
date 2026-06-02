@@ -1,6 +1,6 @@
 {
   "name": "sepa-xml-ts",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Type-safe SEPA payment file library for pain.001, with output validated against the official ISO 20022 XSD.",
   "license": "MIT",
   "author": "Benjamin Eckstein",
