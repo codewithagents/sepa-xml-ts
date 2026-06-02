@@ -39,6 +39,10 @@ jobs:
     # in a GitHub Actions if(), which would otherwise run publish on every push.
     if: ${{ needs.release-please.outputs.release_created == 'true' || inputs.publish }}
     runs-on: ubuntu-latest
+    # The 'release' environment requires a manual approval (reviewer) before this
+    # privileged job runs. Even a tampered push to main cannot auto-publish to npm:
+    # the OIDC token exchange only happens after a human approves the deployment.
+    environment: release
     permissions:
       contents: read
       id-token: write # required for npm Trusted Publishing (OIDC)
