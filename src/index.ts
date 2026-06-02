@@ -17,7 +17,6 @@
  * - parse: auto-detects pain.001 or pain.008 and returns a discriminated union
  * - validateCreditTransfer: validate an unknown input against the pain.001 document schema
  * - validateDirectDebit: validate an unknown input against the pain.008 document schema
- * - validate: alias for validateCreditTransfer (backward compatibility)
  *
  * Bank profiles:
  * - BankProfile, ProfileIssue: types for authoring overlay profiles
@@ -103,19 +102,18 @@ export type { WriteDirectDebitOptions, DirectDebitVariant } from './writer/direc
 export { checkDirectDebitRules } from './model/dd-rules.js'
 
 // ---------------------------------------------------------------------------
-// Shared: parse (auto-detects message type), validate
+// Shared: parse (auto-detects message type), validateCreditTransfer, validateDirectDebit
 // ---------------------------------------------------------------------------
 
 export { parse } from './parser/parser.js'
 export type {
   ParseResult,
-  ParseSuccess,
   ParseSuccess001,
   ParseSuccess008,
   ParseFailure,
 } from './parser/parser.js'
 
-export { validate, validateCreditTransfer, validateDirectDebit } from './model/validate.js'
+export { validateCreditTransfer, validateDirectDebit } from './model/validate.js'
 export type {
   ValidationResult,
   ValidationSuccess,

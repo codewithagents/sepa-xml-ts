@@ -76,7 +76,7 @@ demand-driven: a national variant only ships alongside that schema's official XS
 samples, because a wrong flavor is worse than none.
 
 Note on structured address: the EPC makes a structured `PstlAdr` (separate town, postcode, country
-elements) mandatory for the modern messages from 22 November 2026, and many banks reject unstructured
+elements) mandatory for the modern messages from 15 November 2026, and many banks reject unstructured
 addresses already. The optional `address` field on each party is emitted as a structured `PstlAdr` for
 every write variant. The modern messages (`pain.001.001.09`, `pain.008.001.08`) and the legacy
 `pain.001.001.03` (PostalAddress6) carry the full field set. The German DK variants
@@ -159,10 +159,10 @@ verify the build attestation on the npm package page.
 arithmetic, and returns a `pain.001.001.09` XML string. It cannot emit a structurally invalid file.
 
 ```ts
-import { euros, writeCreditTransfer, validate } from "sepa-xml-ts";
+import { euros, writeCreditTransfer, validateCreditTransfer } from "sepa-xml-ts";
 
-// validate() returns a typed result instead of throwing
-const result = validate(doc);
+// validateCreditTransfer() returns a typed result instead of throwing
+const result = validateCreditTransfer(doc);
 if (!result.ok) {
   console.error(result.errors);
 } else {
@@ -661,10 +661,9 @@ From `sepa-xml-ts`:
 | `writeCreditTransfer(model, options?): string` | Model to `pain.001` XML (`options.variant` selects schema) |
 | `writeDirectDebit(model, options?): string` | Model to `pain.008` XML (`options.variant` selects schema) |
 | `parse(xml: string): ParseResult` | SEPA XML to model, auto-detecting message type |
-| `ParseResult`, `ParseSuccess001`, `ParseSuccess008`, `ParseFailure` | Discriminated union from `parse`. `ParseSuccess001` has `type: "pain.001"`, `ParseSuccess008` has `type: "pain.008"`. (`ParseSuccess` is a deprecated alias for `ParseSuccess001`.) |
+| `ParseResult`, `ParseSuccess001`, `ParseSuccess008`, `ParseFailure` | Discriminated union from `parse`. `ParseSuccess001` has `type: "pain.001"`, `ParseSuccess008` has `type: "pain.008"`. |
 | `validateCreditTransfer(input, options?): ValidationResult` | Validate a credit-transfer model (schema + optional profile) |
 | `validateDirectDebit(input, options?): DirectDebitValidationResult` | Validate a direct-debit model (schema + rules R1-R4 + optional profile) |
-| `validate(input, options?): ValidationResult` | Alias for `validateCreditTransfer` (backward compat, shipped in 0.1.0) |
 | `ValidationResult`, `ValidationSuccess`, `ValidationFailure` | Result types for `validateCreditTransfer` |
 | `DirectDebitValidationResult`, `DirectDebitValidationSuccess`, `DirectDebitValidationFailure` | Result types for `validateDirectDebit` (adds `ruleIssues` for R1-R4 violations) |
 | `ValidateOptions` | Options type for `validateCreditTransfer` / `validateDirectDebit` |

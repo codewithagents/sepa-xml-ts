@@ -71,12 +71,6 @@ export type ParseSuccess008 = {
 export type ParseFailure = { ok: false; error: string }
 export type ParseResult = ParseSuccess001 | ParseSuccess008 | ParseFailure
 
-/**
- * @deprecated Use ParseSuccess001 or ParseSuccess008 for the new discriminated union.
- * Kept for backwards compatibility of the ok:true branch shape.
- */
-export type ParseSuccess = ParseSuccess001
-
 // ---------------------------------------------------------------------------
 // XML parser configuration
 // ---------------------------------------------------------------------------

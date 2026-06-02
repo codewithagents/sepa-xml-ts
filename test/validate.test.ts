@@ -9,11 +9,10 @@
  * - Invalid direct debit document (bad creditorId check digit) returns ok:false with errors
  * - Invalid direct debit document (missing mandate) returns ok:false with errors
  * - Invalid direct debit document (amount below 0.01) returns ok:false with errors
- * - validate is an alias for validateCreditTransfer (backward compat)
  */
 
 import { describe, it, expect } from 'vitest'
-import { validateCreditTransfer, validateDirectDebit, validate } from '../src/model/validate.js'
+import { validateCreditTransfer, validateDirectDebit } from '../src/model/validate.js'
 import type { CreditTransferDocument } from '../src/model/schema.js'
 import type { DirectDebitDocument } from '../src/model/pain008.js'
 
@@ -226,28 +225,6 @@ describe('validateDirectDebit', () => {
 
   it('returns ok:false for a completely invalid input', () => {
     const result = validateDirectDebit({ not: 'a document' })
-    expect(result.ok).toBe(false)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// validate is an alias for validateCreditTransfer (backward compat)
-// ---------------------------------------------------------------------------
-
-describe('validate (backward compatibility alias)', () => {
-  it('validate is the same function reference as validateCreditTransfer', () => {
-    expect(validate).toBe(validateCreditTransfer)
-  })
-
-  it('validate returns ok:true for valid credit transfer', () => {
-    const result = validate(validCreditTransfer)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('expected ok:true')
-    expect(result.data.messageId).toBe('VALIDATE-CT-001')
-  })
-
-  it('validate returns ok:false for invalid input', () => {
-    const result = validate({ bad: 'input' })
     expect(result.ok).toBe(false)
   })
 })

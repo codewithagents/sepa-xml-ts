@@ -72,10 +72,10 @@ const doc: CreditTransferDocument = {
   <TabItem label="Write">
 
 ```typescript
-import { writeCreditTransfer, validate } from 'sepa-xml-ts'
+import { writeCreditTransfer, validateCreditTransfer } from 'sepa-xml-ts'
 
-// validate() returns a typed result instead of throwing
-const result = validate(doc)
+// validateCreditTransfer() returns a typed result instead of throwing
+const result = validateCreditTransfer(doc)
 if (!result.ok) {
   console.error(result.errors)
 } else {
@@ -198,9 +198,9 @@ if (!xsdResult.valid) {
 3. **Write and validate.**
 
    ```typescript
-   import { writeCreditTransfer, validate } from 'sepa-xml-ts'
+   import { writeCreditTransfer, validateCreditTransfer } from 'sepa-xml-ts'
 
-   const result = validate(doc)
+   const result = validateCreditTransfer(doc)
    if (result.ok) {
      const xml = writeCreditTransfer(result.data)
      // xml is a valid pain.001.001.09 string, ready to submit
