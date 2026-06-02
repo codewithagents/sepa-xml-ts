@@ -264,8 +264,80 @@ function extractGenericOther(parentEl: unknown): GenericIdentification | undefin
 }
 
 /**
+ * Read a non-empty string from a path, or return null.
+ * Combines the common str() + empty-check pattern.
+ */
+function strRequired(val: unknown): string | null {
+  const s = str(val)
+  return s !== null && s !== '' ? s : null
+}
+
+/**
+ * Extract an OrganisationIdentification from an OrgId element.
+ * Returns undefined when OrgId is absent or yields no meaningful fields.
+ */
+function extractOrgId(idEl: unknown): OrganisationIdentification | undefined {
+  const orgEl = nav(idEl, 'OrgId')
+  if (orgEl === null || orgEl === undefined) {
+    return undefined
+  }
+  const bic = str(nav(orgEl, 'AnyBIC')) ?? undefined
+  const lei = str(nav(orgEl, 'LEI')) ?? undefined
+  const other = extractGenericOther(orgEl)
+  if (bic === undefined && lei === undefined && other === undefined) {
+    return undefined
+  }
+  const org: OrganisationIdentification = {}
+  if (bic !== undefined) org.bic = bic
+  if (lei !== undefined) org.lei = lei
+  if (other !== undefined) org.other = other
+  return org
+}
+
+/**
+ * Extract a DateAndPlaceOfBirth from a DtAndPlcOfBirth element inside a PrvtId.
+ * Returns undefined when the element is absent or lacks required children.
+ */
+function extractDateAndPlaceOfBirth(prvtEl: unknown): DateAndPlaceOfBirth | undefined {
+  const dobEl = nav(prvtEl, 'DtAndPlcOfBirth')
+  if (dobEl === null || dobEl === undefined) {
+    return undefined
+  }
+  const birthDate = strRequired(nav(dobEl, 'BirthDt'))
+  const cityOfBirth = strRequired(nav(dobEl, 'CityOfBirth'))
+  const countryOfBirth = strRequired(nav(dobEl, 'CtryOfBirth'))
+  if (birthDate === null || cityOfBirth === null || countryOfBirth === null) {
+    return undefined
+  }
+  const out: DateAndPlaceOfBirth = { birthDate, cityOfBirth, countryOfBirth }
+  const provinceOfBirth = str(nav(dobEl, 'PrvcOfBirth')) ?? undefined
+  if (provinceOfBirth !== undefined) out.provinceOfBirth = provinceOfBirth
+  return out
+}
+
+/**
+ * Extract a PrivateIdentification from a PrvtId element.
+ * Returns undefined when PrvtId is absent or yields no meaningful fields.
+ */
+function extractPrvtId(idEl: unknown): PrivateIdentification | undefined {
+  const prvtEl = nav(idEl, 'PrvtId')
+  if (prvtEl === null || prvtEl === undefined) {
+    return undefined
+  }
+  const dob = extractDateAndPlaceOfBirth(prvtEl)
+  const other = extractGenericOther(prvtEl)
+  if (dob === undefined && other === undefined) {
+    return undefined
+  }
+  const prvt: PrivateIdentification = {}
+  if (dob !== undefined) prvt.dateAndPlaceOfBirth = dob
+  if (other !== undefined) prvt.other = other
+  return prvt
+}
+
+/**
  * Extract a structured party identification (Id, Party38Choice) from a party
- * element (e.g. UltmtDbtr / UltmtCdtr). Reads either OrgId or PrvtId.
+ * element (e.g. UltmtDbdr / UltmtCdtr). Delegates to extractOrgId / extractPrvtId.
  *
  * Returns undefined when no Id element is present or when neither branch yields
  * any data, preserving round-trip deep-equality for parties without an id.
@@ -275,65 +347,15 @@ function extractPartyId(partyEl: unknown): PartyIdentification | undefined {
   if (idEl === null || idEl === undefined) {
     return undefined
   }
-
-  const orgEl = nav(idEl, 'OrgId')
-  if (orgEl !== null && orgEl !== undefined) {
-    const bic = str(nav(orgEl, 'AnyBIC')) ?? undefined
-    const lei = str(nav(orgEl, 'LEI')) ?? undefined
-    const other = extractGenericOther(orgEl)
-    if (bic === undefined && lei === undefined && other === undefined) {
-      return undefined
-    }
-    const org: OrganisationIdentification = {}
-    if (bic !== undefined) org.bic = bic
-    if (lei !== undefined) org.lei = lei
-    if (other !== undefined) org.other = other
-    return { organisationId: org }
+  const organisationId = extractOrgId(idEl)
+  if (organisationId !== undefined) {
+    return { organisationId }
   }
-
-  const prvtEl = nav(idEl, 'PrvtId')
-  if (prvtEl !== null && prvtEl !== undefined) {
-    const dob = extractDateAndPlaceOfBirth(prvtEl)
-    const other = extractGenericOther(prvtEl)
-    if (dob === undefined && other === undefined) {
-      return undefined
-    }
-    const prvt: PrivateIdentification = {}
-    if (dob !== undefined) prvt.dateAndPlaceOfBirth = dob
-    if (other !== undefined) prvt.other = other
-    return { privateId: prvt }
+  const privateId = extractPrvtId(idEl)
+  if (privateId !== undefined) {
+    return { privateId }
   }
-
   return undefined
-}
-
-/**
- * Extract a DateAndPlaceOfBirth from a PrvtId element.
- * Returns undefined when DtAndPlcOfBirth is absent or lacks the required
- * BirthDt, CityOfBirth, or CtryOfBirth children.
- */
-function extractDateAndPlaceOfBirth(prvtEl: unknown): DateAndPlaceOfBirth | undefined {
-  const dobEl = nav(prvtEl, 'DtAndPlcOfBirth')
-  if (dobEl === null || dobEl === undefined) {
-    return undefined
-  }
-  const birthDate = str(nav(dobEl, 'BirthDt'))
-  const cityOfBirth = str(nav(dobEl, 'CityOfBirth'))
-  const countryOfBirth = str(nav(dobEl, 'CtryOfBirth'))
-  if (
-    birthDate === null ||
-    birthDate === '' ||
-    cityOfBirth === null ||
-    cityOfBirth === '' ||
-    countryOfBirth === null ||
-    countryOfBirth === ''
-  ) {
-    return undefined
-  }
-  const provinceOfBirth = str(nav(dobEl, 'PrvcOfBirth')) ?? undefined
-  const out: DateAndPlaceOfBirth = { birthDate, cityOfBirth, countryOfBirth }
-  if (provinceOfBirth !== undefined) out.provinceOfBirth = provinceOfBirth
-  return out
 }
 
 // ---------------------------------------------------------------------------

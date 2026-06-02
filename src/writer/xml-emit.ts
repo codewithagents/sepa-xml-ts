@@ -485,12 +485,80 @@ function emitGenericOther(lines: string[], indent: string, other: GenericIdentif
 }
 
 /**
- * Emit the structured party identification (Id, Party38Choice) for an ultimate
- * party, in the exact XSD element order.
+ * Emit an OrgId element (OrganisationIdentification29) at the given indent.
+ * Element order: AnyBIC, LEI, Othr.
  *
- * OrgId (OrganisationIdentification29): AnyBIC, LEI, Othr.
- * PrvtId (PersonIdentification13): DtAndPlcOfBirth (BirthDt, PrvcOfBirth, CityOfBirth,
- * CtryOfBirth), Othr.
+ * @param indent - leading spaces for the <OrgId> tag
+ * @param org    - the OrganisationIdentification model value
+ */
+function emitOrgId(
+  lines: string[],
+  indent: string,
+  org: PartyIdentification['organisationId'] & object
+): void {
+  const inner = `${indent}  `
+  lines.push(`${indent}<OrgId>`)
+  if (org.bic !== undefined) {
+    lines.push(`${inner}<AnyBIC>${xe(org.bic)}</AnyBIC>`)
+  }
+  if (org.lei !== undefined) {
+    lines.push(`${inner}<LEI>${xe(org.lei)}</LEI>`)
+  }
+  if (org.other !== undefined) {
+    emitGenericOther(lines, inner, org.other)
+  }
+  lines.push(`${indent}</OrgId>`)
+}
+
+/**
+ * Emit a DtAndPlcOfBirth element (DateAndPlaceOfBirth1) at the given indent.
+ * Element order: BirthDt, PrvcOfBirth (optional), CityOfBirth, CtryOfBirth.
+ *
+ * @param indent - leading spaces for the <DtAndPlcOfBirth> tag
+ * @param dob    - the DateAndPlaceOfBirth model value
+ */
+function emitDtAndPlcOfBirth(
+  lines: string[],
+  indent: string,
+  dob: NonNullable<PartyIdentification['privateId']>['dateAndPlaceOfBirth'] & object
+): void {
+  const inner = `${indent}  `
+  lines.push(`${indent}<DtAndPlcOfBirth>`)
+  lines.push(`${inner}<BirthDt>${xe(dob.birthDate)}</BirthDt>`)
+  if (dob.provinceOfBirth !== undefined) {
+    lines.push(`${inner}<PrvcOfBirth>${xe(dob.provinceOfBirth)}</PrvcOfBirth>`)
+  }
+  lines.push(`${inner}<CityOfBirth>${xe(dob.cityOfBirth)}</CityOfBirth>`)
+  lines.push(`${inner}<CtryOfBirth>${xe(dob.countryOfBirth)}</CtryOfBirth>`)
+  lines.push(`${indent}</DtAndPlcOfBirth>`)
+}
+
+/**
+ * Emit a PrvtId element (PersonIdentification13) at the given indent.
+ * Element order: DtAndPlcOfBirth (optional), Othr (optional).
+ *
+ * @param indent - leading spaces for the <PrvtId> tag
+ * @param prvt   - the PrivateIdentification model value
+ */
+function emitPrvtId(
+  lines: string[],
+  indent: string,
+  prvt: NonNullable<PartyIdentification['privateId']>
+): void {
+  const inner = `${indent}  `
+  lines.push(`${indent}<PrvtId>`)
+  if (prvt.dateAndPlaceOfBirth !== undefined) {
+    emitDtAndPlcOfBirth(lines, inner, prvt.dateAndPlaceOfBirth)
+  }
+  if (prvt.other !== undefined) {
+    emitGenericOther(lines, inner, prvt.other)
+  }
+  lines.push(`${indent}</PrvtId>`)
+}
+
+/**
+ * Emit the structured party identification (Id, Party38Choice) for an ultimate
+ * party, in the exact XSD element order. Delegates to emitOrgId or emitPrvtId.
  *
  * The model guarantees exactly one of organisationId / privateId is set.
  *
@@ -501,39 +569,9 @@ function emitPartyId(lines: string[], indent: string, id: PartyIdentification): 
   const inner = `${indent}  `
   lines.push(`${indent}<Id>`)
   if (id.organisationId !== undefined) {
-    const org = id.organisationId
-    lines.push(`${inner}<OrgId>`)
-    // OrganisationIdentification29 order: AnyBIC, LEI, Othr
-    if (org.bic !== undefined) {
-      lines.push(`${inner}  <AnyBIC>${xe(org.bic)}</AnyBIC>`)
-    }
-    if (org.lei !== undefined) {
-      lines.push(`${inner}  <LEI>${xe(org.lei)}</LEI>`)
-    }
-    if (org.other !== undefined) {
-      emitGenericOther(lines, `${inner}  `, org.other)
-    }
-    lines.push(`${inner}</OrgId>`)
+    emitOrgId(lines, inner, id.organisationId)
   } else if (id.privateId !== undefined) {
-    const prvt = id.privateId
-    lines.push(`${inner}<PrvtId>`)
-    // PersonIdentification13 order: DtAndPlcOfBirth, Othr
-    if (prvt.dateAndPlaceOfBirth !== undefined) {
-      const dob = prvt.dateAndPlaceOfBirth
-      lines.push(`${inner}  <DtAndPlcOfBirth>`)
-      // DateAndPlaceOfBirth1 order: BirthDt, PrvcOfBirth, CityOfBirth, CtryOfBirth
-      lines.push(`${inner}    <BirthDt>${xe(dob.birthDate)}</BirthDt>`)
-      if (dob.provinceOfBirth !== undefined) {
-        lines.push(`${inner}    <PrvcOfBirth>${xe(dob.provinceOfBirth)}</PrvcOfBirth>`)
-      }
-      lines.push(`${inner}    <CityOfBirth>${xe(dob.cityOfBirth)}</CityOfBirth>`)
-      lines.push(`${inner}    <CtryOfBirth>${xe(dob.countryOfBirth)}</CtryOfBirth>`)
-      lines.push(`${inner}  </DtAndPlcOfBirth>`)
-    }
-    if (prvt.other !== undefined) {
-      emitGenericOther(lines, `${inner}  `, prvt.other)
-    }
-    lines.push(`${inner}</PrvtId>`)
+    emitPrvtId(lines, inner, id.privateId)
   }
   lines.push(`${indent}</Id>`)
 }
