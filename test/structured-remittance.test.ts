@@ -214,4 +214,436 @@ describe('Structured remittance fail-loud on unsupported variants', () => {
       /structured remittance is not yet supported/
     )
   })
+
+  it('throws for pain.001.001.03 when only RfrdDocInf is set (no creditorReference)', () => {
+    const srDocs = {
+      structuredRemittance: { referredDocuments: [{ number: 'INV-001' }] },
+    }
+    expect(() => writeCreditTransfer(baseCt(srDocs), { variant: 'pain.001.001.03' })).toThrow(
+      /structured remittance is not yet supported/
+    )
+  })
+
+  it('throws for pain.008.003.02 when only RfrdDocAmt is set', () => {
+    const srAmt = {
+      structuredRemittance: {
+        referredDocumentAmount: { remittedAmount: euros('5.00') },
+      },
+    }
+    expect(() => writeDirectDebit(baseDd(srAmt), { variant: 'pain.008.003.02' })).toThrow(
+      /structured remittance is not yet supported/
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Shared builder helpers for the new-feature unit tests below.
+// ---------------------------------------------------------------------------
+
+/**
+ * Write + parse a credit-transfer document with the given structuredRemittance,
+ * and return the structured remittance read back from the parsed model.
+ */
+function ctRoundTrip(
+  sr: Record<string, unknown>
+): ReturnType<typeof parse>['data'] extends infer T ? T : never {
+  const xml = writeCreditTransfer(baseCt({ structuredRemittance: sr }))
+  const result = parse(xml)
+  if (!result.ok) throw new Error(`parse failed: ${result.error}`)
+  return result.data
+}
+
+/**
+ * Write + parse a direct-debit document with the given structuredRemittance,
+ * and return the structured remittance read back from the parsed model.
+ */
+function ddRoundTrip(
+  sr: Record<string, unknown>
+): ReturnType<typeof parse>['data'] extends infer T ? T : never {
+  const xml = writeDirectDebit(baseDd({ structuredRemittance: sr }))
+  const result = parse(xml)
+  if (!result.ok) throw new Error(`parse failed: ${result.error}`)
+  return result.data
+}
+
+/** Extract the structuredRemittance from a pain.001 round-trip result. */
+function ctSr(
+  sr: Record<string, unknown>
+): CreditTransferDocument['batches'][number]['transfers'][number]['structuredRemittance'] {
+  const data = ctRoundTrip(sr) as CreditTransferDocument
+  return data.batches[0]!.transfers[0]!.structuredRemittance
+}
+
+/** Extract the structuredRemittance from a pain.008 round-trip result. */
+function ddSr(
+  sr: Record<string, unknown>
+): DirectDebitDocument['batches'][number]['collections'][number]['structuredRemittance'] {
+  const data = ddRoundTrip(sr) as DirectDebitDocument
+  return data.batches[0]!.collections[0]!.structuredRemittance
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests: Prtry reference type (CreditorReferenceType1Choice/Prtry)
+// ---------------------------------------------------------------------------
+
+describe('Prtry reference type on CdtrRefInf', () => {
+  const prtryRef = {
+    creditorReference: 'NAT-REF-42',
+    referenceType: { proprietary: 'CUSTOMRT' },
+  }
+
+  it('pain.001: emits <Prtry> in CdOrPrtry, not <Cd>', () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: prtryRef }))
+    expect(xml).toContain('<Prtry>CUSTOMRT</Prtry>')
+    expect(xml).not.toContain('<Cd>CUSTOMRT</Cd>')
+  })
+
+  it('pain.001: Prtry reference type round-trips correctly', () => {
+    const result = ctSr(prtryRef)
+    expect(result).toEqual(prtryRef)
+  })
+
+  it('pain.008: emits <Prtry> in CdOrPrtry, not <Cd>', () => {
+    const xml = writeDirectDebit(baseDd({ structuredRemittance: prtryRef }))
+    expect(xml).toContain('<Prtry>CUSTOMRT</Prtry>')
+    expect(xml).not.toContain('<Cd>CUSTOMRT</Cd>')
+  })
+
+  it('pain.008: Prtry reference type round-trips correctly', () => {
+    const result = ddSr(prtryRef)
+    expect(result).toEqual(prtryRef)
+  })
+
+  it('Cd path still emits <Cd> (not <Prtry>) for DocumentType3Code enum values', () => {
+    const xml = writeCreditTransfer(
+      baseCt({ structuredRemittance: { creditorReference: VALID_RF, referenceType: 'RADM' } })
+    )
+    expect(xml).toContain('<Cd>RADM</Cd>')
+    expect(xml).not.toContain('<Prtry>')
+  })
+
+  it('is XSD-valid for pain.001 with Prtry referenceType', async () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: prtryRef }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+
+  it('is XSD-valid for pain.008 with Prtry referenceType', async () => {
+    const xml = writeDirectDebit(baseDd({ structuredRemittance: prtryRef }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unit tests: RfrdDocInf (referred documents)
+// ---------------------------------------------------------------------------
+
+describe('RfrdDocInf (referred documents)', () => {
+  const singleDoc = {
+    referredDocuments: [{ type: 'CINV', number: 'INV-2025-001', relatedDate: '2025-11-30' }],
+    creditorReference: VALID_RF,
+    referenceType: 'SCOR',
+  }
+
+  it('pain.001: emits <RfrdDocInf> element with Cd type, Nb, and RltdDt', () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: singleDoc }))
+    expect(xml).toContain('<RfrdDocInf>')
+    expect(xml).toContain('<Cd>CINV</Cd>')
+    expect(xml).toContain('<Nb>INV-2025-001</Nb>')
+    expect(xml).toContain('<RltdDt>2025-11-30</RltdDt>')
+  })
+
+  it('pain.001: RfrdDocInf appears before CdtrRefInf in the XML', () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: singleDoc }))
+    const rfrdPos = xml.indexOf('<RfrdDocInf>')
+    const cdtrPos = xml.indexOf('<CdtrRefInf>')
+    expect(rfrdPos).toBeGreaterThan(0)
+    expect(cdtrPos).toBeGreaterThan(0)
+    expect(rfrdPos).toBeLessThan(cdtrPos)
+  })
+
+  it('pain.001: single RfrdDocInf round-trips correctly', () => {
+    const result = ctSr(singleDoc)
+    expect(result).toEqual(singleDoc)
+  })
+
+  it('pain.008: single RfrdDocInf round-trips correctly', () => {
+    const result = ddSr(singleDoc)
+    expect(result).toEqual(singleDoc)
+  })
+
+  it('pain.001: multiple RfrdDocInf round-trip in order', () => {
+    const multiDocs = {
+      referredDocuments: [
+        { type: 'CINV', number: 'INV-001', relatedDate: '2025-10-01' },
+        { type: 'CREN', number: 'CR-001' },
+        { number: 'ORD-999', relatedDate: '2025-09-15' },
+      ],
+      creditorReference: VALID_RF,
+      referenceType: 'SCOR',
+    }
+    const result = ctSr(multiDocs)
+    expect(result).toEqual(multiDocs)
+  })
+
+  it('pain.008: multiple RfrdDocInf round-trip in order', () => {
+    const multiDocs = {
+      referredDocuments: [
+        { type: 'CINV', number: 'INV-001' },
+        { type: 'DEBN', number: 'DBT-002', relatedDate: '2025-12-01' },
+      ],
+      creditorReference: VALID_RF,
+      referenceType: 'SCOR',
+    }
+    const result = ddSr(multiDocs)
+    expect(result).toEqual(multiDocs)
+  })
+
+  it('pain.001: multiple RfrdDocInf emit multiple <RfrdDocInf> tags', () => {
+    const multiDocs = {
+      referredDocuments: [{ number: 'INV-A' }, { number: 'INV-B' }, { number: 'INV-C' }],
+      creditorReference: VALID_RF,
+      referenceType: 'SCOR',
+    }
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: multiDocs }))
+    const count = (xml.match(/<RfrdDocInf>/g) ?? []).length
+    expect(count).toBe(3)
+  })
+
+  it('pain.001: RfrdDocInf with Prtry type emits <Prtry> inside Tp', () => {
+    const prtryType = {
+      referredDocuments: [{ type: { proprietary: 'CUSTOM-DOC' }, number: 'XYZ-1' }],
+      creditorReference: VALID_RF,
+      referenceType: 'SCOR',
+    }
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: prtryType }))
+    expect(xml).toContain('<Prtry>CUSTOM-DOC</Prtry>')
+    const result = ctSr(prtryType)
+    expect(result).toEqual(prtryType)
+  })
+
+  it('pain.001: RfrdDocInf-only (no creditorReference) round-trips correctly', () => {
+    const docsOnly = {
+      referredDocuments: [{ number: 'INV-ONLY' }],
+    }
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: docsOnly }))
+    expect(xml).toContain('<RfrdDocInf>')
+    expect(xml).not.toContain('<CdtrRefInf>')
+    const result = ctSr(docsOnly)
+    expect(result).toEqual(docsOnly)
+  })
+
+  it('is XSD-valid for pain.001 with single RfrdDocInf', async () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: singleDoc }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+
+  it('is XSD-valid for pain.008 with single RfrdDocInf', async () => {
+    const xml = writeDirectDebit(baseDd({ structuredRemittance: singleDoc }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unit tests: RfrdDocAmt (referred-document amounts)
+// ---------------------------------------------------------------------------
+
+describe('RfrdDocAmt (referred-document amounts)', () => {
+  const withBothAmounts = {
+    referredDocumentAmount: {
+      duePayableAmount: euros('100.00'),
+      remittedAmount: euros('97.50'),
+    },
+    creditorReference: VALID_RF,
+    referenceType: 'SCOR',
+  }
+
+  it('pain.001: emits <RfrdDocAmt> with DuePyblAmt and RmtdAmt with Ccy="EUR"', () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: withBothAmounts }))
+    expect(xml).toContain('<RfrdDocAmt>')
+    expect(xml).toContain('<DuePyblAmt Ccy="EUR">100.00</DuePyblAmt>')
+    expect(xml).toContain('<RmtdAmt Ccy="EUR">97.50</RmtdAmt>')
+  })
+
+  it('pain.001: RfrdDocAmt appears before CdtrRefInf in the XML', () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: withBothAmounts }))
+    const amtPos = xml.indexOf('<RfrdDocAmt>')
+    const cdtrPos = xml.indexOf('<CdtrRefInf>')
+    expect(amtPos).toBeGreaterThan(0)
+    expect(cdtrPos).toBeGreaterThan(0)
+    expect(amtPos).toBeLessThan(cdtrPos)
+  })
+
+  it('pain.001: round-trips DuePyblAmt and RmtdAmt correctly', () => {
+    const result = ctSr(withBothAmounts)
+    expect(result).toEqual(withBothAmounts)
+  })
+
+  it('pain.008: round-trips DuePyblAmt and RmtdAmt correctly', () => {
+    const result = ddSr(withBothAmounts)
+    expect(result).toEqual(withBothAmounts)
+  })
+
+  it('pain.001: CdtNoteAmt round-trips correctly', () => {
+    const withCreditNote = {
+      referredDocumentAmount: {
+        creditNoteAmount: euros('5.00'),
+      },
+      creditorReference: VALID_RF,
+      referenceType: 'SCOR',
+    }
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: withCreditNote }))
+    expect(xml).toContain('<CdtNoteAmt Ccy="EUR">5.00</CdtNoteAmt>')
+    const result = ctSr(withCreditNote)
+    expect(result).toEqual(withCreditNote)
+  })
+
+  it('pain.001: RfrdDocAmt-only (no creditorReference) round-trips correctly', () => {
+    const amtOnly = {
+      referredDocumentAmount: { remittedAmount: euros('50.00') },
+    }
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: amtOnly }))
+    expect(xml).toContain('<RfrdDocAmt>')
+    expect(xml).not.toContain('<CdtrRefInf>')
+    const result = ctSr(amtOnly)
+    expect(result).toEqual(amtOnly)
+  })
+
+  it('pain.001: amounts use exactly 2 decimal places (boundary: 0.01 EUR)', () => {
+    const minAmt = { referredDocumentAmount: { remittedAmount: euros('0.01') } }
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: minAmt }))
+    expect(xml).toContain('<RmtdAmt Ccy="EUR">0.01</RmtdAmt>')
+  })
+
+  it('is XSD-valid for pain.001 with RfrdDocAmt', async () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: withBothAmounts }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+
+  it('is XSD-valid for pain.008 with RfrdDocAmt', async () => {
+    const xml = writeDirectDebit(baseDd({ structuredRemittance: withBothAmounts }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unit tests: combined RfrdDocInf + RfrdDocAmt + CdtrRefInf
+// ---------------------------------------------------------------------------
+
+describe('Combined RfrdDocInf + RfrdDocAmt + CdtrRefInf', () => {
+  const full = {
+    referredDocuments: [{ type: 'CINV', number: 'INV-001', relatedDate: '2025-12-01' }],
+    referredDocumentAmount: { remittedAmount: euros('200.00') },
+    creditorReference: VALID_RF,
+    referenceType: 'SCOR',
+  }
+
+  it('pain.001: emits all three sections in XSD element order', () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: full }))
+    const rfrdPos = xml.indexOf('<RfrdDocInf>')
+    const amtPos = xml.indexOf('<RfrdDocAmt>')
+    const cdtrPos = xml.indexOf('<CdtrRefInf>')
+    expect(rfrdPos).toBeGreaterThan(0)
+    expect(amtPos).toBeGreaterThan(0)
+    expect(cdtrPos).toBeGreaterThan(0)
+    // XSD order: RfrdDocInf < RfrdDocAmt < CdtrRefInf
+    expect(rfrdPos).toBeLessThan(amtPos)
+    expect(amtPos).toBeLessThan(cdtrPos)
+  })
+
+  it('pain.001: full structured remittance round-trips correctly', () => {
+    const result = ctSr(full)
+    expect(result).toEqual(full)
+  })
+
+  it('pain.008: full structured remittance round-trips correctly', () => {
+    const result = ddSr(full)
+    expect(result).toEqual(full)
+  })
+
+  it('is XSD-valid for pain.001 with all three sections', async () => {
+    const xml = writeCreditTransfer(baseCt({ structuredRemittance: full }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+
+  it('is XSD-valid for pain.008 with all three sections', async () => {
+    const xml = writeDirectDebit(baseDd({ structuredRemittance: full }))
+    const xsd = await validateXsd(xml)
+    expect(xsd.valid, `XSD errors: ${xsd.errors.join(', ')}`).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unit tests: StructuredRemittanceSchema model-level validation for new fields
+// ---------------------------------------------------------------------------
+
+describe('StructuredRemittanceSchema validation for new fields', () => {
+  it('rejects an empty object (no creditorReference, no docs, no amounts)', () => {
+    expect(StructuredRemittanceSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('accepts when only referredDocuments is set', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({ referredDocuments: [{ number: 'INV-1' }] }).success
+    ).toBe(true)
+  })
+
+  it('accepts when only referredDocumentAmount is set', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({
+        referredDocumentAmount: { remittedAmount: euros('10.00') },
+      }).success
+    ).toBe(true)
+  })
+
+  it('rejects referenceType without creditorReference', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({
+        referredDocuments: [{ number: 'INV-1' }],
+        referenceType: 'SCOR',
+      }).success
+    ).toBe(false)
+  })
+
+  it('rejects issuer without creditorReference', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({
+        referredDocuments: [{ number: 'INV-1' }],
+        issuer: 'ISO',
+      }).success
+    ).toBe(false)
+  })
+
+  it('accepts Prtry referenceType as valid model', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({
+        creditorReference: 'REF-1',
+        referenceType: { proprietary: 'MY-TYPE' },
+      }).success
+    ).toBe(true)
+  })
+
+  it('rejects an empty referredDocuments array', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({
+        creditorReference: VALID_RF,
+        referredDocuments: [],
+      }).success
+    ).toBe(false)
+  })
+
+  it('rejects an empty RemittanceAmount object (all amounts absent)', () => {
+    expect(
+      StructuredRemittanceSchema.safeParse({
+        creditorReference: VALID_RF,
+        referredDocumentAmount: {},
+      }).success
+    ).toBe(false)
+  })
 })

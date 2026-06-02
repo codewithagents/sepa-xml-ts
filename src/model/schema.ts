@@ -475,12 +475,141 @@ export type AccountParty = z.infer<typeof AccountPartySchema>
 // ---------------------------------------------------------------------------
 
 /**
- * Structured remittance information with a creditor reference.
+ * Reference type code (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry/Cd), the
+ * DocumentType3Code enumeration. The XSD types the Cd branch as this enum, so a
+ * value outside it would emit an XSD-invalid file. "SCOR" is the SEPA structured
+ * creditor reference code (the default on write when omitted).
+ */
+const ReferenceTypeCodeSchema = z.enum(['RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR'])
+
+/**
+ * Proprietary reference type value (Prtry), a Max35Text open string, SEPA charset.
+ * Confirmed against the XSD: CreditorReferenceType1Choice/Prtry is typed as Max35Text.
+ */
+const ProprietaryReferenceTypeSchema = z.object({
+  /** Proprietary reference type value (Prtry), max 35 chars, SEPA charset. */
+  proprietary: sepaText(35),
+})
+
+/**
+ * Reference type (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry), modelling
+ * CreditorReferenceType1Choice: Cd XOR Prtry.
  *
- * Maps to RmtInf/Strd/CdtrRefInf in the XML output.
+ * To keep the 90% path non-breaking, a plain string from the DocumentType3Code
+ * enum is the Cd path (byte-identical output, SCOR default), while an object
+ * { proprietary } is the Prtry path. The two shapes are structurally disjoint
+ * (string vs object), so the union itself enforces "exactly one".
+ */
+export const ReferenceTypeSchema = z.union([
+  ReferenceTypeCodeSchema,
+  ProprietaryReferenceTypeSchema,
+])
+
+export type ReferenceType = z.infer<typeof ReferenceTypeSchema>
+
+/**
+ * Document type code for a referred document (RfrdDocInf/Tp/CdOrPrtry/Cd), the
+ * DocumentType6Code enumeration. The XSD types the Cd branch as this enum.
+ */
+const DocumentTypeCodeSchema = z.enum([
+  'MSIN',
+  'CNFA',
+  'DNFA',
+  'CINV',
+  'CREN',
+  'DEBN',
+  'HIRI',
+  'SBIN',
+  'CMCN',
+  'SOAC',
+  'DISP',
+  'BOLD',
+  'VCHR',
+  'AROI',
+  'TSUT',
+  'PUOR',
+])
+
+/**
+ * Referred-document type (RfrdDocInf/Tp/CdOrPrtry), modelling
+ * ReferredDocumentType3Choice: Cd XOR Prtry. A plain string from the
+ * DocumentType6Code enum is the Cd path; an object { proprietary } is the
+ * Prtry path (Max35Text). The union enforces "exactly one".
+ */
+export const DocumentTypeSchema = z.union([DocumentTypeCodeSchema, ProprietaryReferenceTypeSchema])
+
+export type DocumentType = z.infer<typeof DocumentTypeSchema>
+
+/**
+ * A referred document (RmtInf/Strd/RfrdDocInf), modelling
+ * ReferredDocumentInformation7. Repeatable (an array on the parent).
+ *
+ * Models the common fields: document type (Tp), document number (Nb), and the
+ * related date (RltdDt). The richer LineDtls sub-element is a documented
+ * follow-up. At least one field must be present, since an empty RfrdDocInf
+ * carries no information.
+ */
+export const ReferredDocumentSchema = z
+  .object({
+    /** Document type (RfrdDocInf/Tp/CdOrPrtry): a DocumentType6Code string XOR { proprietary }. */
+    type: DocumentTypeSchema.optional(),
+    /** Document number (RfrdDocInf/Nb), max 35 chars, SEPA charset. */
+    number: sepaText(35).optional(),
+    /** Related date (RfrdDocInf/RltdDt), YYYY-MM-DD. */
+    relatedDate: ISODateSchema.optional(),
+  })
+  .refine((d) => d.type !== undefined || d.number !== undefined || d.relatedDate !== undefined, {
+    message:
+      'A referred document must set at least one of type, number, or relatedDate (an empty RfrdDocInf carries no information)',
+  })
+
+export type ReferredDocument = z.infer<typeof ReferredDocumentSchema>
+
+/**
+ * Referred-document amounts (RmtInf/Strd/RfrdDocAmt), modelling RemittanceAmount2.
+ *
+ * These are INFORMATIONAL sub-amounts about the referenced document, not the
+ * transaction's InstdAmt: they never affect CtrlSum or the transferred amount.
+ * Each is an EUR Money value emitted with Ccy="EUR" and the usual 2-decimal rules.
+ *
+ * First cut supports the three plain ActiveOrHistoricCurrencyAndAmount fields:
+ * DuePyblAmt, CdtNoteAmt, RmtdAmt. The typed sub-amounts (DscntApldAmt, TaxAmt,
+ * AdjstmntAmtAndRsn) are a documented follow-up. At least one amount must be set.
+ */
+export const RemittanceAmountSchema = z
+  .object({
+    /** Amount due and payable (RfrdDocAmt/DuePyblAmt), EUR Money. */
+    duePayableAmount: MoneySchema.optional(),
+    /** Credit note amount (RfrdDocAmt/CdtNoteAmt), EUR Money. */
+    creditNoteAmount: MoneySchema.optional(),
+    /** Remitted amount (RfrdDocAmt/RmtdAmt), EUR Money. */
+    remittedAmount: MoneySchema.optional(),
+  })
+  .refine(
+    (a) =>
+      a.duePayableAmount !== undefined ||
+      a.creditNoteAmount !== undefined ||
+      a.remittedAmount !== undefined,
+    {
+      message:
+        'A referred-document amount must set at least one of duePayableAmount, creditNoteAmount, or remittedAmount (an empty RfrdDocAmt carries no information)',
+    }
+  )
+
+export type RemittanceAmount = z.infer<typeof RemittanceAmountSchema>
+
+/**
+ * Structured remittance information (RmtInf/Strd, StructuredRemittanceInformation16).
  *
  * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK
  * variants will throw a clear error if this field is present.
+ *
+ * Carries any combination of:
+ *   referredDocuments    -> RfrdDocInf (0..n)
+ *   referredDocumentAmount -> RfrdDocAmt (0..1)
+ *   creditorReference (+ referenceType, issuer) -> CdtrRefInf (0..1)
+ *
+ * At least one of those must be present: an empty Strd carries no information.
  *
  * Conditional ISO 11649 check: if creditorReference (trimmed) starts with "RF"
  * (uppercase), its check digits are validated using ISO 7064 MOD 97-10. This
@@ -490,41 +619,70 @@ export type AccountParty = z.infer<typeof AccountPartySchema>
  * Mutually exclusive with remittanceInfo (unstructured Ustrd). Having neither
  * is fine; having exactly one is required by the SEPA rulebook.
  */
-export const StructuredRemittanceSchema = z.object({
-  /**
-   * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, SEPA charset.
-   * If the trimmed value starts with "RF" (uppercase), ISO 11649 check digits
-   * are validated. All other values pass through without check-digit validation.
-   */
-  creditorReference: sepaText(35).refine(
-    (v) => {
-      // Only validate check digits for ISO 11649 RF references.
-      if (v.trimStart().startsWith('RF')) {
-        return isValidIso11649Ref(v.trim())
-      }
-      return true
-    },
+export const StructuredRemittanceSchema = z
+  .object({
+    /**
+     * Referred documents (RmtInf/Strd/RfrdDocInf), repeatable. Each carries the
+     * common document type, number, and related-date fields. Optional.
+     */
+    referredDocuments: z.array(ReferredDocumentSchema).min(1).optional(),
+    /**
+     * Referred-document amounts (RmtInf/Strd/RfrdDocAmt). Informational EUR
+     * sub-amounts about the referenced document; they never affect CtrlSum. Optional.
+     */
+    referredDocumentAmount: RemittanceAmountSchema.optional(),
+    /**
+     * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, SEPA charset.
+     * If the trimmed value starts with "RF" (uppercase), ISO 11649 check digits
+     * are validated. All other values pass through without check-digit validation.
+     * Optional: structured remittance may carry only RfrdDocInf / RfrdDocAmt.
+     */
+    creditorReference: sepaText(35)
+      .refine(
+        (v) => {
+          // Only validate check digits for ISO 11649 RF references.
+          if (v.trimStart().startsWith('RF')) {
+            return isValidIso11649Ref(v.trim())
+          }
+          return true
+        },
+        {
+          message:
+            'Creditor reference starting with "RF" must have valid ISO 11649 check digits (MOD 97-10)',
+        }
+      )
+      .optional(),
+    /**
+     * Reference type (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry), CreditorReferenceType1Choice.
+     * A plain DocumentType3Code string is the Cd path (defaults to "SCOR" on write);
+     * an object { proprietary } is the Prtry path (Max35Text). Only meaningful with
+     * creditorReference (the whole CdtrRefInf is emitted only when a reference is set).
+     */
+    referenceType: ReferenceTypeSchema.optional(),
+    /**
+     * Issuer of the reference type (RmtInf/Strd/CdtrRefInf/Tp/Issr).
+     * Emitted only when present. Max 35 chars, SEPA charset.
+     */
+    issuer: sepaText(35).optional(),
+  })
+  .refine(
+    (s) =>
+      (s.referredDocuments !== undefined && s.referredDocuments.length > 0) ||
+      s.referredDocumentAmount !== undefined ||
+      s.creditorReference !== undefined,
     {
       message:
-        'Creditor reference starting with "RF" must have valid ISO 11649 check digits (MOD 97-10)',
+        'Structured remittance must carry at least one of referredDocuments, referredDocumentAmount, or creditorReference (an empty Strd carries no information)',
     }
-  ),
-  /**
-   * Reference type code (RmtInf/Strd/CdtrRefInf/Tp/CdOrPrtry/Cd).
-   *
-   * Constrained to the ISO 20022 DocumentType3Code enumeration, because the XSD
-   * types this element as that enum: any other value would produce an
-   * XSD-invalid file. For a SEPA structured creditor reference this is "SCOR"
-   * (the default on write when omitted). Proprietary (Prtry) reference types
-   * are not yet modelled.
-   */
-  referenceType: z.enum(['RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 'SCOR']).optional(),
-  /**
-   * Issuer of the reference type (RmtInf/Strd/CdtrRefInf/Tp/Issr).
-   * Emitted only when present. Max 35 chars, SEPA charset.
-   */
-  issuer: sepaText(35).optional(),
-})
+  )
+  .refine((s) => s.creditorReference !== undefined || s.referenceType === undefined, {
+    message:
+      'referenceType requires creditorReference: the reference type (CdtrRefInf/Tp) is only emitted when a creditor reference is present',
+  })
+  .refine((s) => s.creditorReference !== undefined || s.issuer === undefined, {
+    message:
+      'issuer requires creditorReference: the reference issuer (CdtrRefInf/Tp/Issr) is only emitted when a creditor reference is present',
+  })
 
 export type StructuredRemittance = z.infer<typeof StructuredRemittanceSchema>
 
