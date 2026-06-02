@@ -90,7 +90,7 @@ const ISODateSchema = z
 /** IBAN validated by mod-97 checksum. */
 const IBANSchema = z
   .string()
-  .regex(/^[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}$/, 'Invalid IBAN format')
+  .regex(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/, 'Invalid IBAN format')
   .refine((v) => isValidIban(v), {
     message: 'IBAN failed mod-97 checksum validation',
   })
