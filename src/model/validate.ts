@@ -99,8 +99,3 @@ export function validateDirectDebit(
 
   return { ok: true, data: result.data }
 }
-
-/**
- * Alias for validateCreditTransfer. Kept for backward compatibility (shipped in 0.1.0/0.2.0).
- */
-export const validate = validateCreditTransfer

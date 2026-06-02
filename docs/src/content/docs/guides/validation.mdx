@@ -25,14 +25,15 @@ writers (which validate before emitting), and `parse` (which validates what it r
 cap and identifier rules are derived from the EPC implementation guidelines, not copied from any
 third-party library.
 
-### `validate(input)`
+### `validateCreditTransfer(input, options?)`
 
 Validates any unknown input as a `CreditTransferDocument`. Returns a typed result.
+Accepts an optional `{ profile }` option to run bank-profile checks on top of the base Zod rules.
 
 ```typescript
-import { validate } from 'sepa-xml-ts'
+import { validateCreditTransfer, requireBic } from 'sepa-xml-ts'
 
-const result = validate(doc)
+const result = validateCreditTransfer(doc)
 
 if (!result.ok) {
   // result.errors: ZodIssue[]
@@ -43,22 +44,14 @@ if (!result.ok) {
   // result.data: CreditTransferDocument (validated)
   const xml = writeCreditTransfer(result.data)
 }
-```
 
-### `validateCreditTransfer(input, options?)`
+// With a bank profile:
+const profileResult = validateCreditTransfer(doc, { profile: requireBic })
 
-Same as `validate`, but accepts an optional `{ profile }` option to run bank-profile checks on
-top of the base Zod rules.
-
-```typescript
-import { validateCreditTransfer, requireBic } from 'sepa-xml-ts'
-
-const result = validateCreditTransfer(doc, { profile: requireBic })
-
-if (!result.ok) {
+if (!profileResult.ok) {
   // result.errors: ZodIssue[] (base schema failures)
   // result.profileIssues: ProfileIssue[] (bank-profile failures)
-  console.error(result.errors, result.profileIssues)
+  console.error(profileResult.errors, profileResult.profileIssues)
 }
 ```
 
@@ -88,7 +81,7 @@ type ValidationResult<T> =
 
 `writeCreditTransfer` and `writeDirectDebit` run the same validation internally. If the model
 fails, they throw a `ValidationError` with the same issue list. You do not have to call
-`validate` separately before writing unless you want the typed result shape.
+`validateCreditTransfer` separately before writing unless you want the typed result shape.
 
 ## Layer 2: XSD validation (optional)
 

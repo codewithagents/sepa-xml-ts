@@ -58,9 +58,9 @@ const doc: CreditTransferDocument = {
 ## Writing to XML
 
 ```typescript
-import { writeCreditTransfer, validate } from 'sepa-xml-ts'
+import { writeCreditTransfer, validateCreditTransfer } from 'sepa-xml-ts'
 
-const result = validate(doc)
+const result = validateCreditTransfer(doc)
 if (!result.ok) {
   console.error(result.errors)
 } else {
@@ -89,7 +89,7 @@ The writer derives the following fields from the model. You do not supply them:
 
 Each party (debtor and creditor) accepts an optional structured `address`, emitted as a
 `PstlAdr` element. The EPC makes a structured address mandatory for the modern messages from
-22 November 2026, and many banks reject unstructured addresses already.
+15 November 2026, and many banks reject unstructured addresses already.
 
 ```typescript
 const doc = {
