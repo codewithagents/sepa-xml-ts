@@ -16,6 +16,8 @@ import {
   PostalAddressSchema,
   UltimatePartySchema,
   StructuredRemittanceSchema,
+  PurposeSchema,
+  CategoryPurposeSchema,
 } from './schema.js'
 import { isValidCreditorId } from './creditor-id.js'
 
@@ -294,14 +296,13 @@ const CollectionSchema = z
      */
     structuredRemittance: StructuredRemittanceSchema.optional(),
     /**
-     * Transaction-level purpose code (DrctDbtTxInf/Purp/Cd).
-     * Maps to ExternalPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
-     * Common values: SALA (salary), SUPP (supplier payment), TAXS (tax), GDDS (goods).
-     * The code list is NOT validated against the ISO external list; only charset and
-     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Transaction-level purpose (DrctDbtTxInf/Purp), Purpose2Choice (Cd XOR Prtry).
+     * A plain string is the Cd code path (ExternalPurpose1Code, open string, 1-4 chars,
+     * not validated against the ISO external list). An object { proprietary } is the
+     * Prtry path (Max35Text). Common Cd values: SALA, SUPP, TAXS, GDDS.
      * Supported for pain.008.001.08 ONLY. DK variant throws if this is set.
      */
-    purpose: sepaText(4).optional(),
+    purpose: PurposeSchema.optional(),
   })
   .refine((col) => !(col.remittanceInfo !== undefined && col.structuredRemittance !== undefined), {
     message:
@@ -328,14 +329,13 @@ const DirectDebitBatchSchema = z
     /** Local instrument code (PmtTpInf/LclInstrm/Cd). Defaults to "CORE" when omitted. */
     localInstrument: LocalInstrumentSchema.optional(),
     /**
-     * Batch-level category purpose code (PmtTpInf/CtgyPurp/Cd).
-     * Maps to ExternalCategoryPurpose1Code in the XSD (open string, minLength 1, maxLength 4).
-     * Common values: SALA (salary), SUPP (supplier payment), CASH (cash management), SECU (securities).
-     * The code list is NOT validated against the ISO external list; only charset and
-     * length are checked, to avoid false-positive rejections of valid newer codes.
+     * Batch-level category purpose (PmtTpInf/CtgyPurp), CategoryPurpose1Choice (Cd XOR Prtry).
+     * A plain string is the Cd code path (ExternalCategoryPurpose1Code, open string, 1-4 chars,
+     * not validated against the ISO external list). An object { proprietary } is the Prtry path
+     * (Max35Text). Common Cd values: SALA, SUPP, CASH, SECU.
      * Supported for pain.008.001.08 ONLY. DK variant throws if this is set.
      */
-    categoryPurpose: sepaText(4).optional(),
+    categoryPurpose: CategoryPurposeSchema.optional(),
     /** Collections in this batch. At least one required. */
     collections: z.array(CollectionSchema).min(1),
   })

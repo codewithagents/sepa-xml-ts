@@ -30,6 +30,7 @@ import type {
   PartyIdentification,
   GenericIdentification,
   StructuredRemittance,
+  Purpose,
 } from '../src/model/schema.js'
 import type {
   DirectDebitDocument,
@@ -382,15 +383,25 @@ function arbRemittance(): fc.Arbitrary<Record<string, unknown>> {
 }
 
 /**
- * Arbitrary for an optional purpose code (Purp/Cd or CtgyPurp/Cd).
+ * Arbitrary for an optional purpose (Purp or CtgyPurp), covering both paths:
+ *   Cd   - a plain string (ExternalPurpose1Code, 1-4 chars SEPA charset).
+ *   Prtry - an object { proprietary: string } (Max35Text, 1-35 chars SEPA charset).
  *
- * Uses a small set of known real ISO external codes so values survive XML round-trip
- * and model validation (SEPA charset, 1-4 chars, no trailing whitespace).
- * We do NOT generate arbitrary text: even a valid 4-char code like "ABCD" is fine,
- * but fc.option with constantFrom is the safest approach for the property suite.
+ * Sharing this single helper for both pain.001 and pain.008 avoids duplication
+ * (the field type Purpose = string | { proprietary: string } is identical in both models).
+ * SEPA-charset, no trailing whitespace, and valid lengths are guaranteed by construction
+ * so every generated value survives the XML round-trip and the XSD oracle.
  */
-function arbPurposeCode(): fc.Arbitrary<string | undefined> {
-  return fc.option(fc.constantFrom('SALA', 'SUPP', 'TAXS', 'OTHR', 'GDDS'), { nil: undefined })
+function arbPurposeCode(): fc.Arbitrary<Purpose | undefined> {
+  const arbCd: fc.Arbitrary<Purpose> = fc.constantFrom<string>(
+    'SALA',
+    'SUPP',
+    'TAXS',
+    'OTHR',
+    'GDDS'
+  )
+  const arbPrtry: fc.Arbitrary<Purpose> = arbSepaText(1, 35).map((v) => ({ proprietary: v }))
+  return fc.option(fc.oneof(arbCd, arbPrtry), { nil: undefined })
 }
 
 /**

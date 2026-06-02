@@ -33,6 +33,8 @@ import {
   type PrivateIdentification,
   type DateAndPlaceOfBirth,
   type StructuredRemittance,
+  type Purpose,
+  type CategoryPurpose,
 } from '../model/schema.js'
 import {
   DirectDebitDocumentSchema,
@@ -402,6 +404,23 @@ function extractStructuredRemittance(txEl: unknown): StructuredRemittance | unde
   return result
 }
 
+/**
+ * Extract a purpose choice (Purpose2Choice / CategoryPurpose1Choice) from a
+ * wrapper element such as Purp or PmtTpInf/CtgyPurp. Reads Cd (returned as a
+ * plain string) or Prtry (returned as { proprietary }). Returns undefined when
+ * the wrapper is absent or carries neither child.
+ *
+ * @param choiceEl - the Purp or CtgyPurp element (or null/undefined when absent)
+ */
+function extractPurposeChoice(choiceEl: unknown): Purpose | undefined {
+  if (choiceEl === null || choiceEl === undefined) return undefined
+  const cd = str(nav(choiceEl, 'Cd'))
+  if (cd !== null && cd !== '') return cd
+  const prtry = str(nav(choiceEl, 'Prtry'))
+  if (prtry !== null && prtry !== '') return { proprietary: prtry }
+  return undefined
+}
+
 // ---------------------------------------------------------------------------
 // pain.001 extractor functions
 // ---------------------------------------------------------------------------
@@ -474,9 +493,8 @@ function extractTransfer(txEl: unknown): Transfer | null {
   const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
   const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
 
-  // Optional transaction-level purpose code (Purp/Cd, ExternalPurpose1Code).
-  const purposeRaw = str(nav(txEl, 'Purp', 'Cd'))
-  const purpose = purposeRaw !== null && purposeRaw !== '' ? purposeRaw : undefined
+  // Optional transaction-level purpose (Purp, Purpose2Choice: Cd or Prtry).
+  const purpose = extractPurposeChoice(nav(txEl, 'Purp'))
 
   return {
     endToEndId,
@@ -519,10 +537,10 @@ function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
     transfers.push(transfer)
   }
 
-  // Optional batch-level category purpose code (PmtTpInf/CtgyPurp/Cd, ExternalCategoryPurpose1Code).
-  const categoryPurposeRaw = str(nav(pmtInfEl, 'PmtTpInf', 'CtgyPurp', 'Cd'))
-  const categoryPurpose =
-    categoryPurposeRaw !== null && categoryPurposeRaw !== '' ? categoryPurposeRaw : undefined
+  // Optional batch-level category purpose (PmtTpInf/CtgyPurp, CategoryPurpose1Choice: Cd or Prtry).
+  const categoryPurpose: CategoryPurpose | undefined = extractPurposeChoice(
+    nav(pmtInfEl, 'PmtTpInf', 'CtgyPurp')
+  )
 
   return {
     id,
@@ -660,9 +678,8 @@ function extractCollection(txEl: unknown): Collection | null {
   const ultimateCreditor = extractUltimateParty(txEl, 'UltmtCdtr')
   const ultimateDebtor = extractUltimateParty(txEl, 'UltmtDbtr')
 
-  // Optional transaction-level purpose code (Purp/Cd, ExternalPurpose1Code).
-  const purposeRaw = str(nav(txEl, 'Purp', 'Cd'))
-  const purpose = purposeRaw !== null && purposeRaw !== '' ? purposeRaw : undefined
+  // Optional transaction-level purpose (Purp, Purpose2Choice: Cd or Prtry).
+  const purpose = extractPurposeChoice(nav(txEl, 'Purp'))
 
   return {
     endToEndId,
@@ -712,10 +729,10 @@ function extractDirectDebitBatch(pmtInfEl: unknown): DirectDebitBatch | null {
     collections.push(collection)
   }
 
-  // Optional batch-level category purpose code (PmtTpInf/CtgyPurp/Cd, ExternalCategoryPurpose1Code).
-  const categoryPurposeRaw = str(nav(pmtInfEl, 'PmtTpInf', 'CtgyPurp', 'Cd'))
-  const categoryPurpose =
-    categoryPurposeRaw !== null && categoryPurposeRaw !== '' ? categoryPurposeRaw : undefined
+  // Optional batch-level category purpose (PmtTpInf/CtgyPurp, CategoryPurpose1Choice: Cd or Prtry).
+  const categoryPurpose: CategoryPurpose | undefined = extractPurposeChoice(
+    nav(pmtInfEl, 'PmtTpInf', 'CtgyPurp')
+  )
 
   return {
     id,
