@@ -17,6 +17,7 @@
  */
 
 import { XMLParser } from 'fast-xml-parser'
+import { detectSepaNamespace } from '../xmlns-detect.js'
 import {
   CreditTransferDocumentSchema,
   type CreditTransferDocument,
@@ -657,9 +658,16 @@ export function parse(xml: string): ParseResult {
     return { ok: false, error: 'Input is empty or whitespace only' }
   }
 
-  // Detect namespace from raw XML before parsing (regex on string is reliable)
-  const nsMatch = xml.match(/xmlns\s*=\s*["']([^"']+)["']/)
-  const ns = nsMatch ? (nsMatch[1] ?? null) : null
+  // Reject DOCTYPE/DTD declarations. SEPA documents never legitimately contain a
+  // DTD, and allowing them would expose the parser to XXE and entity-expansion
+  // attacks via the fast-xml-parser layer.
+  if (/<!DOCTYPE/i.test(xml)) {
+    return { ok: false, error: 'DOCTYPE/DTD is not permitted in SEPA documents' }
+  }
+
+  // Detect namespace anchored to the <Document> root element (strips comments first
+  // so a fake xmlns in a comment cannot steer detection). See src/xmlns-detect.ts.
+  const ns = detectSepaNamespace(xml)
 
   // Require an explicit xmlns declaration: no namespace means not a SEPA document
   if (ns === null) {
