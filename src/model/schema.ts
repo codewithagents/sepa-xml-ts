@@ -238,7 +238,154 @@ export const PostalAddressSchema = z
 export type PostalAddress = z.infer<typeof PostalAddressSchema>
 
 // ---------------------------------------------------------------------------
-// UltimateParty: name-only party for UltmtDbtr / UltmtCdtr
+// Party identification: structured Id for UltmtDbtr / UltmtCdtr
+// ---------------------------------------------------------------------------
+
+/**
+ * AnyBIC / BIC identifier (AnyBICDec2014Identifier in the XSD).
+ * Same lexical format as a BIC: 8 or 11 chars.
+ */
+const AnyBicSchema = z
+  .string()
+  .regex(/^[A-Z0-9]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/, 'Invalid BIC/AnyBIC format')
+
+/**
+ * Legal Entity Identifier (LEIIdentifier in the XSD): exactly 20 chars,
+ * 18 alphanumerics followed by 2 check digits.
+ */
+const LeiSchema = z
+  .string()
+  .regex(
+    /^[A-Z0-9]{18}[0-9]{2}$/,
+    'Invalid LEI format (expected 18 alphanumerics + 2 check digits)'
+  )
+
+/**
+ * Country code (CountryCode in the XSD): exactly 2 uppercase letters.
+ */
+const CountryCodeSchema = z
+  .string()
+  .regex(/^[A-Z]{2}$/, 'Country must be exactly 2 uppercase letters (ISO 3166-1 alpha-2)')
+
+/**
+ * A scheme-name code (SchmeNm/Cd): ExternalOrganisationIdentification1Code or
+ * ExternalPersonIdentification1Code. Both are open strings in the XSD (min 1,
+ * max 4), NOT enumerations, so we validate charset and length only and never
+ * reject against a published code list (same rationale as purpose codes).
+ */
+const SchemeNameCodeSchema = sepaText(4)
+
+/**
+ * A generic identifier (GenericOrganisationIdentification1 / GenericPersonIdentification1).
+ *
+ * Maps to Othr/Id (+ optional Othr/SchmeNm/Cd + optional Othr/Issr) in the XSD.
+ * Used by both the organisation and private identification shapes.
+ */
+export const GenericIdentificationSchema = z.object({
+  /** Identifier value (Othr/Id), max 35 chars, SEPA charset. */
+  id: sepaText(35),
+  /**
+   * Scheme name code (Othr/SchmeNm/Cd), 1-4 char external code. Optional.
+   * Emitted as Cd; proprietary scheme names (Prtry) are not modelled.
+   */
+  schemeName: SchemeNameCodeSchema.optional(),
+  /** Issuer of the identifier (Othr/Issr), max 35 chars, SEPA charset. Optional. */
+  issuer: sepaText(35).optional(),
+})
+
+export type GenericIdentification = z.infer<typeof GenericIdentificationSchema>
+
+/**
+ * Organisation identification (OrganisationIdentification29, the OrgId branch
+ * of Party38Choice).
+ *
+ * At least one of bic, lei, or other must be present (an empty OrgId is
+ * meaningless and not XSD-useful). The XSD element order is AnyBIC, LEI, Othr,
+ * which the writer follows.
+ */
+export const OrganisationIdentificationSchema = z
+  .object({
+    /** AnyBIC / business identifier code (OrgId/AnyBIC). Optional. */
+    bic: AnyBicSchema.optional(),
+    /** Legal Entity Identifier (OrgId/LEI). Optional. */
+    lei: LeiSchema.optional(),
+    /** Generic other identifier (OrgId/Othr). Optional. */
+    other: GenericIdentificationSchema.optional(),
+  })
+  .refine((o) => o.bic !== undefined || o.lei !== undefined || o.other !== undefined, {
+    message:
+      'OrganisationIdentification must set at least one of bic, lei, or other (an empty OrgId is not allowed)',
+  })
+
+export type OrganisationIdentification = z.infer<typeof OrganisationIdentificationSchema>
+
+/**
+ * Date and place of birth (DateAndPlaceOfBirth1).
+ *
+ * XSD element order: BirthDt, PrvcOfBirth (optional), CityOfBirth, CtryOfBirth.
+ * birthDate, cityOfBirth, and countryOfBirth are required by the XSD.
+ */
+export const DateAndPlaceOfBirthSchema = z.object({
+  /** Birth date (BirthDt), YYYY-MM-DD. */
+  birthDate: ISODateSchema,
+  /** Province of birth (PrvcOfBirth), max 35 chars, SEPA charset. Optional. */
+  provinceOfBirth: sepaText(35).optional(),
+  /** City of birth (CityOfBirth), max 35 chars, SEPA charset. */
+  cityOfBirth: sepaText(35),
+  /** Country of birth (CtryOfBirth), 2-letter ISO country code. */
+  countryOfBirth: CountryCodeSchema,
+})
+
+export type DateAndPlaceOfBirth = z.infer<typeof DateAndPlaceOfBirthSchema>
+
+/**
+ * Private (person) identification (PersonIdentification13, the PrvtId branch
+ * of Party38Choice).
+ *
+ * At least one of dateAndPlaceOfBirth or other must be present. The XSD element
+ * order is DtAndPlcOfBirth, Othr, which the writer follows.
+ */
+export const PrivateIdentificationSchema = z
+  .object({
+    /** Date and place of birth (PrvtId/DtAndPlcOfBirth). Optional. */
+    dateAndPlaceOfBirth: DateAndPlaceOfBirthSchema.optional(),
+    /** Generic other identifier (PrvtId/Othr). Optional. */
+    other: GenericIdentificationSchema.optional(),
+  })
+  .refine((p) => p.dateAndPlaceOfBirth !== undefined || p.other !== undefined, {
+    message:
+      'PrivateIdentification must set at least one of dateAndPlaceOfBirth or other (an empty PrvtId is not allowed)',
+  })
+
+export type PrivateIdentification = z.infer<typeof PrivateIdentificationSchema>
+
+/**
+ * Structured party identification (Party38Choice in the XSD): an organisation
+ * identifier (OrgId) XOR a private identifier (PrvtId), never both.
+ *
+ * Modelled as a single object with two optional branches plus an exactly-one
+ * refinement, rather than mirroring the XSD <choice> as a raw union, so it reads
+ * naturally and the writer can branch on which key is set.
+ */
+export const PartyIdentificationSchema = z
+  .object({
+    /** Organisation identifier (Id/OrgId). Mutually exclusive with privateId. */
+    organisationId: OrganisationIdentificationSchema.optional(),
+    /** Private (person) identifier (Id/PrvtId). Mutually exclusive with organisationId. */
+    privateId: PrivateIdentificationSchema.optional(),
+  })
+  .refine(
+    (id) => (id.organisationId !== undefined ? 1 : 0) + (id.privateId !== undefined ? 1 : 0) === 1,
+    {
+      message:
+        'A party identification must set exactly one of organisationId or privateId (Party38Choice is a choice of OrgId XOR PrvtId)',
+    }
+  )
+
+export type PartyIdentification = z.infer<typeof PartyIdentificationSchema>
+
+// ---------------------------------------------------------------------------
+// UltimateParty: party for UltmtDbtr / UltmtCdtr (name + optional structured Id)
 // ---------------------------------------------------------------------------
 
 /**
@@ -246,9 +393,10 @@ export type PostalAddress = z.infer<typeof PostalAddressSchema>
  * behalf a payment is ultimately made or received (common in factoring and
  * payment-service-provider flows).
  *
- * Name-only in this version (max 70 chars, SEPA charset). The XSD allows an
- * Id sub-element as well, but name-only is always XSD-valid and covers the
- * common case. Id extension is a follow-up.
+ * Carries a name (max 70 chars, SEPA charset) and an optional structured
+ * identifier (Id, Party38Choice: OrgId XOR PrvtId). Name-only is always
+ * XSD-valid and remains the common case; the id is purely additive and absent
+ * by default.
  *
  * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK
  * variants will throw a clear error if an ultimate party is present.
@@ -256,6 +404,12 @@ export type PostalAddress = z.infer<typeof PostalAddressSchema>
 export const UltimatePartySchema = z.object({
   /** Party name (max 70 chars, SEPA charset). */
   name: sepaText(70),
+  /**
+   * Structured party identification (Id), optional. Party38Choice: an
+   * organisation id (OrgId) XOR a private id (PrvtId). Emitted after Nm,
+   * matching PartyIdentification135 element order.
+   */
+  id: PartyIdentificationSchema.optional(),
 })
 
 export type UltimateParty = z.infer<typeof UltimatePartySchema>
