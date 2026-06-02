@@ -1,7 +1,7 @@
 {
   "name": "sepa-xml-ts",
   "version": "0.5.0",
-  "description": "Type-safe SEPA payment file library for pain.001, with output validated against the official ISO 20022 XSD.",
+  "description": "Type-safe SEPA payment file library for pain.001 credit transfers and pain.008 direct debits. Parse, write, and validate ISO 20022 XML with output verified against the official ISO 20022 XSD.",
   "license": "MIT",
   "author": "Benjamin Eckstein",
   "repository": {
@@ -13,8 +13,14 @@
   "keywords": [
     "sepa",
     "pain.001",
+    "pain.008",
     "iso20022",
     "credit-transfer",
+    "direct-debit",
+    "sepa-credit-transfer",
+    "sepa-direct-debit",
+    "sct",
+    "sdd",
     "xml",
     "zod",
     "typescript"
