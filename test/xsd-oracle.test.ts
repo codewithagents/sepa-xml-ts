@@ -89,7 +89,8 @@ const SEPA_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345
 /** Arbitrary for a clean SEPA text string of the given max length. */
 function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   return fc
-    .stringOf(fc.constantFrom(...SEPA_CHARSET.split('')), {
+    .string({
+      unit: fc.constantFrom(...SEPA_CHARSET.split('')),
       minLength: minLen,
       maxLength: maxLen,
     })
@@ -122,7 +123,8 @@ function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<stri
   const droppedSamples = '🎉🥳🌍你好مرحباПривет'
   const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
   return fc
-    .stringOf(fc.constantFrom(...[...mixedCharset]), {
+    .string({
+      unit: fc.constantFrom(...[...mixedCharset]),
       minLength: minLen + 5,
       maxLength: maxLen + 20,
     })
@@ -218,8 +220,9 @@ function arbLei(): fc.Arbitrary<string> {
   const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return fc
     .record({
-      body: fc.stringOf(fc.constantFrom(...ALNUM.split('')), { minLength: 18, maxLength: 18 }),
-      check: fc.stringOf(fc.constantFrom(...'0123456789'.split('')), {
+      body: fc.string({ unit: fc.constantFrom(...ALNUM.split('')), minLength: 18, maxLength: 18 }),
+      check: fc.string({
+        unit: fc.constantFrom(...'0123456789'.split('')),
         minLength: 2,
         maxLength: 2,
       }),
@@ -746,7 +749,8 @@ function arbCreditorId(): fc.Arbitrary<string> {
   const nonDeArb = fc
     .record({
       country: fc.constantFrom(...NON_DE_COUNTRIES),
-      nationalId: fc.stringOf(fc.constantFrom(...ALPHA_NUM.split('')), {
+      nationalId: fc.string({
+        unit: fc.constantFrom(...ALPHA_NUM.split('')),
         minLength: 1,
         maxLength: 10,
       }),
@@ -754,7 +758,7 @@ function arbCreditorId(): fc.Arbitrary<string> {
     .map(({ country, nationalId }) => buildCreditorId(country, 'ZZZ', nationalId))
   // DE: national ID must be exactly 11 chars so total length is exactly 18
   const deArb = fc
-    .stringOf(fc.constantFrom(...ALPHA_NUM.split('')), { minLength: 11, maxLength: 11 })
+    .string({ unit: fc.constantFrom(...ALPHA_NUM.split('')), minLength: 11, maxLength: 11 })
     .map((nationalId) => buildCreditorId('DE', 'ZZZ', nationalId))
   return fc.oneof(nonDeArb, deArb)
 }
@@ -1141,7 +1145,7 @@ describe('XSD Oracle: pain.001.001.09', () => {
       {
         numRuns: 200,
         verbose: false,
-        reporter: ({ failed, counterexample, error }) => {
+        reporter: ({ failed, counterexample, errorInstance }) => {
           if (failed) {
             throw new Error(
               `Property failed after ${runCount} runs.\n` +
@@ -1149,7 +1153,7 @@ describe('XSD Oracle: pain.001.001.09', () => {
                 `Counterexample: ${JSON.stringify(counterexample, (_, v) =>
                   typeof v === 'bigint' ? v.toString() + 'n' : v
                 )}\n` +
-                (error ? `Error: ${error}` : '')
+                (errorInstance ? `Error: ${errorInstance}` : '')
             )
           }
         },
@@ -1342,7 +1346,7 @@ describe('XSD Oracle: pain.008.001.08', () => {
       {
         numRuns: 200,
         verbose: false,
-        reporter: ({ failed, counterexample, error }) => {
+        reporter: ({ failed, counterexample, errorInstance }) => {
           if (failed) {
             throw new Error(
               `Property failed after ${runCount} runs.\n` +
@@ -1350,7 +1354,7 @@ describe('XSD Oracle: pain.008.001.08', () => {
                 `Counterexample: ${JSON.stringify(counterexample, (_, v) =>
                   typeof v === 'bigint' ? v.toString() + 'n' : v
                 )}\n` +
-                (error ? `Error: ${error}` : '')
+                (errorInstance ? `Error: ${errorInstance}` : '')
             )
           }
         },

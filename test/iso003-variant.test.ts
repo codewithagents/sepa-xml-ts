@@ -384,7 +384,11 @@ const SEPA_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345
 
 function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   return fc
-    .stringOf(fc.constantFrom(...SEPA_CHARSET.split('')), { minLength: minLen, maxLength: maxLen })
+    .string({
+      unit: fc.constantFrom(...SEPA_CHARSET.split('')),
+      minLength: minLen,
+      maxLength: maxLen,
+    })
     .map((s) => s.trim())
     .filter((s) => s.length >= minLen)
 }
@@ -413,7 +417,8 @@ function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<stri
   const droppedSamples = '🎉🥳🌍你好مرحباПривет'
   const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
   return fc
-    .stringOf(fc.constantFrom(...[...mixedCharset]), {
+    .string({
+      unit: fc.constantFrom(...[...mixedCharset]),
       minLength: minLen + 5,
       maxLength: maxLen + 20,
     })
@@ -581,7 +586,7 @@ describe('XSD Oracle: pain.001.001.03 (numRuns=200)', () => {
       {
         numRuns: 200,
         verbose: false,
-        reporter: ({ failed, counterexample, error }) => {
+        reporter: ({ failed, counterexample, errorInstance }) => {
           if (failed) {
             throw new Error(
               `Property failed after ${runCount} runs.\n` +
@@ -589,7 +594,7 @@ describe('XSD Oracle: pain.001.001.03 (numRuns=200)', () => {
                 `Counterexample: ${JSON.stringify(counterexample, (_, v) =>
                   typeof v === 'bigint' ? v.toString() + 'n' : v
                 )}\n` +
-                (error ? `Error: ${error}` : '')
+                (errorInstance ? `Error: ${errorInstance}` : '')
             )
           }
         },
