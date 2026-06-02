@@ -4,6 +4,7 @@ description: What sepa-xml-ts is, what it provides, and the philosophy behind it
 ---
 
 import { Aside } from '@astrojs/starlight/components'
+import { PackageManagers } from 'starlight-package-managers'
 
 `sepa-xml-ts` is a TypeScript library for producing and consuming SEPA payment files. It covers
 three operations behind one type-safe model:
@@ -14,11 +15,7 @@ three operations behind one type-safe model:
 
 ## Install
 
-```bash
-npm install sepa-xml-ts
-# or
-pnpm add sepa-xml-ts
-```
+<PackageManagers pkg="sepa-xml-ts" />
 
 ESM-only. Ships its own TypeScript declarations. Node 18+ required.
 

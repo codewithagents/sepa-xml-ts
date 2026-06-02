@@ -4,6 +4,7 @@ description: Build a CreditTransferDocument, validate it, write it to XML, and p
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components'
+import { PackageManagers } from 'starlight-package-managers'
 
 This guide walks through the full round-trip: build a model, validate it, write it to pain.001
 XML, and parse it back into the original model.
@@ -12,9 +13,7 @@ XML, and parse it back into the original model.
 
 1. **Install.**
 
-   ```bash
-   npm install sepa-xml-ts
-   ```
+   <PackageManagers pkg="sepa-xml-ts" />
 
 2. **Build a CreditTransferDocument.**
 
