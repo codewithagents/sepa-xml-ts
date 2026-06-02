@@ -28,6 +28,7 @@ import {
   Aside,
   LinkButton,
 } from '@astrojs/starlight/components'
+import { PackageManagers } from 'starlight-package-managers'
 
 ---
 
@@ -161,11 +162,7 @@ if (!xsdResult.valid) {
 
 1. **Install the package.**
 
-   ```bash
-   npm install sepa-xml-ts
-   # or
-   pnpm add sepa-xml-ts
-   ```
+   <PackageManagers pkg="sepa-xml-ts" />
 
    ESM-only, ships its own type declarations. Node 18+.
 
