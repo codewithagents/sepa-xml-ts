@@ -395,6 +395,196 @@ describe('R4: sameMandateNewDebtorAccount=true requires FRST sequenceType', () =
 })
 
 // ---------------------------------------------------------------------------
+// #19: full AmendmentInformationDetails13 fields
+// ---------------------------------------------------------------------------
+
+/** Write, assert XSD-valid, parse, and assert round-trip deep-equal for one amendment. */
+async function expectAmendmentRoundTrips(
+  amendment: DirectDebitDocument['batches'][0]['collections'][0]['mandate']['amendment']
+): Promise<string> {
+  const doc = makeDoc({ amendment })
+  const xml = writeDirectDebit(doc)
+  const result = await validateXsd(xml)
+  expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+  const parsed = parse(xml)
+  expect(parsed.ok).toBe(true)
+  if (!parsed.ok) throw new Error('parse failed: ' + parsed.error)
+  if (parsed.type !== 'pain.008') throw new Error('unexpected type')
+  expect(parsed.data).toEqual(doc)
+  return xml
+}
+
+describe('#19: originalCreditorSchemeId (OrgnlCdtrSchmeId)', () => {
+  it('emits Nm and the SEPA creditor id, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({
+      originalCreditorSchemeId: { name: 'Old Creditor', creditorId: 'DE98ZZZ09999999999' },
+    })
+    expect(xml).toContain('<OrgnlCdtrSchmeId>')
+    expect(xml).toContain('<Nm>Old Creditor</Nm>')
+    expect(xml).toContain('<Id>DE98ZZZ09999999999</Id>')
+    expect(xml).toContain('<Prtry>SEPA</Prtry>')
+  })
+
+  it('emits the creditor id alone (no name) and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({
+      originalCreditorSchemeId: { creditorId: 'DE98ZZZ09999999999' },
+    })
+    expect(xml).toContain('<OrgnlCdtrSchmeId>')
+    expect(xml).toContain('<Id>DE98ZZZ09999999999</Id>')
+  })
+
+  it('rejects an empty originalCreditorSchemeId (neither name nor creditorId)', () => {
+    const result = DirectDebitDocumentSchema.safeParse(
+      makeDoc({ amendment: { originalCreditorSchemeId: {} as never } })
+    )
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    const messages = result.error.issues.map((i) => i.message).join('; ')
+    expect(messages).toMatch(/at least one of name or creditorId/)
+  })
+
+  it('rejects an originalCreditorSchemeId with an invalid creditor id (bad check digits)', () => {
+    const result = DirectDebitDocumentSchema.safeParse(
+      makeDoc({ amendment: { originalCreditorSchemeId: { creditorId: 'DE00ZZZ09999999999' } } })
+    )
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('#19: originalDebtor (OrgnlDbtr)', () => {
+  it('emits OrgnlDbtr/Nm, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({ originalDebtor: { name: 'Former Debtor' } })
+    expect(xml).toContain('<OrgnlDbtr>')
+    expect(xml).toContain('<Nm>Former Debtor</Nm>')
+  })
+})
+
+describe('#19: originalDebtorAgent (OrgnlDbtrAgt/FinInstnId/BICFI)', () => {
+  it('emits a real agent BICFI, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({ originalDebtorAgent: 'BANKDEFFXXX' })
+    expect(xml).toContain('<OrgnlDbtrAgt>')
+    expect(xml).toContain('<BICFI>BANKDEFFXXX</BICFI>')
+    expect(xml).not.toContain('SMNDA')
+  })
+
+  it('rejects originalDebtorAgent + SMNDA (both serialize to OrgnlDbtrAgt)', () => {
+    const result = DirectDebitDocumentSchema.safeParse(
+      makeDoc({
+        amendment: { originalDebtorAgent: 'BANKDEFFXXX', sameMandateNewDebtorAccount: true },
+      })
+    )
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    const messages = result.error.issues.map((i) => i.message).join('; ')
+    expect(messages).toMatch(/mutually exclusive/)
+  })
+
+  it('SMNDA still emits the SMNDA marker (not a BICFI) inside OrgnlDbtrAgt', () => {
+    const doc = makeDoc({ amendment: { sameMandateNewDebtorAccount: true } })
+    const xml = writeDirectDebit(doc)
+    expect(xml).toContain('<Id>SMNDA</Id>')
+    // The OrgnlDbtrAgt block must carry the SMNDA marker, never a BICFI.
+    const start = xml.indexOf('<OrgnlDbtrAgt>')
+    const end = xml.indexOf('</OrgnlDbtrAgt>')
+    const block = xml.slice(start, end)
+    expect(block).toContain('SMNDA')
+    expect(block).not.toContain('<BICFI>')
+  })
+})
+
+describe('#19: originalFinalCollectionDate (OrgnlFnlColltnDt)', () => {
+  it('emits OrgnlFnlColltnDt, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({ originalFinalCollectionDate: '2025-12-31' })
+    expect(xml).toContain('<OrgnlFnlColltnDt>2025-12-31</OrgnlFnlColltnDt>')
+  })
+})
+
+describe('#19: originalFrequency (OrgnlFrqcy/Tp)', () => {
+  it('emits OrgnlFrqcy/Tp, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({ originalFrequency: 'MNTH' })
+    expect(xml).toContain('<OrgnlFrqcy>')
+    expect(xml).toContain('<Tp>MNTH</Tp>')
+  })
+
+  it('rejects an out-of-enum frequency code', () => {
+    const result = DirectDebitDocumentSchema.safeParse(
+      makeDoc({ amendment: { originalFrequency: 'NOPE' as never } })
+    )
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('#19: originalReason (OrgnlRsn)', () => {
+  it('emits OrgnlRsn/Cd for a code reason, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({ originalReason: 'PAYR' })
+    expect(xml).toContain('<OrgnlRsn>')
+    expect(xml).toContain('<Cd>PAYR</Cd>')
+  })
+
+  it('emits OrgnlRsn/Prtry for a proprietary reason, is XSD-valid, and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({
+      originalReason: { proprietary: 'Customer requested change of terms' },
+    })
+    expect(xml).toContain('<OrgnlRsn>')
+    expect(xml).toContain('<Prtry>Customer requested change of terms</Prtry>')
+  })
+})
+
+describe('#19: all new fields together emit in strict XSD order and round-trip', () => {
+  it('emits children in AmendmentInformationDetails13 sequence and round-trips', async () => {
+    const xml = await expectAmendmentRoundTrips({
+      originalMandateId: 'OLD-MAND',
+      originalCreditorSchemeId: { name: 'Old Cdtr', creditorId: 'DE98ZZZ09999999999' },
+      originalDebtor: { name: 'Old Debtor' },
+      originalDebtorAccount: DEBTOR_IBAN_2,
+      originalFinalCollectionDate: '2025-12-31',
+      originalFrequency: 'YEAR',
+      originalReason: 'PAYR',
+    })
+    // Verify the element order matches the AmendmentInformationDetails13 sequence.
+    const order = [
+      '<OrgnlMndtId>',
+      '<OrgnlCdtrSchmeId>',
+      '<OrgnlDbtr>',
+      '<OrgnlDbtrAcct>',
+      '<OrgnlFnlColltnDt>',
+      '<OrgnlFrqcy>',
+      '<OrgnlRsn>',
+    ]
+    let last = -1
+    for (const tag of order) {
+      const idx = xml.indexOf(tag)
+      expect(idx, `${tag} present`).toBeGreaterThan(-1)
+      expect(idx, `${tag} after previous`).toBeGreaterThan(last)
+      last = idx
+    }
+  })
+
+  it('still requires at least one meaningful detail (empty object rejected)', () => {
+    const result = DirectDebitDocumentSchema.safeParse(makeDoc({ amendment: {} as never }))
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('#19: DK variant throws for the new amendment fields', () => {
+  it('throws for originalFrequency under pain.008.003.02', () => {
+    const doc = makeDoc({ amendment: { originalFrequency: 'MNTH' } })
+    expect(() => writeDirectDebit(doc, { variant: 'pain.008.003.02' })).toThrow(
+      /mandate amendment is not yet supported for variant pain\.008\.003\.02/
+    )
+  })
+
+  it('throws for originalCreditorSchemeId under pain.008.003.02', () => {
+    const doc = makeDoc({
+      amendment: { originalCreditorSchemeId: { creditorId: 'DE98ZZZ09999999999' } },
+    })
+    expect(() => writeDirectDebit(doc, { variant: 'pain.008.003.02' })).toThrow(
+      /mandate amendment is not yet supported for variant pain\.008\.003\.02/
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Fail-loud: DK variant (pain.008.003.02) throws when amendment is present
 // ---------------------------------------------------------------------------
 

@@ -168,24 +168,90 @@ export type Creditor = z.infer<typeof CreditorSchema>
 // ---------------------------------------------------------------------------
 
 /**
+ * SEPA original mandate frequency code (AmdmntInfDtls/OrgnlFrqcy/Tp).
+ * Maps to Frequency36Choice with the Tp branch (Frequency6Code enumeration).
+ * We support the Tp (code) branch only, which is XSD-valid; the Prd and PtInTm
+ * branches are a documented follow-up.
+ */
+export const FrequencyCodeSchema = z.enum([
+  'YEAR',
+  'MNTH',
+  'QURT',
+  'MIAN',
+  'WEEK',
+  'DAIL',
+  'ADHO',
+  'INDA',
+  'FRTN',
+])
+export type FrequencyCode = z.infer<typeof FrequencyCodeSchema>
+
+/**
+ * Original mandate setup reason (AmdmntInfDtls/OrgnlRsn), MandateSetupReason1Choice: Cd XOR Prtry.
+ *
+ * A plain string is the Cd code path (ExternalMandateSetupReason1Code, an open string of
+ * 1..4 chars, NOT an enumeration, so we validate charset and length only and do NOT check
+ * membership against the externally-published ISO list). An object { proprietary } is the
+ * Prtry path (Max70Text). The two shapes are structurally disjoint (string vs object), so
+ * the union itself enforces "exactly one", matching the XSD choice.
+ */
+const MandateReasonCodeSchema = sepaText(4)
+const MandateReasonProprietarySchema = z.object({
+  /** Proprietary reason value (Prtry), max 70 chars, SEPA charset. */
+  proprietary: sepaText(70),
+})
+export const MandateSetupReasonSchema = z.union([
+  MandateReasonCodeSchema,
+  MandateReasonProprietarySchema,
+])
+export type MandateSetupReason = z.infer<typeof MandateSetupReasonSchema>
+
+/**
+ * Original creditor scheme identification (AmdmntInfDtls/OrgnlCdtrSchmeId).
+ *
+ * Maps to PartyIdentification135. We support a name (Nm) and the SEPA Creditor Identifier
+ * (Id/PrvtId/Othr/Id with SchmeNm/Prtry=SEPA), which is the common SDD usage. At least one
+ * of name or creditorId must be present (an empty element carries no information).
+ * The creditorId reuses the same ISO 7064 MOD 97-10 validation as the document creditor.
+ */
+const OriginalCreditorSchemeIdSchema = z
+  .object({
+    /** Original creditor scheme name (OrgnlCdtrSchmeId/Nm), max 70 chars, SEPA charset. */
+    name: sepaText(70).optional(),
+    /**
+     * Original SEPA Creditor Identifier (OrgnlCdtrSchmeId/Id/PrvtId/Othr/Id).
+     * Validated by format and ISO 7064 MOD 97-10 check digit, same as the document creditor.
+     */
+    creditorId: CreditorIdSchema.optional(),
+  })
+  .refine((s) => s.name !== undefined || s.creditorId !== undefined, {
+    message:
+      'originalCreditorSchemeId must set at least one of name or creditorId (an empty element carries no information)',
+  })
+
+/**
  * Mandate amendment details (maps to DrctDbtTx/MndtRltdInf/AmdmntInfDtls).
  *
  * When a mandate's details change (new debtor account, new mandate id at the creditor,
  * or the same mandate moving to a new account at the same bank via SMNDA), the file
  * carries AmdmntInd=true and this record inside AmdmntInfDtls.
  *
- * Minimal common-case fields only. The remaining AmendmentInformationDetails13 sub-fields
- * (original creditor scheme id, original debtor name/agent, frequency, final collection
- * date, reason) are not modelled here and are a documented follow-up.
+ * Covers the AmendmentInformationDetails13 fields that carry common SDD amendment data:
+ * originalMandateId, originalCreditorSchemeId, originalDebtor, originalDebtorAccount,
+ * originalDebtorAgent (BIC) / sameMandateNewDebtorAccount (SMNDA), originalFinalCollectionDate,
+ * originalFrequency, originalReason. The OrgnlCdtrAgt(Acct), OrgnlDbtrAgtAcct and OrgnlTrckgDays
+ * sub-fields are not modelled here and are a documented follow-up.
  *
  * Validation invariants (enforced as Zod refinements):
  * 1. originalDebtorAccount, when present, must be a valid IBAN.
- * 2. At least one detail must be meaningful: at least one of originalMandateId,
- *    originalDebtorAccount, or sameMandateNewDebtorAccount===true must be present.
+ * 2. At least one detail must be meaningful: at least one amendment field must be present.
  *    An empty or all-false object is rejected.
  * 3. originalDebtorAccount and sameMandateNewDebtorAccount===true are mutually exclusive:
  *    SMNDA means "same bank, new account, account not disclosed", so providing an
  *    explicit old account contradicts it.
+ * 4. originalDebtorAgent (a real BIC) and sameMandateNewDebtorAccount===true are mutually
+ *    exclusive: both serialize to OrgnlDbtrAgt and the XSD allows only one, so the SMNDA
+ *    marker and an explicit agent BIC cannot coexist.
  */
 const MandateAmendmentSchema = z
   .object({
@@ -195,30 +261,70 @@ const MandateAmendmentSchema = z
      */
     originalMandateId: SepaMax35Text.optional(),
     /**
+     * Original creditor scheme identification (AmdmntInfDtls/OrgnlCdtrSchmeId).
+     * Present when the creditor identifier or name changes. PartyIdentification135.
+     */
+    originalCreditorSchemeId: OriginalCreditorSchemeIdSchema.optional(),
+    /**
+     * Original debtor (AmdmntInfDtls/OrgnlDbtr), name only first cut (PartyIdentification135/Nm).
+     * Present when the debtor party name changes.
+     */
+    originalDebtor: z.object({ name: sepaText(70) }).optional(),
+    /**
      * Original debtor account IBAN (AmdmntInfDtls/OrgnlDbtrAcct/Id/IBAN).
      * Present when the debtor's bank account changes. Must be a valid IBAN.
      */
     originalDebtorAccount: IBANSchema.optional(),
     /**
+     * Original debtor agent BIC (AmdmntInfDtls/OrgnlDbtrAgt/FinInstnId/BICFI).
+     * Present when the debtor's bank changes and the original bank is disclosed.
+     * Mutually exclusive with sameMandateNewDebtorAccount: both serialize to OrgnlDbtrAgt
+     * and the XSD allows only one occurrence.
+     */
+    originalDebtorAgent: BICSchema.optional(),
+    /**
      * Same Mandate New Debtor Account (SMNDA) flag.
      * Maps to AmdmntInfDtls/OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA".
      * Signals that the mandate stays the same but the debtor opens a new account
      * at the same bank. The old account number is not disclosed.
-     * Mutually exclusive with originalDebtorAccount.
+     * Mutually exclusive with originalDebtorAccount and originalDebtorAgent.
      * When true, the batch sequenceType MUST be FRST (enforced by R4 in dd-rules.ts
      * and by the writer before emitting XML).
      */
     sameMandateNewDebtorAccount: z.boolean().optional(),
+    /**
+     * Original final collection date (AmdmntInfDtls/OrgnlFnlColltnDt), YYYY-MM-DD.
+     * The previously-agreed final collection date of the mandate.
+     */
+    originalFinalCollectionDate: ISODateSchema.optional(),
+    /**
+     * Original frequency (AmdmntInfDtls/OrgnlFrqcy/Tp), Frequency6Code.
+     * The previously-agreed collection frequency, e.g. MNTH or YEAR.
+     */
+    originalFrequency: FrequencyCodeSchema.optional(),
+    /**
+     * Original mandate setup reason (AmdmntInfDtls/OrgnlRsn), MandateSetupReason1Choice.
+     * A plain string is the Cd path (1..4 chars); an object { proprietary } is the Prtry path.
+     */
+    originalReason: MandateSetupReasonSchema.optional(),
   })
   .refine(
     (a) =>
       a.originalMandateId !== undefined ||
+      a.originalCreditorSchemeId !== undefined ||
+      a.originalDebtor !== undefined ||
       a.originalDebtorAccount !== undefined ||
-      a.sameMandateNewDebtorAccount === true,
+      a.originalDebtorAgent !== undefined ||
+      a.sameMandateNewDebtorAccount === true ||
+      a.originalFinalCollectionDate !== undefined ||
+      a.originalFrequency !== undefined ||
+      a.originalReason !== undefined,
     {
       message:
         'A mandate amendment must contain at least one meaningful detail: ' +
-        'set originalMandateId, originalDebtorAccount, or sameMandateNewDebtorAccount=true',
+        'set originalMandateId, originalCreditorSchemeId, originalDebtor, originalDebtorAccount, ' +
+        'originalDebtorAgent, sameMandateNewDebtorAccount=true, originalFinalCollectionDate, ' +
+        'originalFrequency, or originalReason',
     }
   )
   .refine(
@@ -229,6 +335,12 @@ const MandateAmendmentSchema = z
         'SMNDA signals the old account is not disclosed, so providing an explicit original IBAN contradicts it',
     }
   )
+  .refine((a) => !(a.originalDebtorAgent !== undefined && a.sameMandateNewDebtorAccount === true), {
+    message:
+      'originalDebtorAgent and sameMandateNewDebtorAccount=true are mutually exclusive: ' +
+      'both serialize to OrgnlDbtrAgt and the XSD allows only one, so the SMNDA marker and an ' +
+      'explicit agent BIC cannot coexist',
+  })
 
 export type MandateAmendment = z.infer<typeof MandateAmendmentSchema>
 

@@ -25,6 +25,7 @@ import {
   DirectDebitDocumentSchema,
   type DirectDebitDocument,
   type Mandate,
+  type MandateAmendment,
 } from '../model/pain008.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
 import {
@@ -197,14 +198,120 @@ export function writeDirectDebit(
 // XSD order (MandateRelatedInformation14 sequence):
 //   MndtId, DtOfSgntr, AmdmntInd, AmdmntInfDtls, ElctrncSgntr, FrstColltnDt, ...
 //
-// AmdmntInfDtls order (AmendmentInformationDetails13 sequence, relevant children):
-//   OrgnlMndtId, OrgnlCdtrSchmeId(skip), OrgnlCdtrAgt(skip), OrgnlCdtrAgtAcct(skip),
-//   OrgnlDbtr(skip), OrgnlDbtrAcct, OrgnlDbtrAgt, ...
+// AmdmntInfDtls order (AmendmentInformationDetails13 sequence, confirmed against
+// pain.008.001.08.xsd lines 52-67):
+//   OrgnlMndtId, OrgnlCdtrSchmeId, OrgnlCdtrAgt(skip), OrgnlCdtrAgtAcct(skip),
+//   OrgnlDbtr, OrgnlDbtrAcct, OrgnlDbtrAgt, OrgnlDbtrAgtAcct(skip),
+//   OrgnlFnlColltnDt, OrgnlFrqcy, OrgnlRsn, OrgnlTrckgDays(skip)
 //
 // SMNDA path: OrgnlDbtrAgt/FinInstnId/Othr/Id = "SMNDA"
 // (BranchAndFinancialInstitutionIdentification6/FinancialInstitutionIdentification18/
 //  GenericFinancialIdentification1/Id, confirmed against pain.008.001.08.xsd)
 // ---------------------------------------------------------------------------
+
+const AMD_INDENT = '              '
+
+/** Emit OrgnlCdtrSchmeId (PartyIdentification135: Nm and/or Id/PrvtId/Othr/Id with SchmeNm/Prtry=SEPA). */
+function emitOrgnlCdtrSchmeId(
+  lines: string[],
+  scheme: MandateAmendment['originalCreditorSchemeId']
+): void {
+  if (scheme === undefined) return
+  lines.push(`${AMD_INDENT}<OrgnlCdtrSchmeId>`)
+  if (scheme.name !== undefined) {
+    lines.push(`${AMD_INDENT}  <Nm>${xe(scheme.name)}</Nm>`)
+  }
+  if (scheme.creditorId !== undefined) {
+    lines.push(`${AMD_INDENT}  <Id>`)
+    lines.push(`${AMD_INDENT}    <PrvtId>`)
+    lines.push(`${AMD_INDENT}      <Othr>`)
+    lines.push(`${AMD_INDENT}        <Id>${xe(scheme.creditorId)}</Id>`)
+    lines.push(`${AMD_INDENT}        <SchmeNm>`)
+    lines.push(`${AMD_INDENT}          <Prtry>SEPA</Prtry>`)
+    lines.push(`${AMD_INDENT}        </SchmeNm>`)
+    lines.push(`${AMD_INDENT}      </Othr>`)
+    lines.push(`${AMD_INDENT}    </PrvtId>`)
+    lines.push(`${AMD_INDENT}  </Id>`)
+  }
+  lines.push(`${AMD_INDENT}</OrgnlCdtrSchmeId>`)
+}
+
+/** Emit OrgnlDbtrAcct/Id/IBAN. */
+function emitOrgnlDbtrAcct(lines: string[], iban: string | undefined): void {
+  if (iban === undefined) return
+  lines.push(`${AMD_INDENT}<OrgnlDbtrAcct>`)
+  lines.push(`${AMD_INDENT}  <Id>`)
+  lines.push(`${AMD_INDENT}    <IBAN>${xe(iban)}</IBAN>`)
+  lines.push(`${AMD_INDENT}  </Id>`)
+  lines.push(`${AMD_INDENT}</OrgnlDbtrAcct>`)
+}
+
+/**
+ * Emit OrgnlDbtrAgt. Reconciles SMNDA with a real agent BIC (mutually exclusive by schema):
+ * SMNDA emits FinInstnId/Othr/Id="SMNDA"; a real agent emits FinInstnId/BICFI.
+ */
+function emitOrgnlDbtrAgt(lines: string[], amd: MandateAmendment): void {
+  if (amd.sameMandateNewDebtorAccount === true) {
+    lines.push(`${AMD_INDENT}<OrgnlDbtrAgt>`)
+    lines.push(`${AMD_INDENT}  <FinInstnId>`)
+    lines.push(`${AMD_INDENT}    <Othr>`)
+    lines.push(`${AMD_INDENT}      <Id>SMNDA</Id>`)
+    lines.push(`${AMD_INDENT}    </Othr>`)
+    lines.push(`${AMD_INDENT}  </FinInstnId>`)
+    lines.push(`${AMD_INDENT}</OrgnlDbtrAgt>`)
+    return
+  }
+  if (amd.originalDebtorAgent !== undefined) {
+    lines.push(`${AMD_INDENT}<OrgnlDbtrAgt>`)
+    lines.push(`${AMD_INDENT}  <FinInstnId>`)
+    lines.push(`${AMD_INDENT}    <BICFI>${xe(amd.originalDebtorAgent)}</BICFI>`)
+    lines.push(`${AMD_INDENT}  </FinInstnId>`)
+    lines.push(`${AMD_INDENT}</OrgnlDbtrAgt>`)
+  }
+}
+
+/** Emit OrgnlRsn (MandateSetupReason1Choice: Cd string XOR { proprietary }). */
+function emitOrgnlRsn(lines: string[], reason: MandateAmendment['originalReason']): void {
+  if (reason === undefined) return
+  lines.push(`${AMD_INDENT}<OrgnlRsn>`)
+  if (typeof reason === 'string') {
+    lines.push(`${AMD_INDENT}  <Cd>${xe(reason)}</Cd>`)
+  } else {
+    lines.push(`${AMD_INDENT}  <Prtry>${xe(reason.proprietary)}</Prtry>`)
+  }
+  lines.push(`${AMD_INDENT}</OrgnlRsn>`)
+}
+
+/**
+ * Emit the AmdmntInfDtls block in strict AmendmentInformationDetails13 element order.
+ * Each child is conditional; absent children emit nothing.
+ */
+function emitAmdmntInfDtls08(lines: string[], amd: MandateAmendment): void {
+  lines.push(`            <AmdmntInfDtls>`)
+  if (amd.originalMandateId !== undefined) {
+    lines.push(`${AMD_INDENT}<OrgnlMndtId>${xe(amd.originalMandateId)}</OrgnlMndtId>`)
+  }
+  emitOrgnlCdtrSchmeId(lines, amd.originalCreditorSchemeId)
+  if (amd.originalDebtor !== undefined) {
+    lines.push(`${AMD_INDENT}<OrgnlDbtr>`)
+    lines.push(`${AMD_INDENT}  <Nm>${xe(amd.originalDebtor.name)}</Nm>`)
+    lines.push(`${AMD_INDENT}</OrgnlDbtr>`)
+  }
+  emitOrgnlDbtrAcct(lines, amd.originalDebtorAccount)
+  emitOrgnlDbtrAgt(lines, amd)
+  if (amd.originalFinalCollectionDate !== undefined) {
+    lines.push(
+      `${AMD_INDENT}<OrgnlFnlColltnDt>${xe(amd.originalFinalCollectionDate)}</OrgnlFnlColltnDt>`
+    )
+  }
+  if (amd.originalFrequency !== undefined) {
+    lines.push(`${AMD_INDENT}<OrgnlFrqcy>`)
+    lines.push(`${AMD_INDENT}  <Tp>${amd.originalFrequency}</Tp>`)
+    lines.push(`${AMD_INDENT}</OrgnlFrqcy>`)
+  }
+  emitOrgnlRsn(lines, amd.originalReason)
+  lines.push(`            </AmdmntInfDtls>`)
+}
 
 /**
  * Emit the MndtRltdInf block for pain.008.001.08.
@@ -218,34 +325,8 @@ function emitMndtRltdInf08(lines: string[], mandate: Mandate): void {
   lines.push(`            <DtOfSgntr>${xe(mandate.signatureDate)}</DtOfSgntr>`)
 
   if (mandate.amendment !== undefined) {
-    const amd = mandate.amendment
     lines.push(`            <AmdmntInd>true</AmdmntInd>`)
-    lines.push(`            <AmdmntInfDtls>`)
-    // OrgnlMndtId: first in AmendmentInformationDetails13 sequence
-    if (amd.originalMandateId !== undefined) {
-      lines.push(`              <OrgnlMndtId>${xe(amd.originalMandateId)}</OrgnlMndtId>`)
-    }
-    // OrgnlDbtrAcct: after OrgnlDbtr (which we skip) in the sequence
-    if (amd.originalDebtorAccount !== undefined) {
-      lines.push(`              <OrgnlDbtrAcct>`)
-      lines.push(`                <Id>`)
-      lines.push(`                  <IBAN>${xe(amd.originalDebtorAccount)}</IBAN>`)
-      lines.push(`                </Id>`)
-      lines.push(`              </OrgnlDbtrAcct>`)
-    }
-    // OrgnlDbtrAgt: after OrgnlDbtrAcct. SMNDA = "SMNDA" in FinInstnId/Othr/Id.
-    // Path: BranchAndFinancialInstitutionIdentification6/FinancialInstitutionIdentification18/
-    //       GenericFinancialIdentification1/Id (confirmed against pain.008.001.08.xsd)
-    if (amd.sameMandateNewDebtorAccount === true) {
-      lines.push(`              <OrgnlDbtrAgt>`)
-      lines.push(`                <FinInstnId>`)
-      lines.push(`                  <Othr>`)
-      lines.push(`                    <Id>SMNDA</Id>`)
-      lines.push(`                  </Othr>`)
-      lines.push(`                </FinInstnId>`)
-      lines.push(`              </OrgnlDbtrAgt>`)
-    }
-    lines.push(`            </AmdmntInfDtls>`)
+    emitAmdmntInfDtls08(lines, mandate.amendment)
   }
 
   lines.push(`          </MndtRltdInf>`)
