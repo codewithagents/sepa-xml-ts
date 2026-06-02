@@ -51,9 +51,11 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       # Node 22 ships npm 10.x, which does not implement OIDC Trusted Publishing.
-      # OIDC auth requires npm 11.5.1+, so upgrade to latest before publishing.
-      - name: Upgrade npm to latest (OIDC Trusted Publishing requires >=11.5.1)
-        run: npm install -g npm@latest
+      # OIDC auth requires npm 11.5.1+, so pin a known-good version before publishing.
+      # Pinned (not @latest) so a compromised npm release cannot run unreviewed code
+      # in this privileged id-token: write job. Bump deliberately via PR.
+      - name: Upgrade npm to pinned version (OIDC Trusted Publishing requires >=11.5.1)
+        run: npm install -g npm@11.5.1
       # setup-node injects NODE_AUTH_TOKEN into .npmrc, which blocks OIDC.
       # Remove it so npm falls back to the OIDC token exchange.
       - name: Remove injected auth token (npm will use OIDC Trusted Publishing)
