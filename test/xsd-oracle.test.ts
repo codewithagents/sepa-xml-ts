@@ -27,6 +27,8 @@ import type {
   PaymentBatch,
   PostalAddress,
   UltimateParty,
+  PartyIdentification,
+  GenericIdentification,
   StructuredRemittance,
 } from '../src/model/schema.js'
 import type {
@@ -208,14 +210,119 @@ function withOptionalAddress<T extends object>(party: T, address: PostalAddress 
 }
 
 /**
- * Arbitrary for an optional UltimateParty (name only, max 70 chars, SEPA charset).
- * Uses arbSepaText to guarantee names survive XML round-trip (no trailing whitespace,
- * SEPA charset only). The fc.option with nil:undefined produces undefined ~50% of
- * the time so the absent-case is well exercised.
+ * Arbitrary for a valid LEI (18 alphanumerics + 2 check digits). Format-valid only:
+ * our LEI validation checks the lexical pattern, not the ISO 17442 check digits.
+ */
+function arbLei(): fc.Arbitrary<string> {
+  const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return fc
+    .record({
+      body: fc.stringOf(fc.constantFrom(...ALNUM.split('')), { minLength: 18, maxLength: 18 }),
+      check: fc.stringOf(fc.constantFrom(...'0123456789'.split('')), {
+        minLength: 2,
+        maxLength: 2,
+      }),
+    })
+    .map(({ body, check }) => body + check)
+}
+
+/**
+ * Arbitrary for a generic identifier (Othr): Id plus optional SchmeNm/Cd and Issr.
+ * All text uses the trimmed SEPA charset so it survives the XML round-trip. Absent
+ * keys are stripped to match what the parser returns (no undefined-valued keys).
+ */
+function arbGenericIdentification(): fc.Arbitrary<GenericIdentification> {
+  return fc
+    .record({
+      id: arbSepaText(1, 35),
+      schemeName: fc.option(arbSepaText(1, 4), { nil: undefined }),
+      issuer: fc.option(arbSepaText(1, 35), { nil: undefined }),
+    })
+    .map(({ id, schemeName, issuer }) => {
+      const out: GenericIdentification = { id }
+      if (schemeName !== undefined) out.schemeName = schemeName
+      if (issuer !== undefined) out.issuer = issuer
+      return out
+    })
+}
+
+/**
+ * Arbitrary for a structured party identification (Party38Choice): exactly one of
+ * an organisation id (OrgId) or a private id (PrvtId).
+ *
+ * Constraints that keep it round-trip-safe and XSD-valid:
+ * - bic uses the known-good BIC constants; lei is format-valid (pattern only).
+ * - At least one branch field is always set (the model rejects empty OrgId/PrvtId).
+ * - birthDate uses arbDate; countryOfBirth is a valid 2-letter code.
+ * - Absent optional keys are stripped so the generated model deep-equals the parsed one.
+ */
+function arbPartyIdentification(): fc.Arbitrary<PartyIdentification> {
+  const arbOrg = fc
+    .record({
+      bic: fc.option(arbBic(), { nil: undefined }),
+      lei: fc.option(arbLei(), { nil: undefined }),
+      other: fc.option(arbGenericIdentification(), { nil: undefined }),
+    })
+    // Guarantee at least one field is set (empty OrgId is rejected by the model).
+    .filter((o) => o.bic !== undefined || o.lei !== undefined || o.other !== undefined)
+    .map((o) => {
+      const org: Record<string, unknown> = {}
+      if (o.bic !== undefined) org['bic'] = o.bic
+      if (o.lei !== undefined) org['lei'] = o.lei
+      if (o.other !== undefined) org['other'] = o.other
+      return { organisationId: org } as PartyIdentification
+    })
+
+  const arbPrvt = fc
+    .record({
+      dob: fc.option(
+        fc.record({
+          birthDate: arbDate(),
+          provinceOfBirth: fc.option(arbSepaText(1, 35), { nil: undefined }),
+          cityOfBirth: arbSepaText(1, 35),
+          countryOfBirth: fc.constantFrom('DE', 'FR', 'NL', 'ES', 'IT', 'BE', 'AT'),
+        }),
+        { nil: undefined }
+      ),
+      other: fc.option(arbGenericIdentification(), { nil: undefined }),
+    })
+    // Guarantee at least one field is set (empty PrvtId is rejected by the model).
+    .filter((p) => p.dob !== undefined || p.other !== undefined)
+    .map((p) => {
+      const prvt: Record<string, unknown> = {}
+      if (p.dob !== undefined) {
+        const dob: Record<string, unknown> = {
+          birthDate: p.dob.birthDate,
+          cityOfBirth: p.dob.cityOfBirth,
+          countryOfBirth: p.dob.countryOfBirth,
+        }
+        if (p.dob.provinceOfBirth !== undefined) dob['provinceOfBirth'] = p.dob.provinceOfBirth
+        prvt['dateAndPlaceOfBirth'] = dob
+      }
+      if (p.other !== undefined) prvt['other'] = p.other
+      return { privateId: prvt } as PartyIdentification
+    })
+
+  return fc.oneof(arbOrg, arbPrvt)
+}
+
+/**
+ * Arbitrary for an optional UltimateParty: always a name (max 70 chars, SEPA
+ * charset), plus an optional structured Id (OrgId XOR PrvtId).
+ *
+ * Uses arbSepaText to guarantee names survive XML round-trip (no trailing
+ * whitespace, SEPA charset only). The fc.option with nil:undefined produces an
+ * absent party ~50% of the time, and within a present party the id is itself
+ * optional, so all of {no party, name only, name + id} are exercised.
  */
 function arbUltimateParty(): fc.Arbitrary<UltimateParty | undefined> {
   return fc.option(
-    arbSepaText(1, 70).map((name) => ({ name })),
+    fc
+      .record({
+        name: arbSepaText(1, 70),
+        id: fc.option(arbPartyIdentification(), { nil: undefined }),
+      })
+      .map(({ name, id }) => (id === undefined ? { name } : { name, id })),
     { nil: undefined }
   )
 }

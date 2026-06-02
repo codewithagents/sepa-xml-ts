@@ -17,7 +17,14 @@
 
 import { escapeXml } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
-import type { Money, PostalAddress, UltimateParty, StructuredRemittance } from '../model/schema.js'
+import type {
+  Money,
+  PostalAddress,
+  UltimateParty,
+  PartyIdentification,
+  GenericIdentification,
+  StructuredRemittance,
+} from '../model/schema.js'
 
 /**
  * Escape a value for use in XML text content.
@@ -453,13 +460,95 @@ export function emitIso03FinInstnId(
 }
 
 /**
- * Emit an ultimate party element (UltmtDbtr or UltmtCdtr) containing only a Nm child.
+ * Emit a generic identifier (Othr) inside an OrgId or PrvtId block.
  *
- * Used for the name-only first-cut of UltmtDbtr / UltmtCdtr in pain.001.001.09
- * (CdtTrfTxInf) and pain.008.001.08 (DrctDbtTxInf).
+ * GenericOrganisationIdentification1 / GenericPersonIdentification1 share the
+ * same element order: Id, SchmeNm (Cd), Issr. Only present fields are emitted.
+ * schemeName is written as SchmeNm/Cd (proprietary Prtry is not modelled).
+ *
+ * @param indent - leading spaces for the <Othr> tag
+ * @param other  - the generic identifier model value
+ */
+function emitGenericOther(lines: string[], indent: string, other: GenericIdentification): void {
+  const inner = `${indent}  `
+  lines.push(`${indent}<Othr>`)
+  lines.push(`${inner}<Id>${xe(other.id)}</Id>`)
+  if (other.schemeName !== undefined) {
+    lines.push(`${inner}<SchmeNm>`)
+    lines.push(`${inner}  <Cd>${xe(other.schemeName)}</Cd>`)
+    lines.push(`${inner}</SchmeNm>`)
+  }
+  if (other.issuer !== undefined) {
+    lines.push(`${inner}<Issr>${xe(other.issuer)}</Issr>`)
+  }
+  lines.push(`${indent}</Othr>`)
+}
+
+/**
+ * Emit the structured party identification (Id, Party38Choice) for an ultimate
+ * party, in the exact XSD element order.
+ *
+ * OrgId (OrganisationIdentification29): AnyBIC, LEI, Othr.
+ * PrvtId (PersonIdentification13): DtAndPlcOfBirth (BirthDt, PrvcOfBirth, CityOfBirth,
+ * CtryOfBirth), Othr.
+ *
+ * The model guarantees exactly one of organisationId / privateId is set.
+ *
+ * @param indent - leading spaces for the <Id> tag
+ * @param id     - the PartyIdentification model value
+ */
+function emitPartyId(lines: string[], indent: string, id: PartyIdentification): void {
+  const inner = `${indent}  `
+  lines.push(`${indent}<Id>`)
+  if (id.organisationId !== undefined) {
+    const org = id.organisationId
+    lines.push(`${inner}<OrgId>`)
+    // OrganisationIdentification29 order: AnyBIC, LEI, Othr
+    if (org.bic !== undefined) {
+      lines.push(`${inner}  <AnyBIC>${xe(org.bic)}</AnyBIC>`)
+    }
+    if (org.lei !== undefined) {
+      lines.push(`${inner}  <LEI>${xe(org.lei)}</LEI>`)
+    }
+    if (org.other !== undefined) {
+      emitGenericOther(lines, `${inner}  `, org.other)
+    }
+    lines.push(`${inner}</OrgId>`)
+  } else if (id.privateId !== undefined) {
+    const prvt = id.privateId
+    lines.push(`${inner}<PrvtId>`)
+    // PersonIdentification13 order: DtAndPlcOfBirth, Othr
+    if (prvt.dateAndPlaceOfBirth !== undefined) {
+      const dob = prvt.dateAndPlaceOfBirth
+      lines.push(`${inner}  <DtAndPlcOfBirth>`)
+      // DateAndPlaceOfBirth1 order: BirthDt, PrvcOfBirth, CityOfBirth, CtryOfBirth
+      lines.push(`${inner}    <BirthDt>${xe(dob.birthDate)}</BirthDt>`)
+      if (dob.provinceOfBirth !== undefined) {
+        lines.push(`${inner}    <PrvcOfBirth>${xe(dob.provinceOfBirth)}</PrvcOfBirth>`)
+      }
+      lines.push(`${inner}    <CityOfBirth>${xe(dob.cityOfBirth)}</CityOfBirth>`)
+      lines.push(`${inner}    <CtryOfBirth>${xe(dob.countryOfBirth)}</CtryOfBirth>`)
+      lines.push(`${inner}  </DtAndPlcOfBirth>`)
+    }
+    if (prvt.other !== undefined) {
+      emitGenericOther(lines, `${inner}  `, prvt.other)
+    }
+    lines.push(`${inner}</PrvtId>`)
+  }
+  lines.push(`${indent}</Id>`)
+}
+
+/**
+ * Emit an ultimate party element (UltmtDbtr or UltmtCdtr) with a Nm child and an
+ * optional structured Id child.
+ *
+ * Used for UltmtDbtr / UltmtCdtr in pain.001.001.09 (CdtTrfTxInf) and
+ * pain.008.001.08 (DrctDbtTxInf). Element order follows PartyIdentification135:
+ * Nm then Id.
  *
  * Nothing is emitted when party is undefined, preserving byte-identical output
- * for documents that do not use ultimate parties.
+ * for documents that do not use ultimate parties. When the party has no id, the
+ * output is identical to the prior name-only behaviour.
  *
  * @param indent  - leading spaces for the outer tag (e.g. "        " for 8 spaces)
  * @param tag     - element name, e.g. "UltmtDbtr" or "UltmtCdtr"
@@ -476,6 +565,9 @@ export function emitUltimateParty(
   }
   lines.push(`${indent}<${tag}>`)
   lines.push(`${indent}  <Nm>${xe(party.name)}</Nm>`)
+  if (party.id !== undefined) {
+    emitPartyId(lines, `${indent}  `, party.id)
+  }
   lines.push(`${indent}</${tag}>`)
 }
 

@@ -27,6 +27,11 @@ import {
   type Money,
   type PostalAddress,
   type UltimateParty,
+  type PartyIdentification,
+  type GenericIdentification,
+  type OrganisationIdentification,
+  type PrivateIdentification,
+  type DateAndPlaceOfBirth,
   type StructuredRemittance,
 } from '../model/schema.js'
 import {
@@ -228,7 +233,107 @@ function extractUltimateParty(txEl: unknown, tag: string): UltimateParty | undef
   if (name === null || name === '') {
     return undefined
   }
-  return { name }
+  const id = extractPartyId(el)
+  if (id === undefined) {
+    return { name }
+  }
+  return { name, id }
+}
+
+/**
+ * Extract a generic identifier (Othr) from an OrgId or PrvtId element.
+ * Returns undefined when Othr is absent or has no Id child.
+ *
+ * Reads Othr/Id, Othr/SchmeNm/Cd, Othr/Issr (the subset our writer emits).
+ */
+function extractGenericOther(parentEl: unknown): GenericIdentification | undefined {
+  const othrEl = nav(parentEl, 'Othr')
+  if (othrEl === null || othrEl === undefined) {
+    return undefined
+  }
+  const id = str(nav(othrEl, 'Id'))
+  if (id === null || id === '') {
+    return undefined
+  }
+  const schemeName = str(nav(othrEl, 'SchmeNm', 'Cd')) ?? undefined
+  const issuer = str(nav(othrEl, 'Issr')) ?? undefined
+  const out: GenericIdentification = { id }
+  if (schemeName !== undefined) out.schemeName = schemeName
+  if (issuer !== undefined) out.issuer = issuer
+  return out
+}
+
+/**
+ * Extract a structured party identification (Id, Party38Choice) from a party
+ * element (e.g. UltmtDbtr / UltmtCdtr). Reads either OrgId or PrvtId.
+ *
+ * Returns undefined when no Id element is present or when neither branch yields
+ * any data, preserving round-trip deep-equality for parties without an id.
+ */
+function extractPartyId(partyEl: unknown): PartyIdentification | undefined {
+  const idEl = nav(partyEl, 'Id')
+  if (idEl === null || idEl === undefined) {
+    return undefined
+  }
+
+  const orgEl = nav(idEl, 'OrgId')
+  if (orgEl !== null && orgEl !== undefined) {
+    const bic = str(nav(orgEl, 'AnyBIC')) ?? undefined
+    const lei = str(nav(orgEl, 'LEI')) ?? undefined
+    const other = extractGenericOther(orgEl)
+    if (bic === undefined && lei === undefined && other === undefined) {
+      return undefined
+    }
+    const org: OrganisationIdentification = {}
+    if (bic !== undefined) org.bic = bic
+    if (lei !== undefined) org.lei = lei
+    if (other !== undefined) org.other = other
+    return { organisationId: org }
+  }
+
+  const prvtEl = nav(idEl, 'PrvtId')
+  if (prvtEl !== null && prvtEl !== undefined) {
+    const dob = extractDateAndPlaceOfBirth(prvtEl)
+    const other = extractGenericOther(prvtEl)
+    if (dob === undefined && other === undefined) {
+      return undefined
+    }
+    const prvt: PrivateIdentification = {}
+    if (dob !== undefined) prvt.dateAndPlaceOfBirth = dob
+    if (other !== undefined) prvt.other = other
+    return { privateId: prvt }
+  }
+
+  return undefined
+}
+
+/**
+ * Extract a DateAndPlaceOfBirth from a PrvtId element.
+ * Returns undefined when DtAndPlcOfBirth is absent or lacks the required
+ * BirthDt, CityOfBirth, or CtryOfBirth children.
+ */
+function extractDateAndPlaceOfBirth(prvtEl: unknown): DateAndPlaceOfBirth | undefined {
+  const dobEl = nav(prvtEl, 'DtAndPlcOfBirth')
+  if (dobEl === null || dobEl === undefined) {
+    return undefined
+  }
+  const birthDate = str(nav(dobEl, 'BirthDt'))
+  const cityOfBirth = str(nav(dobEl, 'CityOfBirth'))
+  const countryOfBirth = str(nav(dobEl, 'CtryOfBirth'))
+  if (
+    birthDate === null ||
+    birthDate === '' ||
+    cityOfBirth === null ||
+    cityOfBirth === '' ||
+    countryOfBirth === null ||
+    countryOfBirth === ''
+  ) {
+    return undefined
+  }
+  const provinceOfBirth = str(nav(dobEl, 'PrvcOfBirth')) ?? undefined
+  const out: DateAndPlaceOfBirth = { birthDate, cityOfBirth, countryOfBirth }
+  if (provinceOfBirth !== undefined) out.provinceOfBirth = provinceOfBirth
+  return out
 }
 
 // ---------------------------------------------------------------------------

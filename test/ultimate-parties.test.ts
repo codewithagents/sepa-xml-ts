@@ -132,6 +132,221 @@ describe('UltimatePartySchema validation', () => {
 })
 
 // ---------------------------------------------------------------------------
+// UltimatePartySchema: structured Id (Party38Choice) validation
+// ---------------------------------------------------------------------------
+
+describe('UltimatePartySchema structured Id validation', () => {
+  it('accepts an OrgId with a BIC', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Factoring AG',
+      id: { organisationId: { bic: 'COBADEFFXXX' } },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an OrgId with a LEI', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Factoring AG',
+      id: { organisationId: { lei: '529900T8BM49AURSDO55' } },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an OrgId with Othr (id + schemeName + issuer)', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Factoring AG',
+      id: { organisationId: { other: { id: 'CUST-99', schemeName: 'CUST', issuer: 'BankX' } } },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an OrgId with an invalid LEI (wrong length)', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Factoring AG',
+      id: { organisationId: { lei: 'TOOSHORT' } },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an empty OrgId (no bic, lei, or other)', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Factoring AG',
+      id: { organisationId: {} },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a PrvtId with date and place of birth', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Jane Doe',
+      id: {
+        privateId: {
+          dateAndPlaceOfBirth: {
+            birthDate: '1980-05-01',
+            cityOfBirth: 'Berlin',
+            countryOfBirth: 'DE',
+          },
+        },
+      },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a PrvtId with Othr', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Jane Doe',
+      id: { privateId: { other: { id: 'NID-12345' } } },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an empty PrvtId (no dateAndPlaceOfBirth or other)', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Jane Doe',
+      id: { privateId: {} },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an Id that sets both organisationId and privateId (Party38Choice is exclusive)', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Ambiguous',
+      id: {
+        organisationId: { bic: 'COBADEFFXXX' },
+        privateId: { other: { id: 'NID-1' } },
+      },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an Id that sets neither branch', () => {
+    const result = UltimatePartySchema.safeParse({ name: 'Empty', id: {} })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a non-SEPA charset Othr issuer', () => {
+    const result = UltimatePartySchema.safeParse({
+      name: 'Factoring AG',
+      id: { organisationId: { other: { id: 'X', issuer: 'Müller' } } },
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Structured Id: round-trip and XSD validity on both message types
+// ---------------------------------------------------------------------------
+
+describe('structured ultimate-party Id: round-trip and XSD validity', () => {
+  it('pain.001.001.09 with OrgId (bic + Othr) round-trips deep-equal and is XSD-valid', async () => {
+    const doc = baseCt()
+    const docWithId: CreditTransferDocument = {
+      ...doc,
+      batches: [
+        {
+          ...doc.batches[0]!,
+          transfers: [
+            {
+              ...doc.batches[0]!.transfers[0]!,
+              ultimateDebtor: {
+                name: 'Factoring GmbH',
+                id: {
+                  organisationId: {
+                    bic: 'COBADEFFXXX',
+                    other: { id: 'CUST-99', schemeName: 'CUST', issuer: 'BankX' },
+                  },
+                },
+              },
+              ultimateCreditor: {
+                name: 'Final Beneficiary SA',
+                id: {
+                  privateId: {
+                    dateAndPlaceOfBirth: {
+                      birthDate: '1975-03-20',
+                      provinceOfBirth: 'Bavaria',
+                      cityOfBirth: 'Munich',
+                      countryOfBirth: 'DE',
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const xml = writeCreditTransfer(docWithId)
+    const result = await validateXsd(xml)
+    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+    const parsed = parse(xml)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error('parse failed: ' + parsed.error)
+    if (parsed.type !== 'pain.001') throw new Error('unexpected type')
+    expect(parsed.data).toEqual(docWithId)
+  })
+
+  it('pain.008.001.08 with PrvtId (Othr) and OrgId (LEI) round-trips deep-equal and is XSD-valid', async () => {
+    const doc = baseSdd()
+    const docWithId: DirectDebitDocument = {
+      ...doc,
+      batches: [
+        {
+          ...doc.batches[0]!,
+          collections: [
+            {
+              ...doc.batches[0]!.collections[0]!,
+              ultimateCreditor: {
+                name: 'Ultimate Creditor Ltd',
+                id: { organisationId: { lei: '529900T8BM49AURSDO55' } },
+              },
+              ultimateDebtor: {
+                name: 'On Behalf Of Them',
+                id: { privateId: { other: { id: 'NID-12345', schemeName: 'NIDN' } } },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const xml = writeDirectDebit(docWithId)
+    const result = await validateXsd(xml)
+    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+    const parsed = parse(xml)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error('parse failed: ' + parsed.error)
+    if (parsed.type !== 'pain.008') throw new Error('unexpected type')
+    expect(parsed.data).toEqual(docWithId)
+  })
+
+  it('Id appears after Nm inside UltmtDbtr', () => {
+    const doc = baseCt({ ultimateDebtor: { name: 'Factoring GmbH' } })
+    const docWithId: CreditTransferDocument = {
+      ...doc,
+      batches: [
+        {
+          ...doc.batches[0]!,
+          transfers: [
+            {
+              ...doc.batches[0]!.transfers[0]!,
+              ultimateDebtor: {
+                name: 'Factoring GmbH',
+                id: { organisationId: { bic: 'COBADEFFXXX' } },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const xml = writeCreditTransfer(docWithId)
+    const ultStart = xml.indexOf('<UltmtDbtr>')
+    const nmIdx = xml.indexOf('<Nm>', ultStart)
+    const idIdx = xml.indexOf('<Id>', ultStart)
+    expect(nmIdx).toBeGreaterThan(ultStart)
+    expect(idIdx).toBeGreaterThan(nmIdx)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // pain.001.001.09: round-trip and XSD validity
 // ---------------------------------------------------------------------------
 
@@ -388,6 +603,54 @@ describe('fail-loud: ultimate party is not supported for legacy/DK variants', ()
   it('writeDirectDebit with variant=pain.008.003.02 throws if ultimateDebtor is present', () => {
     const doc = baseSdd({ ultimateDebtor: { name: 'On Behalf Of Them' } })
     expect(() => writeDirectDebit(doc, { variant: 'pain.008.003.02' })).toThrow(
+      'ultimate party is not yet supported for variant pain.008.003.02'
+    )
+  })
+
+  it('writeCreditTransfer with variant=pain.001.003.03 throws when an ultimate party carries a structured id', () => {
+    const doc = baseCt()
+    const docWithId: CreditTransferDocument = {
+      ...doc,
+      batches: [
+        {
+          ...doc.batches[0]!,
+          transfers: [
+            {
+              ...doc.batches[0]!.transfers[0]!,
+              ultimateDebtor: {
+                name: 'Factoring GmbH',
+                id: { organisationId: { lei: '529900T8BM49AURSDO55' } },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    expect(() => writeCreditTransfer(docWithId, { variant: 'pain.001.003.03' })).toThrow(
+      'ultimate party is not yet supported for variant pain.001.003.03'
+    )
+  })
+
+  it('writeDirectDebit with variant=pain.008.003.02 throws when an ultimate party carries a structured id', () => {
+    const doc = baseSdd()
+    const docWithId: DirectDebitDocument = {
+      ...doc,
+      batches: [
+        {
+          ...doc.batches[0]!,
+          collections: [
+            {
+              ...doc.batches[0]!.collections[0]!,
+              ultimateDebtor: {
+                name: 'On Behalf Of Them',
+                id: { privateId: { other: { id: 'NID-1' } } },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    expect(() => writeDirectDebit(docWithId, { variant: 'pain.008.003.02' })).toThrow(
       'ultimate party is not yet supported for variant pain.008.003.02'
     )
   })
