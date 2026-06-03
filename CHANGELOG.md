@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v1.0.0...sepa-xml-ts-v1.0.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* point npm homepage to sepa.codewithagents.de ([#33](https://github.com/codewithagents/sepa-xml-ts/issues/33)) ([4d16edc](https://github.com/codewithagents/sepa-xml-ts/commit/4d16edc01aec2db99e7d4e87acd5c41e57f0b361))
+
 ## [1.0.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v0.5.0...sepa-xml-ts-v1.0.0) (2026-06-02)
 
 
