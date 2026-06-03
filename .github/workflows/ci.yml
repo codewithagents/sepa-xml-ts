@@ -29,3 +29,10 @@ jobs:
       # The XSD-oracle and round-trip property suites are the gate: green means every
       # generated file validates against the official EPC schema and parses back exactly.
       - run: pnpm test
+      - run: pnpm test:coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false

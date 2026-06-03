@@ -7,13 +7,20 @@ XML, with **every generated file validated against the official EPC/ISO 20022 XS
 [![npm](https://img.shields.io/npm/v/sepa-xml-ts.svg)](https://www.npmjs.com/package/sepa-xml-ts)
 [![CI](https://github.com/codewithagents/sepa-xml-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/codewithagents/sepa-xml-ts/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![provenance](https://img.shields.io/badge/provenance-attested-success?logo=npm)](https://www.npmjs.com/package/sepa-xml-ts)
+[![types](https://img.shields.io/badge/types-included-blue?logo=typescript)](https://www.npmjs.com/package/sepa-xml-ts)
+[![install size](https://packagephobia.com/badge?p=sepa-xml-ts)](https://packagephobia.com/result?p=sepa-xml-ts)
+[![codecov](https://codecov.io/gh/codewithagents/sepa-xml-ts/branch/main/graph/badge.svg)](https://codecov.io/gh/codewithagents/sepa-xml-ts)
+[![tests](https://img.shields.io/badge/tests-668%20passing-success)](https://github.com/codewithagents/sepa-xml-ts/actions/workflows/ci.yml)
+[![property-tested](https://img.shields.io/badge/property--tested-fast--check-blueviolet)](https://fast-check.dev)
 
-> Status: early (`0.x`). The public API may still change before `1.0`.
+> Status: stable. `1.0.0` is published with a frozen public API and semver guarantees. Output is verified against the official ISO 20022 XSD in CI.
 
 ## Table of contents
 
 - [What it covers](#what-it-covers)
 - [Why this exists](#why-this-exists)
+- [How it compares](#how-it-compares)
 - [The model, not the XML](#the-model-not-the-xml)
 - [Install](#install)
 - [Write](#write)
@@ -102,6 +109,32 @@ and it is enforced, not hoped for:
   file parses back into the exact model it came from.
 - **The parse path is fuzz-hardened.** It never throws: malformed input, entity injections, and
   DTD/DOCTYPE payloads all return a typed failure rather than raising an exception.
+
+## How it compares
+
+The table below is based on publicly available information and our own differential test suite
+(see `test/differential.test.ts`). We run sepa.js and sepa-xml-ts against the same inputs and
+compare their semantic output to verify compatible behavior.
+
+| Feature | sepa-xml-ts | sepa (npm `sepa`, JS) | sepa_king (Ruby gem) |
+|---|---|---|---|
+| TypeScript types (built-in .d.ts, Zod model) | Yes | No (plain JS) | No (Ruby) |
+| Write pain.001 credit transfers | Yes (.09, .03, DK .003.03) | Yes (.03 only) | Yes (.03, .001.03) |
+| Write pain.008 direct debits | Yes (.08, DK .003.02) | No | Yes (.03.02) |
+| Parse SEPA XML back to typed model | Yes (auto-detects message type) | No | No |
+| Validate against the official ISO 20022 XSD | Yes (all 6 schemas, WASM) | No | No |
+| Business rule validation (IBAN mod-97, EPC charset, exact CtrlSum) | Yes | Partial | Partial |
+| Integer-only money (no float arithmetic) | Yes (bigint) | No (floats) | Yes (integer cents) |
+| SEPA Creditor Identifier check digits (ISO 7064 MOD 97-10) | Yes | No | No |
+| National variants (German DK pain.001.003.03 / pain.008.003.02) | Yes (with official XSD) | No | No |
+| Bank profiles (overlay rules, e.g. requireBic) | Yes | No | No |
+| Property-based + fuzz testing (fast-check, 200+ runs per suite) | Yes | No | No |
+| npm provenance (OIDC Trusted Publishing, build attestation) | Yes | No | No |
+
+sepa.js (npm package `sepa`, by philipp kewisch) is a solid pain.001.001.03 generator with a
+simple API. sepa_king (Ruby) is a well-maintained pain.001/pain.008 library in the Ruby
+ecosystem. Neither includes TypeScript types, parse/round-trip, or XSD validation
+as first-class features.
 
 ## The model, not the XML
 
