@@ -24,7 +24,7 @@
  */
 
 import { CreditTransferDocumentSchema, type CreditTransferDocument } from '../model/schema.js'
-import { formatAmountForXml, sumMoney } from '../model/amount.js'
+import { sumMoney } from '../model/amount.js'
 import {
   xe,
   computeTotals,
@@ -42,6 +42,7 @@ import {
   emitUltimateParty,
   emitPurp,
   emitCtgyPurp,
+  emitCdtTrfTxInfHeader,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 
@@ -230,13 +231,7 @@ function writeCreditTransfer09(
 
     // Credit Transfer Transactions
     for (const tx of batch.transfers) {
-      lines.push(`      <CdtTrfTxInf>`)
-      lines.push(`        <PmtId>`)
-      lines.push(`          <EndToEndId>${xe(tx.endToEndId)}</EndToEndId>`)
-      lines.push(`        </PmtId>`)
-      lines.push(`        <Amt>`)
-      lines.push(`          <InstdAmt Ccy="EUR">${formatAmountForXml(tx.amount)}</InstdAmt>`)
-      lines.push(`        </Amt>`)
+      emitCdtTrfTxInfHeader(lines, tx.endToEndId, tx.amount)
       // UltmtDbtr: XSD position after Amt (after ChqInstr), before IntrmyAgt1/CdtrAgt (CreditTransferTransaction34 sequence)
       emitUltimateParty(lines, '        ', 'UltmtDbtr', tx.ultimateDebtor)
       if (tx.creditor.bic !== undefined) {
@@ -334,13 +329,7 @@ function writeCreditTransfer03(
 
     // Credit Transfer Transactions
     for (const tx of batch.transfers) {
-      lines.push(`      <CdtTrfTxInf>`)
-      lines.push(`        <PmtId>`)
-      lines.push(`          <EndToEndId>${xe(tx.endToEndId)}</EndToEndId>`)
-      lines.push(`        </PmtId>`)
-      lines.push(`        <Amt>`)
-      lines.push(`          <InstdAmt Ccy="EUR">${formatAmountForXml(tx.amount)}</InstdAmt>`)
-      lines.push(`        </Amt>`)
+      emitCdtTrfTxInfHeader(lines, tx.endToEndId, tx.amount)
       // Delta 3: CdtrAgt optional; BIC element (not BICFI); omitted when no BIC
       emitIso03FinInstnId(lines, '        ', 'CdtrAgt', tx.creditor.bic, false)
       // PostalAddress6 supports all our model fields.
@@ -427,13 +416,7 @@ function writeCreditTransferDK(
 
     // Credit Transfer Transactions
     for (const tx of batch.transfers) {
-      lines.push(`      <CdtTrfTxInf>`)
-      lines.push(`        <PmtId>`)
-      lines.push(`          <EndToEndId>${xe(tx.endToEndId)}</EndToEndId>`)
-      lines.push(`        </PmtId>`)
-      lines.push(`        <Amt>`)
-      lines.push(`          <InstdAmt Ccy="EUR">${formatAmountForXml(tx.amount)}</InstdAmt>`)
-      lines.push(`        </Amt>`)
+      emitCdtTrfTxInfHeader(lines, tx.endToEndId, tx.amount)
       // DK delta 3: CdtrAgt is optional; uses BIC element (not BICFI); omitted when no BIC
       emitDkFinInstnId(lines, '        ', 'CdtrAgt', tx.creditor.bic, false)
       // PostalAddressSEPA: only Ctry + AdrLine (max 2) supported.

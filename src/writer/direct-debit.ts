@@ -27,7 +27,7 @@ import {
   type Mandate,
   type MandateAmendment,
 } from '../model/pain008.js'
-import { formatAmountForXml, sumMoney } from '../model/amount.js'
+import { sumMoney } from '../model/amount.js'
 import {
   xe,
   computeTotals,
@@ -45,6 +45,8 @@ import {
   emitUltimateParty,
   emitPurp,
   emitCtgyPurp,
+  emitDrctDbtTxInfHeader,
+  emitCdtrSchmeId,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 import { checkDirectDebitRules } from '../model/dd-rules.js'
@@ -385,26 +387,11 @@ function writeDirectDebit08(doc: DirectDebitDocument, profile: BankProfile | und
     // ChrgBr=SLEV is standard SEPA practice
     lines.push(`      <ChrgBr>SLEV</ChrgBr>`)
     // CdtrSchmeId: SEPA Creditor Identifier at PmtInf level
-    lines.push(`      <CdtrSchmeId>`)
-    lines.push(`        <Id>`)
-    lines.push(`          <PrvtId>`)
-    lines.push(`            <Othr>`)
-    lines.push(`              <Id>${xe(doc.creditor.creditorId)}</Id>`)
-    lines.push(`              <SchmeNm>`)
-    lines.push(`                <Prtry>SEPA</Prtry>`)
-    lines.push(`              </SchmeNm>`)
-    lines.push(`            </Othr>`)
-    lines.push(`          </PrvtId>`)
-    lines.push(`        </Id>`)
-    lines.push(`      </CdtrSchmeId>`)
+    emitCdtrSchmeId(lines, doc.creditor.creditorId)
 
     // Direct Debit Transaction Information (DrctDbtTxInf)
     for (const col of batch.collections) {
-      lines.push(`      <DrctDbtTxInf>`)
-      lines.push(`        <PmtId>`)
-      lines.push(`          <EndToEndId>${xe(col.endToEndId)}</EndToEndId>`)
-      lines.push(`        </PmtId>`)
-      lines.push(`        <InstdAmt Ccy="EUR">${formatAmountForXml(col.amount)}</InstdAmt>`)
+      emitDrctDbtTxInfHeader(lines, col.endToEndId, col.amount)
       lines.push(`        <DrctDbtTx>`)
       emitMndtRltdInf08(lines, col.mandate)
       lines.push(`        </DrctDbtTx>`)
@@ -503,26 +490,11 @@ function writeDirectDebitDK(doc: DirectDebitDocument, profile: BankProfile | und
     // ChrgBr=SLEV: standard SEPA practice (optional in .003.02 XSD, recommended at PmtInf level)
     lines.push(`      <ChrgBr>SLEV</ChrgBr>`)
     // CdtrSchmeId: SEPA Creditor Identifier at PmtInf level (same structure as .08)
-    lines.push(`      <CdtrSchmeId>`)
-    lines.push(`        <Id>`)
-    lines.push(`          <PrvtId>`)
-    lines.push(`            <Othr>`)
-    lines.push(`              <Id>${xe(doc.creditor.creditorId)}</Id>`)
-    lines.push(`              <SchmeNm>`)
-    lines.push(`                <Prtry>SEPA</Prtry>`)
-    lines.push(`              </SchmeNm>`)
-    lines.push(`            </Othr>`)
-    lines.push(`          </PrvtId>`)
-    lines.push(`        </Id>`)
-    lines.push(`      </CdtrSchmeId>`)
+    emitCdtrSchmeId(lines, doc.creditor.creditorId)
 
     // Direct Debit Transaction Information (DrctDbtTxInf)
     for (const col of batch.collections) {
-      lines.push(`      <DrctDbtTxInf>`)
-      lines.push(`        <PmtId>`)
-      lines.push(`          <EndToEndId>${xe(col.endToEndId)}</EndToEndId>`)
-      lines.push(`        </PmtId>`)
-      lines.push(`        <InstdAmt Ccy="EUR">${formatAmountForXml(col.amount)}</InstdAmt>`)
+      emitDrctDbtTxInfHeader(lines, col.endToEndId, col.amount)
       lines.push(`        <DrctDbtTx>`)
       lines.push(`          <MndtRltdInf>`)
       lines.push(`            <MndtId>${xe(col.mandate.id)}</MndtId>`)
