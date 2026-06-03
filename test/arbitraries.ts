@@ -22,7 +22,7 @@ import type { PostalAddress } from '../src/model/schema.js'
  * Countries with BBAN structures that fit [a-zA-Z0-9]{1,30}.
  * Each entry: [countryCode, bbanLength] where all digits are used (simple).
  */
-export const IBAN_COUNTRIES: Array<[string, number]> = [
+const IBAN_COUNTRIES: Array<[string, number]> = [
   ['DE', 18],
   ['FR', 23],
   ['NL', 14],
@@ -56,8 +56,7 @@ export function arbIban(): fc.Arbitrary<string> {
 // SEPA text helpers
 // ---------------------------------------------------------------------------
 
-export const SEPA_CHARSET =
-  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 /-?:().,'+"
+const SEPA_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 /-?:().,'+"
 
 /** Arbitrary for a clean SEPA text string of the given max length. */
 export function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
@@ -92,7 +91,7 @@ export function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<
  * Uses a wider character set including full Latin-1 Supplement, emoji, and
  * a small CJK sample to stress the drop-and-transliterate path.
  */
-export function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
+function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   const extendedLatin = 'äöüÄÖÜßàáâãåæèéêëìíîïðñòóôõøùúûýÿÀÁÂÃÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕØÙÚÛÝþÞçÇ'
   const droppedSamples = '🎉🥳🌍你好مرحباПривет'
   const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
@@ -160,7 +159,7 @@ export function arbBic(): fc.Arbitrary<string> {
  * EPC AT-06 cap: 999,999,999.99 EUR = 99,999,999,999 cents.
  * All boundary values must be at or below this cap.
  */
-export const MAX_AMOUNT_MINOR = 99_999_999_999n
+const MAX_AMOUNT_MINOR = 99_999_999_999n
 
 export function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
   return fc.oneof(
