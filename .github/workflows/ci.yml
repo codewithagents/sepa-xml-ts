@@ -9,6 +9,7 @@ on:
 # Minimal permissions. Fork PRs have no secrets access by design with pull_request trigger.
 permissions:
   contents: read
+  id-token: write # Codecov OIDC (no token needed for public repos)
 
 jobs:
   ci:
@@ -28,4 +29,11 @@ jobs:
       - run: pnpm build
       # The XSD-oracle and round-trip property suites are the gate: green means every
       # generated file validates against the official EPC schema and parses back exactly.
-      - run: pnpm test
+      - run: pnpm test:coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        with:
+          use_oidc: true
+          files: ./coverage/lcov.info
+          disable_search: true
+          fail_ci_if_error: false
