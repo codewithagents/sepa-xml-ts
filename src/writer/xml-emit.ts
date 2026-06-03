@@ -105,6 +105,30 @@ export function emitSvcLvl(lines: string[]): void {
 }
 
 /**
+ * Emit the Ctry child, all AdrLine children, then the closing PstlAdr tag.
+ *
+ * Private helper shared by emitPstlAdr (PostalAddress24) and emitPstlAdrSEPA
+ * (PostalAddressSEPA). Both end with the same element sequence: optional Ctry
+ * followed by zero-or-more AdrLine elements, then the closing tag.
+ * The caller opens the PstlAdr element before calling this.
+ *
+ * @param indent  - leading spaces used for the PstlAdr tag (not the children)
+ * @param address - PostalAddress from the model (caller guarantees it is defined)
+ */
+function emitCtryAdrLinesClose(lines: string[], indent: string, address: PostalAddress): void {
+  const inner = `${indent}  `
+  if (address.country !== undefined) {
+    lines.push(`${inner}<Ctry>${xe(address.country)}</Ctry>`)
+  }
+  if (address.addressLines !== undefined) {
+    for (const line of address.addressLines) {
+      lines.push(`${inner}<AdrLine>${xe(line)}</AdrLine>`)
+    }
+  }
+  lines.push(`${indent}</PstlAdr>`)
+}
+
+/**
  * Emit a PstlAdr element for a party block, using the PostalAddress24 element
  * order mandated by the XSD (StrtNm, BldgNb, PstCd, TwnNm, CtrySubDvsn, Ctry, AdrLine).
  *
@@ -143,15 +167,7 @@ export function emitPstlAdr(
   if (address.countrySubDivision !== undefined) {
     lines.push(`${inner}<CtrySubDvsn>${xe(address.countrySubDivision)}</CtrySubDvsn>`)
   }
-  if (address.country !== undefined) {
-    lines.push(`${inner}<Ctry>${xe(address.country)}</Ctry>`)
-  }
-  if (address.addressLines !== undefined) {
-    for (const line of address.addressLines) {
-      lines.push(`${inner}<AdrLine>${xe(line)}</AdrLine>`)
-    }
-  }
-  lines.push(`${indent}</PstlAdr>`)
+  emitCtryAdrLinesClose(lines, indent, address)
 }
 
 /**
@@ -256,18 +272,9 @@ export function emitPstlAdrSEPA(
     )
   }
 
+  // PostalAddressSEPA element order: Ctry, AdrLine (same tail as PostalAddress24)
   lines.push(`${indent}<PstlAdr>`)
-  const inner = `${indent}  `
-  // PostalAddressSEPA element order: Ctry, AdrLine
-  if (address.country !== undefined) {
-    lines.push(`${inner}<Ctry>${xe(address.country)}</Ctry>`)
-  }
-  if (address.addressLines !== undefined) {
-    for (const line of address.addressLines) {
-      lines.push(`${inner}<AdrLine>${xe(line)}</AdrLine>`)
-    }
-  }
-  lines.push(`${indent}</PstlAdr>`)
+  emitCtryAdrLinesClose(lines, indent, address)
 }
 
 /**
@@ -827,4 +834,70 @@ export function emitDkFinInstnId(
   }
   lines.push(`${inner}</FinInstnId>`)
   lines.push(`${indent}</${tag}>`)
+}
+
+/**
+ * Emit the opening lines of a CdtTrfTxInf element through the Amt block.
+ * Appears identically in all three pain.001 variant writers (pain.001.001.09,
+ * pain.001.001.03, and pain.001.003.03). The caller continues with the
+ * variant-specific elements (CdtrAgt, Cdtr, CdtrAcct, RmtInf, etc.).
+ *
+ * XSD ordering (CreditTransferTransaction block):
+ *   CdtTrfTxInf open, PmtId/EndToEndId, Amt/InstdAmt
+ *
+ * @param endToEndId - the end-to-end identifier (will be XML-escaped)
+ * @param amount     - the instructed EUR amount
+ */
+export function emitCdtTrfTxInfHeader(lines: string[], endToEndId: string, amount: Money): void {
+  lines.push(`      <CdtTrfTxInf>`)
+  lines.push(`        <PmtId>`)
+  lines.push(`          <EndToEndId>${xe(endToEndId)}</EndToEndId>`)
+  lines.push(`        </PmtId>`)
+  lines.push(`        <Amt>`)
+  lines.push(`          <InstdAmt Ccy="EUR">${formatAmountForXml(amount)}</InstdAmt>`)
+  lines.push(`        </Amt>`)
+}
+
+/**
+ * Emit the opening lines of a DrctDbtTxInf element through InstdAmt.
+ * Appears identically in both pain.008 variant writers (pain.008.001.08 and
+ * pain.008.003.02). The caller continues with DrctDbtTx and the variant-specific
+ * mandate, agent, and party elements.
+ *
+ * XSD ordering (DirectDebitTransactionInformation block):
+ *   DrctDbtTxInf open, PmtId/EndToEndId, InstdAmt (no Amt wrapper in pain.008)
+ *
+ * @param endToEndId - the end-to-end identifier (will be XML-escaped)
+ * @param amount     - the instructed EUR amount
+ */
+export function emitDrctDbtTxInfHeader(lines: string[], endToEndId: string, amount: Money): void {
+  lines.push(`      <DrctDbtTxInf>`)
+  lines.push(`        <PmtId>`)
+  lines.push(`          <EndToEndId>${xe(endToEndId)}</EndToEndId>`)
+  lines.push(`        </PmtId>`)
+  lines.push(`        <InstdAmt Ccy="EUR">${formatAmountForXml(amount)}</InstdAmt>`)
+}
+
+/**
+ * Emit the CdtrSchmeId element (SEPA Creditor Identifier) at PmtInf level.
+ * Used by both pain.008 variant writers (pain.008.001.08 and pain.008.003.02).
+ *
+ * XSD structure: CdtrSchmeId/Id/PrvtId/Othr: Id (the creditor id) + SchmeNm/Prtry=SEPA.
+ * This is the standard SEPA Creditor Identifier placement in every PmtInf block.
+ *
+ * @param creditorId - the SEPA Creditor Identifier string (will be XML-escaped)
+ */
+export function emitCdtrSchmeId(lines: string[], creditorId: string): void {
+  lines.push(`      <CdtrSchmeId>`)
+  lines.push(`        <Id>`)
+  lines.push(`          <PrvtId>`)
+  lines.push(`            <Othr>`)
+  lines.push(`              <Id>${xe(creditorId)}</Id>`)
+  lines.push(`              <SchmeNm>`)
+  lines.push(`                <Prtry>SEPA</Prtry>`)
+  lines.push(`              </SchmeNm>`)
+  lines.push(`            </Othr>`)
+  lines.push(`          </PrvtId>`)
+  lines.push(`        </Id>`)
+  lines.push(`      </CdtrSchmeId>`)
 }

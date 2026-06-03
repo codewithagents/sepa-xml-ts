@@ -29,9 +29,18 @@ import { parse } from '../src/parser/parser.js'
 import { validateXsd } from '../src/xsd.js'
 import { writeCreditTransfer } from '../src/writer/writer.js'
 import { euros } from '../src/model/schema.js'
-import { buildIban } from '../src/model/iban.js'
-import { sanitizeSepa } from '../src/model/charset.js'
-import type { CreditTransferDocument, PostalAddress } from '../src/model/schema.js'
+import type { CreditTransferDocument } from '../src/model/schema.js'
+import {
+  arbIban,
+  arbSepaText,
+  arbSepaIdentifier,
+  arbCreatedAt,
+  arbDate,
+  arbPartyName,
+  arbBic,
+  arbMoney,
+  arbPostalAddress,
+} from './arbitraries.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -353,151 +362,17 @@ describe('pain.001.001.03 golden snapshot', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Shared arbitraries (subset mirrored from xsd-oracle.test.ts)
+// pain.001.001.03-specific arbitraries
+//
+// These are intentionally simplified vs. the xsd-oracle.test.ts versions:
+// pain.001.001.03 does not support purpose codes, category purpose, ultimate
+// parties, or structured remittance, so those fields are excluded here to
+// keep generated models valid for the .003.03 variant.
+//
+// Primitive helpers (arbIban, arbSepaText, arbSepaIdentifier, arbSanitizedSepaText,
+// arbCreatedAt, arbDate, arbPartyName, arbBic, arbMoney, arbPostalAddress) are
+// imported from ./arbitraries.js (the single canonical source).
 // ---------------------------------------------------------------------------
-
-const IBAN_COUNTRIES: Array<[string, number]> = [
-  ['DE', 18],
-  ['FR', 23],
-  ['NL', 14],
-  ['ES', 20],
-  ['IT', 23],
-  ['AT', 16],
-  ['BE', 12],
-  ['PT', 21],
-  ['FI', 14],
-  ['LU', 16],
-]
-
-function arbIban(): fc.Arbitrary<string> {
-  return fc.integer({ min: 0, max: IBAN_COUNTRIES.length - 1 }).chain((idx) => {
-    const entry = IBAN_COUNTRIES[idx]
-    if (entry === undefined) throw new Error(`index out of range: ${idx}`)
-    const [country, bbanLen] = entry
-    return fc
-      .array(fc.integer({ min: 0, max: 9 }), { minLength: bbanLen, maxLength: bbanLen })
-      .map((digits) => buildIban(country, digits.join('')))
-  })
-}
-
-const SEPA_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 /-?:().,'+"
-
-function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  return fc
-    .string({
-      unit: fc.constantFrom(...SEPA_CHARSET.split('')),
-      minLength: minLen,
-      maxLength: maxLen,
-    })
-    .map((s) => s.trim())
-    .filter((s) => s.length >= minLen)
-}
-
-// Identifier fields (MsgId, PmtInfId, EndToEndId) must not start/end with '/'
-// nor contain '//' per the EPC slash rule. Use a filter (not a map) so the
-// constraint holds by construction: no amount of shrinking can produce a
-// slash-violating value that slips through.
-function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  return arbSepaText(minLen, maxLen).filter(
-    (s) => !s.startsWith('/') && !s.endsWith('/') && !s.includes('//')
-  )
-}
-
-function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  const extendedLatin = 'äöüÄÖÜßàáâãåæèéêëìíîïðñòóôõøùúûýÿÀÁÂÃÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕØÙÚÛÝþÞçÇ'
-  const droppedSamples = '🎉🥳🌍你好مرحباПривет'
-  const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
-  return fc
-    .string({
-      unit: fc.constantFrom(...[...mixedCharset]),
-      minLength: minLen + 5,
-      maxLength: maxLen + 20,
-    })
-    .map((s) => sanitizeSepa(s))
-    .filter((s) => s.length >= minLen && s.length <= maxLen)
-}
-
-function arbCreatedAt(): fc.Arbitrary<string> {
-  return fc
-    .record({
-      year: fc.integer({ min: 2020, max: 2035 }),
-      month: fc.integer({ min: 1, max: 12 }),
-      day: fc.integer({ min: 1, max: 28 }),
-      hour: fc.integer({ min: 0, max: 23 }),
-      minute: fc.integer({ min: 0, max: 59 }),
-      second: fc.integer({ min: 0, max: 59 }),
-    })
-    .map(
-      ({ year, month, day, hour, minute, second }) =>
-        `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` +
-        `T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}Z`
-    )
-}
-
-function arbDate(): fc.Arbitrary<string> {
-  return fc
-    .record({
-      year: fc.integer({ min: 2024, max: 2035 }),
-      month: fc.integer({ min: 1, max: 12 }),
-      day: fc.integer({ min: 1, max: 28 }),
-    })
-    .map(
-      ({ year, month, day }) =>
-        `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    )
-}
-
-function arbPartyName(): fc.Arbitrary<string> {
-  return fc.oneof(arbSepaText(1, 70), arbSanitizedSepaText(1, 70))
-}
-
-function arbBic(): fc.Arbitrary<string> {
-  return fc.constantFrom('COBADEFFXXX', 'BNPAFRPPXXX', 'DEUTDEDBFRA', 'INGBNL2AXXX', 'BSCHESMMXXX')
-}
-
-function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigint }> {
-  return fc.oneof(
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 1n }),
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 99n }),
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100n }),
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 100_000n }),
-    fc.constant({ currencyCode: 'EUR' as const, minorUnits: 999_999_999n }),
-    fc
-      .bigInt({ min: 1n, max: 99_999_999_999n })
-      .map((n) => ({ currencyCode: 'EUR' as const, minorUnits: n }))
-  )
-}
-
-/**
- * Optional full structured address for pain.001.001.03, which uses PostalAddress6.
- * PostalAddress6 supports the same field subset and element order as our emitPstlAdr
- * (StrtNm, BldgNb, PstCd, TwnNm, CtrySubDvsn, Ctry, AdrLine), so the full model
- * address is valid here. All text uses the trimmed SEPA charset to survive round-trip.
- */
-function arbPostalAddress6(): fc.Arbitrary<PostalAddress> {
-  return fc
-    .record({
-      streetName: fc.option(arbSepaText(1, 70), { nil: undefined }),
-      buildingNumber: fc.option(arbSepaText(1, 16), { nil: undefined }),
-      postCode: fc.option(arbSepaText(1, 16), { nil: undefined }),
-      townName: fc.option(arbSepaText(1, 35), { nil: undefined }),
-      countrySubDivision: fc.option(arbSepaText(1, 35), { nil: undefined }),
-      country: fc.option(fc.constantFrom('DE', 'FR', 'NL', 'ES', 'IT', 'BE', 'AT'), {
-        nil: undefined,
-      }),
-      addressLines: fc.option(fc.array(arbSepaText(1, 70), { minLength: 1, maxLength: 7 }), {
-        nil: undefined,
-      }),
-    })
-    .map((a) => {
-      const out: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(a)) {
-        if (v !== undefined) out[k] = v
-      }
-      return out as PostalAddress
-    })
-    .filter((a) => Object.keys(a).length > 0)
-}
 
 function arbAccountParty() {
   return fc
@@ -505,7 +380,7 @@ function arbAccountParty() {
       name: arbPartyName(),
       iban: arbIban(),
       bic: fc.option(arbBic(), { nil: undefined }),
-      address: fc.option(arbPostalAddress6(), { nil: undefined }),
+      address: fc.option(arbPostalAddress(), { nil: undefined }),
     })
     .map((p) => {
       const { address, ...rest } = p
