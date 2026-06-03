@@ -173,7 +173,7 @@ export type Creditor = z.infer<typeof CreditorSchema>
  * We support the Tp (code) branch only, which is XSD-valid; the Prd and PtInTm
  * branches are a documented follow-up.
  */
-export const FrequencyCodeSchema = z.enum([
+const FrequencyCodeSchema = z.enum([
   'YEAR',
   'MNTH',
   'QURT',
@@ -184,8 +184,6 @@ export const FrequencyCodeSchema = z.enum([
   'INDA',
   'FRTN',
 ])
-export type FrequencyCode = z.infer<typeof FrequencyCodeSchema>
-
 /**
  * Original mandate setup reason (AmdmntInfDtls/OrgnlRsn), MandateSetupReason1Choice: Cd XOR Prtry.
  *
@@ -200,12 +198,7 @@ const MandateReasonProprietarySchema = z.object({
   /** Proprietary reason value (Prtry), max 70 chars, SEPA charset. */
   proprietary: sepaText(70),
 })
-export const MandateSetupReasonSchema = z.union([
-  MandateReasonCodeSchema,
-  MandateReasonProprietarySchema,
-])
-export type MandateSetupReason = z.infer<typeof MandateSetupReasonSchema>
-
+const MandateSetupReasonSchema = z.union([MandateReasonCodeSchema, MandateReasonProprietarySchema])
 /**
  * Original creditor scheme identification (AmdmntInfDtls/OrgnlCdtrSchmeId).
  *

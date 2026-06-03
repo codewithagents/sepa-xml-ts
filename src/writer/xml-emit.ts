@@ -138,12 +138,7 @@ function emitCtryAdrLinesClose(lines: string[], indent: string, address: PostalA
  * @param indent  - leading spaces for the PstlAdr tag (one level deeper than the party tag)
  * @param address - optional PostalAddress from the model; nothing emitted when absent
  */
-// fallow-ignore-next-line unused-exports
-export function emitPstlAdr(
-  lines: string[],
-  indent: string,
-  address: PostalAddress | undefined
-): void {
+function emitPstlAdr(lines: string[], indent: string, address: PostalAddress | undefined): void {
   if (address === undefined) {
     return
   }
@@ -195,21 +190,6 @@ export function emitPartyWithAddress(
 }
 
 /**
- * Emit a party element containing only a Nm child.
- * Used for Dbtr, Cdtr blocks that carry just the name (legacy/DK variants).
- *
- * @param indent - leading spaces for the outer tag (e.g. "      " for 6 spaces)
- * @param tag    - element name, e.g. "Dbtr" or "Cdtr"
- * @param name   - party name (will be XML-escaped)
- */
-// fallow-ignore-next-line unused-exports
-export function emitNmElement(lines: string[], indent: string, tag: string, name: string): void {
-  lines.push(`${indent}<${tag}>`)
-  lines.push(`${indent}  <Nm>${xe(name)}</Nm>`)
-  lines.push(`${indent}</${tag}>`)
-}
-
-/**
  * Emit a PstlAdr element for the DK SEPA variants (pain.001.003.03 and pain.008.003.02).
  *
  * These variants use PostalAddressSEPA (XSD type name), which supports only:
@@ -229,8 +209,7 @@ export function emitNmElement(lines: string[], indent: string, tag: string, name
  * @param address - optional PostalAddress from the model; nothing emitted when absent
  * @param variant - variant name used in error messages
  */
-// fallow-ignore-next-line unused-exports
-export function emitPstlAdrSEPA(
+function emitPstlAdrSEPA(
   lines: string[],
   indent: string,
   address: PostalAddress | undefined,

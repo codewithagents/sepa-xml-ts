@@ -154,6 +154,8 @@ export const GOLDEN_DIRECT_DEBIT: DirectDebitDocument = {
 // Write snapshot files
 // ---------------------------------------------------------------------------
 
+// Script entry point: invoked directly via node, not imported by any test file.
+// fallow-ignore-next-line unused-export
 export function writeSnapshots(): void {
   const ctXml = writeCreditTransfer(GOLDEN_CREDIT_TRANSFER)
   writeFileSync(join(SNAPSHOTS_DIR, 'pain.001.001.09.xml'), ctXml, 'utf-8')
