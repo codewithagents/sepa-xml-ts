@@ -27,126 +27,119 @@
 import type { DirectDebitDocument } from './pain008.js'
 import type { ProfileIssue } from '../profile/profile.js'
 
+/** Internal record of one mandate usage within a document, used for R2/R3 checks. */
+interface MandateUsage {
+  batchIdx: number
+  colIdx: number
+  collectionDate: string
+  signatureDate: string
+  sequenceType: string
+  localInstrument: string
+}
+
 /**
- * Check cross-field SEPA rulebook constraints on a DirectDebitDocument.
- * Returns an empty array when the document passes all rules.
- * Returns one ProfileIssue per violation with a precise path and message.
- *
- * @param doc A DirectDebitDocument that has already passed Zod schema validation.
- * @returns An array of ProfileIssue describing any violations (empty when valid).
+ * Append a mandate usage record to the index map, creating a new entry if needed.
+ * This is a pure accumulator with no side effects beyond the map mutation.
  */
-export function checkDirectDebitRules(doc: DirectDebitDocument): ProfileIssue[] {
+function accumulateMandateUsage(
+  index: Map<string, MandateUsage[]>,
+  mandateId: string,
+  usage: MandateUsage
+): void {
+  const existing = index.get(mandateId)
+  if (existing !== undefined) {
+    existing.push(usage)
+  } else {
+    index.set(mandateId, [usage])
+  }
+}
+
+/**
+ * R1: mandate signatureDate must not be after the batch collectionDate.
+ * Returns a ProfileIssue if violated, null otherwise.
+ */
+function checkR1SignatureBeforeCollection(
+  bIdx: number,
+  cIdx: number,
+  signatureDate: string,
+  collectionDate: string
+): ProfileIssue | null {
+  if (signatureDate <= collectionDate) return null
+  return {
+    path: `batches.${bIdx}.collections.${cIdx}.mandate.signatureDate`,
+    message:
+      `R1: mandate signatureDate (${signatureDate}) is after` +
+      ` the batch collectionDate (${collectionDate}).` +
+      ` A debit cannot precede the mandate signature.`,
+  }
+}
+
+/**
+ * R2: a mandate id used in an OOFF batch must appear in exactly one collection
+ * across the whole document. Returns issues for all occurrences beyond the first.
+ */
+function checkR2Issues(mandateId: string, usages: MandateUsage[]): ProfileIssue[] {
+  const hasOoff = usages.some((u) => u.sequenceType === 'OOFF')
+  if (!hasOoff) return []
+
+  // The mandate appears more than once and at least one occurrence is OOFF.
+  // Report all occurrences beyond the first to make the error precise.
+  const issues: ProfileIssue[] = []
+  for (let i = 1; i < usages.length; i++) {
+    const u = usages[i]
+    if (u === undefined) continue
+    issues.push({
+      path: `batches.${u.batchIdx}.collections.${u.colIdx}.mandate.id`,
+      message:
+        `R2: mandate "${mandateId}" is used in an OOFF batch and appears in` +
+        ` more than one collection in this document.` +
+        ` An OOFF mandate authorizes exactly one collection.`,
+    })
+  }
+  return issues
+}
+
+/**
+ * R3: a mandate id must not appear under both CORE and B2B local instruments
+ * in the same document. Returns issues for all conflicting occurrences.
+ */
+function checkR3Issues(mandateId: string, usages: MandateUsage[]): ProfileIssue[] {
+  const instruments = new Set(usages.map((u) => u.localInstrument))
+  if (instruments.size <= 1) return []
+
+  // Mandate appears under multiple instruments (e.g. CORE and B2B). Report from second occurrence.
+  const issues: ProfileIssue[] = []
+  const first = usages[0]
+  if (first === undefined) return []
+
+  for (let i = 1; i < usages.length; i++) {
+    const u = usages[i]
+    if (u === undefined) continue
+    if (u.localInstrument !== first.localInstrument) {
+      issues.push({
+        path: `batches.${u.batchIdx}.collections.${u.colIdx}.mandate.id`,
+        message:
+          `R3: mandate "${mandateId}" is used under local instrument "${u.localInstrument}"` +
+          ` in batch ${u.batchIdx} but under "${first.localInstrument}" in batch ${first.batchIdx}.` +
+          ` A mandate is bound to one scheme (CORE or B2B) and cannot be reused across schemes.`,
+      })
+    }
+  }
+  return issues
+}
+
+/**
+ * R4: if any collection in a batch has mandate.amendment.sameMandateNewDebtorAccount === true
+ * (SMNDA), the batch's sequenceType must be 'FRST'.
+ * Returns issues for each violating collection.
+ */
+function checkR4SmndaRequiresFirst(doc: DirectDebitDocument): ProfileIssue[] {
   const issues: ProfileIssue[] = []
 
-  // Build an index: mandateId -> list of { batchIdx, colIdx, collectionDate, sequenceType, localInstrument }
-  interface MandateUsage {
-    batchIdx: number
-    colIdx: number
-    collectionDate: string
-    signatureDate: string
-    sequenceType: string
-    localInstrument: string
-  }
-
-  const mandateIndex = new Map<string, MandateUsage[]>()
-
-  for (let bIdx = 0; bIdx < doc.batches.length; bIdx++) {
-    const batch = doc.batches[bIdx]
-    // doc is validated so batch is always defined here
-    if (batch === undefined) continue
-
-    const effectiveLocalInstrument = batch.localInstrument ?? 'CORE'
-
-    for (let cIdx = 0; cIdx < batch.collections.length; cIdx++) {
-      const col = batch.collections[cIdx]
-      if (col === undefined) continue
-
-      const usage: MandateUsage = {
-        batchIdx: bIdx,
-        colIdx: cIdx,
-        collectionDate: batch.collectionDate,
-        signatureDate: col.mandate.signatureDate,
-        sequenceType: batch.sequenceType,
-        localInstrument: effectiveLocalInstrument,
-      }
-
-      // R1: signatureDate must not be after collectionDate (YYYY-MM-DD lexicographic)
-      if (col.mandate.signatureDate > batch.collectionDate) {
-        issues.push({
-          path: `batches.${bIdx}.collections.${cIdx}.mandate.signatureDate`,
-          message:
-            `R1: mandate signatureDate (${col.mandate.signatureDate}) is after` +
-            ` the batch collectionDate (${batch.collectionDate}).` +
-            ` A debit cannot precede the mandate signature.`,
-        })
-      }
-
-      // Accumulate usage for R2 and R3
-      const existing = mandateIndex.get(col.mandate.id)
-      if (existing !== undefined) {
-        existing.push(usage)
-      } else {
-        mandateIndex.set(col.mandate.id, [usage])
-      }
-    }
-  }
-
-  // R2 and R3: check each mandate that appears more than once
-  for (const [mandateId, usages] of mandateIndex) {
-    if (usages.length < 2) continue
-
-    // R2: if any usage is under OOFF, the mandate may appear exactly once in total
-    const hasOoff = usages.some((u) => u.sequenceType === 'OOFF')
-    if (hasOoff) {
-      // The mandate appears more than once and at least one occurrence is OOFF.
-      // Report one issue pointing to the second (and later) OOFF or non-OOFF occurrences.
-      // We report all occurrences beyond the first to make the error precise.
-      for (let i = 1; i < usages.length; i++) {
-        const u = usages[i]
-        if (u === undefined) continue
-        issues.push({
-          path: `batches.${u.batchIdx}.collections.${u.colIdx}.mandate.id`,
-          message:
-            `R2: mandate "${mandateId}" is used in an OOFF batch and appears in` +
-            ` more than one collection in this document.` +
-            ` An OOFF mandate authorizes exactly one collection.`,
-        })
-      }
-    }
-
-    // R3: all usages of a mandate must share the same local instrument
-    const instruments = new Set(usages.map((u) => u.localInstrument))
-    if (instruments.size > 1) {
-      // Mandate appears under multiple instruments (e.g. CORE and B2B). Report from second occurrence.
-      for (let i = 1; i < usages.length; i++) {
-        const u = usages[i]
-        if (u === undefined) continue
-        const first = usages[0]
-        if (first === undefined) continue
-        if (u.localInstrument !== first.localInstrument) {
-          issues.push({
-            path: `batches.${u.batchIdx}.collections.${u.colIdx}.mandate.id`,
-            message:
-              `R3: mandate "${mandateId}" is used under local instrument "${u.localInstrument}"` +
-              ` in batch ${u.batchIdx} but under "${first.localInstrument}" in batch ${first.batchIdx}.` +
-              ` A mandate is bound to one scheme (CORE or B2B) and cannot be reused across schemes.`,
-          })
-        }
-      }
-    }
-  }
-
-  // R4: SMNDA requires FRST sequenceType
-  // If any collection in a batch has mandate.amendment.sameMandateNewDebtorAccount === true,
-  // the batch's sequenceType must be 'FRST'.
   for (let bIdx = 0; bIdx < doc.batches.length; bIdx++) {
     const batch = doc.batches[bIdx]
     if (batch === undefined) continue
-
-    if (batch.sequenceType === 'FRST') {
-      // Already FRST, no violation possible for this batch.
-      continue
-    }
+    if (batch.sequenceType === 'FRST') continue
 
     for (let cIdx = 0; cIdx < batch.collections.length; cIdx++) {
       const col = batch.collections[cIdx]
@@ -164,6 +157,60 @@ export function checkDirectDebitRules(doc: DirectDebitDocument): ProfileIssue[] 
       }
     }
   }
+
+  return issues
+}
+
+/**
+ * Check cross-field SEPA rulebook constraints on a DirectDebitDocument.
+ * Returns an empty array when the document passes all rules.
+ * Returns one ProfileIssue per violation with a precise path and message.
+ *
+ * @param doc A DirectDebitDocument that has already passed Zod schema validation.
+ * @returns An array of ProfileIssue describing any violations (empty when valid).
+ */
+export function checkDirectDebitRules(doc: DirectDebitDocument): ProfileIssue[] {
+  const issues: ProfileIssue[] = []
+  const mandateIndex = new Map<string, MandateUsage[]>()
+
+  // Build the mandate index and collect R1 issues in collection-traversal order.
+  for (let bIdx = 0; bIdx < doc.batches.length; bIdx++) {
+    const batch = doc.batches[bIdx]
+    if (batch === undefined) continue
+    const effectiveLocalInstrument = batch.localInstrument ?? 'CORE'
+
+    for (let cIdx = 0; cIdx < batch.collections.length; cIdx++) {
+      const col = batch.collections[cIdx]
+      if (col === undefined) continue
+
+      const r1Issue = checkR1SignatureBeforeCollection(
+        bIdx,
+        cIdx,
+        col.mandate.signatureDate,
+        batch.collectionDate
+      )
+      if (r1Issue !== null) issues.push(r1Issue)
+
+      accumulateMandateUsage(mandateIndex, col.mandate.id, {
+        batchIdx: bIdx,
+        colIdx: cIdx,
+        collectionDate: batch.collectionDate,
+        signatureDate: col.mandate.signatureDate,
+        sequenceType: batch.sequenceType,
+        localInstrument: effectiveLocalInstrument,
+      })
+    }
+  }
+
+  // Collect R2 and R3 issues per mandate entry (R2 before R3 within each mandate, preserving original order).
+  for (const [mandateId, usages] of mandateIndex) {
+    if (usages.length < 2) continue
+    issues.push(...checkR2Issues(mandateId, usages))
+    issues.push(...checkR3Issues(mandateId, usages))
+  }
+
+  // Collect R4 issues (SMNDA must be in a FRST batch).
+  issues.push(...checkR4SmndaRequiresFirst(doc))
 
   return issues
 }
