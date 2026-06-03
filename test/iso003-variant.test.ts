@@ -394,21 +394,12 @@ function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
 }
 
 // Identifier fields (MsgId, PmtInfId, EndToEndId) must not start/end with '/'
-// nor contain '//' per the EPC slash rule, so strip those from generated ids.
+// nor contain '//' per the EPC slash rule. Use a filter (not a map) so the
+// constraint holds by construction: no amount of shrinking can produce a
+// slash-violating value that slips through.
 function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<string> {
-  return (
-    arbSepaText(minLen, maxLen)
-      // Strip leading/trailing/double slashes, then trim again: removing an outer
-      // slash can expose leading/trailing whitespace, which would not survive the
-      // XML round-trip.
-      .map((s) =>
-        s
-          .replace(/^\/+/, '')
-          .replace(/\/+$/, '')
-          .replace(/\/{2,}/g, '/')
-          .trim()
-      )
-      .filter((s) => s.length >= minLen)
+  return arbSepaText(minLen, maxLen).filter(
+    (s) => !s.startsWith('/') && !s.endsWith('/') && !s.includes('//')
   )
 }
 
