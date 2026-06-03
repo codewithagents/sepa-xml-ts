@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/codewithagents/sepa-xml-ts.git"
   },
-  "homepage": "https://github.com/codewithagents/sepa-xml-ts#readme",
+  "homepage": "https://sepa.codewithagents.de",
   "bugs": "https://github.com/codewithagents/sepa-xml-ts/issues",
   "keywords": [
     "sepa",
