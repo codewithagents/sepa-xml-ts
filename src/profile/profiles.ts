@@ -84,6 +84,48 @@ function ibanBicCountriesMatch(ibanCc: string, bicCc: string): boolean {
   return allowed !== undefined && allowed.has(bicCc)
 }
 
+/**
+ * Push an issue if a BIC is absent on a required agent field.
+ * Encapsulates the repeated "if bic undefined, push issue" pattern in requireBic.
+ */
+function checkBicPresent(
+  issues: ProfileIssue[],
+  path: string,
+  bic: string | undefined,
+  role: 'debtor' | 'creditor'
+): void {
+  if (bic === undefined) {
+    issues.push({
+      path,
+      message: `BIC is required by the selected bank profile but is missing on the ${role}`,
+    })
+  }
+}
+
+/**
+ * Push an issue if the IBAN and BIC country codes are inconsistent (when both are present).
+ * Encapsulates the repeated IBAN-BIC country match check in ibanBicCountryMatch.
+ */
+function checkIbanBicCountryConsistency(
+  issues: ProfileIssue[],
+  path: string,
+  iban: string,
+  bic: string | undefined,
+  role: 'debtor' | 'creditor'
+): void {
+  if (bic === undefined) return
+  const ibanCc = iban.slice(0, 2).toUpperCase()
+  const bicCc = bic.slice(4, 6).toUpperCase()
+  if (!ibanBicCountriesMatch(ibanCc, bicCc)) {
+    issues.push({
+      path,
+      message:
+        `IBAN country (${ibanCc}) does not match BIC country (${bicCc}) on the ${role}. ` +
+        'Check for a data-entry error or use a different bank profile if this is intentional.',
+    })
+  }
+}
+
 // ---------------------------------------------------------------------------
 // requireBic: mandate a BIC on every agent
 // ---------------------------------------------------------------------------
@@ -115,21 +157,16 @@ export const requireBic: BankProfile = {
     for (let bi = 0; bi < doc.batches.length; bi++) {
       const batch = doc.batches[bi]
       if (batch === undefined) continue
-      if (batch.debtor.bic === undefined) {
-        issues.push({
-          path: `batches.${bi}.debtor.bic`,
-          message: 'BIC is required by the selected bank profile but is missing on the debtor',
-        })
-      }
+      checkBicPresent(issues, `batches.${bi}.debtor.bic`, batch.debtor.bic, 'debtor')
       for (let ti = 0; ti < batch.transfers.length; ti++) {
         const transfer = batch.transfers[ti]
         if (transfer === undefined) continue
-        if (transfer.creditor.bic === undefined) {
-          issues.push({
-            path: `batches.${bi}.transfers.${ti}.creditor.bic`,
-            message: 'BIC is required by the selected bank profile but is missing on the creditor',
-          })
-        }
+        checkBicPresent(
+          issues,
+          `batches.${bi}.transfers.${ti}.creditor.bic`,
+          transfer.creditor.bic,
+          'creditor'
+        )
       }
     }
     return issues
@@ -137,24 +174,19 @@ export const requireBic: BankProfile = {
 
   checkDirectDebit(doc: DirectDebitDocument): ProfileIssue[] {
     const issues: ProfileIssue[] = []
-    if (doc.creditor.bic === undefined) {
-      issues.push({
-        path: 'creditor.bic',
-        message: 'BIC is required by the selected bank profile but is missing on the creditor',
-      })
-    }
+    checkBicPresent(issues, 'creditor.bic', doc.creditor.bic, 'creditor')
     for (let bi = 0; bi < doc.batches.length; bi++) {
       const batch = doc.batches[bi]
       if (batch === undefined) continue
       for (let ci = 0; ci < batch.collections.length; ci++) {
         const collection = batch.collections[ci]
         if (collection === undefined) continue
-        if (collection.debtor.bic === undefined) {
-          issues.push({
-            path: `batches.${bi}.collections.${ci}.debtor.bic`,
-            message: 'BIC is required by the selected bank profile but is missing on the debtor',
-          })
-        }
+        checkBicPresent(
+          issues,
+          `batches.${bi}.collections.${ci}.debtor.bic`,
+          collection.debtor.bic,
+          'debtor'
+        )
       }
     }
     return issues
@@ -198,34 +230,24 @@ export const ibanBicCountryMatch: BankProfile = {
       const batch = doc.batches[bi]
       if (batch === undefined) continue
       // Check debtor
-      if (batch.debtor.bic !== undefined) {
-        const ibanCc = batch.debtor.iban.slice(0, 2).toUpperCase()
-        const bicCc = batch.debtor.bic.slice(4, 6).toUpperCase()
-        if (!ibanBicCountriesMatch(ibanCc, bicCc)) {
-          issues.push({
-            path: `batches.${bi}.debtor`,
-            message:
-              `IBAN country (${ibanCc}) does not match BIC country (${bicCc}) on the debtor. ` +
-              'Check for a data-entry error or use a different bank profile if this is intentional.',
-          })
-        }
-      }
+      checkIbanBicCountryConsistency(
+        issues,
+        `batches.${bi}.debtor`,
+        batch.debtor.iban,
+        batch.debtor.bic,
+        'debtor'
+      )
       // Check per-transfer creditors
       for (let ti = 0; ti < batch.transfers.length; ti++) {
         const transfer = batch.transfers[ti]
         if (transfer === undefined) continue
-        if (transfer.creditor.bic !== undefined) {
-          const ibanCc = transfer.creditor.iban.slice(0, 2).toUpperCase()
-          const bicCc = transfer.creditor.bic.slice(4, 6).toUpperCase()
-          if (!ibanBicCountriesMatch(ibanCc, bicCc)) {
-            issues.push({
-              path: `batches.${bi}.transfers.${ti}.creditor`,
-              message:
-                `IBAN country (${ibanCc}) does not match BIC country (${bicCc}) on the creditor. ` +
-                'Check for a data-entry error or use a different bank profile if this is intentional.',
-            })
-          }
-        }
+        checkIbanBicCountryConsistency(
+          issues,
+          `batches.${bi}.transfers.${ti}.creditor`,
+          transfer.creditor.iban,
+          transfer.creditor.bic,
+          'creditor'
+        )
       }
     }
     return issues
@@ -234,18 +256,13 @@ export const ibanBicCountryMatch: BankProfile = {
   checkDirectDebit(doc: DirectDebitDocument): ProfileIssue[] {
     const issues: ProfileIssue[] = []
     // Check document-level creditor
-    if (doc.creditor.bic !== undefined) {
-      const ibanCc = doc.creditor.iban.slice(0, 2).toUpperCase()
-      const bicCc = doc.creditor.bic.slice(4, 6).toUpperCase()
-      if (!ibanBicCountriesMatch(ibanCc, bicCc)) {
-        issues.push({
-          path: 'creditor',
-          message:
-            `IBAN country (${ibanCc}) does not match BIC country (${bicCc}) on the creditor. ` +
-            'Check for a data-entry error or use a different bank profile if this is intentional.',
-        })
-      }
-    }
+    checkIbanBicCountryConsistency(
+      issues,
+      'creditor',
+      doc.creditor.iban,
+      doc.creditor.bic,
+      'creditor'
+    )
     // Check per-collection debtors
     for (let bi = 0; bi < doc.batches.length; bi++) {
       const batch = doc.batches[bi]
@@ -253,18 +270,13 @@ export const ibanBicCountryMatch: BankProfile = {
       for (let ci = 0; ci < batch.collections.length; ci++) {
         const collection = batch.collections[ci]
         if (collection === undefined) continue
-        if (collection.debtor.bic !== undefined) {
-          const ibanCc = collection.debtor.iban.slice(0, 2).toUpperCase()
-          const bicCc = collection.debtor.bic.slice(4, 6).toUpperCase()
-          if (!ibanBicCountriesMatch(ibanCc, bicCc)) {
-            issues.push({
-              path: `batches.${bi}.collections.${ci}.debtor`,
-              message:
-                `IBAN country (${ibanCc}) does not match BIC country (${bicCc}) on the debtor. ` +
-                'Check for a data-entry error or use a different bank profile if this is intentional.',
-            })
-          }
-        }
+        checkIbanBicCountryConsistency(
+          issues,
+          `batches.${bi}.collections.${ci}.debtor`,
+          collection.debtor.iban,
+          collection.debtor.bic,
+          'debtor'
+        )
       }
     }
     return issues

@@ -8,8 +8,9 @@
  */
 
 import { z } from 'zod'
-import { isValidIban, isValidIso11649Ref } from './iban.js'
+import { isValidIso11649Ref } from './iban.js'
 import { isSepaCharset } from './charset.js'
+import { IBANSchema, BICSchema } from './shared.js'
 
 // ---------------------------------------------------------------------------
 // Internal validators (not exported from public API)
@@ -117,18 +118,8 @@ const ISODateSchema = z
   .string()
   .regex(ISO_DATE_PATTERN, 'Must be a valid ISO 8601 date in YYYY-MM-DD format (no time component)')
 
-/** IBAN validated by mod-97 checksum. */
-const IBANSchema = z
-  .string()
-  .regex(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/, 'Invalid IBAN format')
-  .refine((v) => isValidIban(v), {
-    message: 'IBAN failed mod-97 checksum validation',
-  })
-
-/** BIC/SWIFT identifier (optional). */
-const BICSchema = z
-  .string()
-  .regex(/^[A-Z0-9]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/, 'Invalid BIC/SWIFT format')
+// IBANSchema and BICSchema are imported from ./shared.js (identical definitions in both
+// schema.ts and pain008.ts, extracted to avoid duplication).
 
 // ---------------------------------------------------------------------------
 // Money

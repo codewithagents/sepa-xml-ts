@@ -1024,6 +1024,53 @@ export function parse(xml: string): ParseResult {
 }
 
 // ---------------------------------------------------------------------------
+// Shared GrpHdr extraction: common to both parsePain001 and parsePain008
+// ---------------------------------------------------------------------------
+
+type GrpHdrExtracted = {
+  ok: true
+  messageId: string
+  createdAt: string
+  initiatingParty: string
+  pmtInfArray: unknown[]
+}
+
+/**
+ * Extract the common GrpHdr fields (MsgId, CreDtTm, InitgPty/Nm) and the PmtInf
+ * array from a document root element. Used by both parsePain001 and parsePain008.
+ *
+ * Returns either the extracted values (ok: true) or a ParseFailure (ok: false).
+ */
+function extractGrpHdr(root: unknown): GrpHdrExtracted | ParseFailure {
+  const grpHdr = nav(root, 'GrpHdr')
+  if (!grpHdr) {
+    return { ok: false, error: 'Missing GrpHdr element' }
+  }
+
+  const messageId = str(nav(grpHdr, 'MsgId'))
+  if (!messageId) {
+    return { ok: false, error: 'Missing GrpHdr/MsgId' }
+  }
+
+  const createdAt = str(nav(grpHdr, 'CreDtTm'))
+  if (!createdAt) {
+    return { ok: false, error: 'Missing GrpHdr/CreDtTm' }
+  }
+
+  const initiatingParty = str(nav(grpHdr, 'InitgPty', 'Nm'))
+  if (!initiatingParty) {
+    return { ok: false, error: 'Missing GrpHdr/InitgPty/Nm' }
+  }
+
+  const pmtInfArray = nav(root, 'PmtInf')
+  if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
+    return { ok: false, error: 'Missing or empty PmtInf elements' }
+  }
+
+  return { ok: true, messageId, createdAt, initiatingParty, pmtInfArray }
+}
+
+// ---------------------------------------------------------------------------
 // pain.001 sub-parser (handles pain.001.001.09 and pain.001.001.03)
 // ---------------------------------------------------------------------------
 
@@ -1034,30 +1081,9 @@ function parsePain001(parsed: unknown, version: string): ParseResult {
       return { ok: false, error: 'Missing Document/CstmrCdtTrfInitn element' }
     }
 
-    const grpHdr = nav(root, 'GrpHdr')
-    if (!grpHdr) {
-      return { ok: false, error: 'Missing GrpHdr element' }
-    }
-
-    const messageId = str(nav(grpHdr, 'MsgId'))
-    if (!messageId) {
-      return { ok: false, error: 'Missing GrpHdr/MsgId' }
-    }
-
-    const createdAt = str(nav(grpHdr, 'CreDtTm'))
-    if (!createdAt) {
-      return { ok: false, error: 'Missing GrpHdr/CreDtTm' }
-    }
-
-    const initiatingParty = str(nav(grpHdr, 'InitgPty', 'Nm'))
-    if (!initiatingParty) {
-      return { ok: false, error: 'Missing GrpHdr/InitgPty/Nm' }
-    }
-
-    const pmtInfArray = nav(root, 'PmtInf')
-    if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
-      return { ok: false, error: 'Missing or empty PmtInf elements' }
-    }
+    const hdr = extractGrpHdr(root)
+    if (!hdr.ok) return hdr
+    const { messageId, createdAt, initiatingParty, pmtInfArray } = hdr
 
     const batches: PaymentBatch[] = []
     for (const pmtInfEl of pmtInfArray) {
@@ -1103,30 +1129,9 @@ function parsePain008(parsed: unknown, version: string): ParseResult {
       return { ok: false, error: 'Missing Document/CstmrDrctDbtInitn element' }
     }
 
-    const grpHdr = nav(root, 'GrpHdr')
-    if (!grpHdr) {
-      return { ok: false, error: 'Missing GrpHdr element' }
-    }
-
-    const messageId = str(nav(grpHdr, 'MsgId'))
-    if (!messageId) {
-      return { ok: false, error: 'Missing GrpHdr/MsgId' }
-    }
-
-    const createdAt = str(nav(grpHdr, 'CreDtTm'))
-    if (!createdAt) {
-      return { ok: false, error: 'Missing GrpHdr/CreDtTm' }
-    }
-
-    const initiatingParty = str(nav(grpHdr, 'InitgPty', 'Nm'))
-    if (!initiatingParty) {
-      return { ok: false, error: 'Missing GrpHdr/InitgPty/Nm' }
-    }
-
-    const pmtInfArray = nav(root, 'PmtInf')
-    if (!Array.isArray(pmtInfArray) || pmtInfArray.length === 0) {
-      return { ok: false, error: 'Missing or empty PmtInf elements' }
-    }
+    const hdr = extractGrpHdr(root)
+    if (!hdr.ok) return hdr
+    const { messageId, createdAt, initiatingParty, pmtInfArray } = hdr
 
     // Extract creditor from the first PmtInf (same value is fanned out to all)
     const creditor = extractCreditorFromPmtInf(pmtInfArray[0])
