@@ -10,7 +10,7 @@ XML, with **every generated file validated against the official EPC/ISO 20022 XS
 [![provenance](https://img.shields.io/badge/provenance-attested-success?logo=npm)](https://www.npmjs.com/package/sepa-xml-ts)
 [![types](https://img.shields.io/badge/types-included-blue?logo=typescript)](https://www.npmjs.com/package/sepa-xml-ts)
 [![install size](https://packagephobia.com/badge?p=sepa-xml-ts)](https://packagephobia.com/result?p=sepa-xml-ts)
-[![codecov](https://codecov.io/gh/codewithagents/sepa-xml-ts/branch/main/graph/badge.svg)](https://codecov.io/gh/codewithagents/sepa-xml-ts)
+[![codecov](https://codecov.io/gh/codewithagents/sepa-xml-ts/graph/badge.svg?branch=main)](https://codecov.io/gh/codewithagents/sepa-xml-ts)
 [![tests](https://img.shields.io/badge/tests-668%20passing-success)](https://github.com/codewithagents/sepa-xml-ts/actions/workflows/ci.yml)
 [![property-tested](https://img.shields.io/badge/property--tested-fast--check-blueviolet)](https://fast-check.dev)
 
