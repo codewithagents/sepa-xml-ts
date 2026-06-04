@@ -9,7 +9,6 @@
  */
 
 import { z } from 'zod'
-import { isValidIban } from './iban.js'
 import { isSepaCharset } from './charset.js'
 import {
   MoneySchema,
@@ -20,9 +19,10 @@ import {
   CategoryPurposeSchema,
 } from './schema.js'
 import { isValidCreditorId } from './creditor-id.js'
+import { IBANSchema, BICSchema } from './shared.js'
 
 // ---------------------------------------------------------------------------
-// Internal validators (shared with pain001 but redefined for independence)
+// Internal validators (local to pain008; sepaText message differs from schema.ts)
 // ---------------------------------------------------------------------------
 
 const ISO_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/
@@ -68,16 +68,7 @@ const ISODateSchema = z
   .string()
   .regex(ISO_DATE_PATTERN, 'Must be a valid ISO 8601 date in YYYY-MM-DD format')
 
-const IBANSchema = z
-  .string()
-  .regex(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/, 'Invalid IBAN format')
-  .refine((v) => isValidIban(v), {
-    message: 'IBAN failed mod-97 checksum validation',
-  })
-
-const BICSchema = z
-  .string()
-  .regex(/^[A-Z0-9]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/, 'Invalid BIC/SWIFT format')
+// IBANSchema and BICSchema are imported from ./shared.js (identical to schema.ts).
 
 // ---------------------------------------------------------------------------
 // SequenceType: SEPA direct debit sequence types
