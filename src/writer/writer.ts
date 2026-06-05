@@ -45,14 +45,9 @@ import {
   emitCdtTrfTxInfHeader,
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
+import type { CreditTransferVariant } from '../message-types.js'
 
-/**
- * The output schema variant for writeCreditTransfer.
- * - 'pain.001.001.09': the modern SEPA SCT schema (default, unchanged behavior)
- * - 'pain.001.001.03': the legacy ISO credit transfer format (for systems still requiring .03 on the wire)
- * - 'pain.001.003.03': the German DK national variant (different namespace and structure)
- */
-export type CreditTransferVariant = 'pain.001.001.09' | 'pain.001.001.03' | 'pain.001.003.03'
+export type { CreditTransferVariant }
 
 /** Options accepted by writeCreditTransfer. */
 export interface WriteCreditTransferOptions {

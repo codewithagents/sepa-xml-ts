@@ -73,7 +73,7 @@ export type {
 } from './model/schema.js'
 
 export { writeCreditTransfer } from './writer/writer.js'
-export type { WriteCreditTransferOptions, CreditTransferVariant } from './writer/writer.js'
+export type { WriteCreditTransferOptions } from './writer/writer.js'
 
 // ---------------------------------------------------------------------------
 // pain.008 exports
@@ -97,7 +97,7 @@ export type {
 } from './model/pain008.js'
 
 export { writeDirectDebit } from './writer/direct-debit.js'
-export type { WriteDirectDebitOptions, DirectDebitVariant } from './writer/direct-debit.js'
+export type { WriteDirectDebitOptions } from './writer/direct-debit.js'
 
 export { checkDirectDebitRules } from './model/dd-rules.js'
 
@@ -130,3 +130,12 @@ export type {
 
 export type { BankProfile, ProfileIssue } from './profile/profile.js'
 export { requireBic, ibanBicCountryMatch } from './profile/profiles.js'
+
+// ---------------------------------------------------------------------------
+// Typed message-type and variant constants
+// Single source of truth for autocomplete-friendly constants and their derived types.
+// Raw string literals remain valid everywhere (no breaking change).
+// ---------------------------------------------------------------------------
+
+// Exporting the const values also exposes the type aliases (same name, declaration merging).
+export { MessageType, CreditTransferVariant, DirectDebitVariant } from './message-types.js'

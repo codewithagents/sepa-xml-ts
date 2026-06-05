@@ -50,13 +50,9 @@ import {
 } from './xml-emit.js'
 import type { BankProfile } from '../profile/profile.js'
 import { checkDirectDebitRules } from '../model/dd-rules.js'
+import type { DirectDebitVariant } from '../message-types.js'
 
-/**
- * The output schema variant for writeDirectDebit.
- * - 'pain.008.001.08': the modern SEPA SDD schema (default, unchanged behavior)
- * - 'pain.008.003.02': the German DK national variant (different namespace and structure)
- */
-export type DirectDebitVariant = 'pain.008.001.08' | 'pain.008.003.02'
+export type { DirectDebitVariant }
 
 /** Options accepted by writeDirectDebit. */
 export interface WriteDirectDebitOptions {
