@@ -131,24 +131,33 @@ deep-equal.
 - pnpm for dev (`pnpm install`, `pnpm build`, `pnpm test`, `pnpm typecheck`). `packageManager` is pinned.
 - **Publish with npm, never pnpm** (only npm implements Trusted Publishing / `--provenance`; pnpm `pack`
   is needed only for monorepo `workspace:`/`catalog:` protocols, which this standalone package does not use).
-- Pre-1.0: breaking model changes are fine. Commit messages are conventional (`feat:` -> minor, `fix:` -> patch).
+- Post-1.0: the public API is frozen (1.0.0 froze it). Breaking changes need a major bump and a deliberate
+  reason. Commit messages are conventional (`feat:` -> minor, `fix:` -> patch, `feat!`/`BREAKING CHANGE` -> major).
 
 ## Release pipeline (GitHub Actions)
 
 - `ci.yml`: typecheck, build, test on PR + push.
-- `release.yml`: release-please (manifest mode, pinned to baseline, pre-1.0 minor/patch bumping) +
+- `release.yml`: release-please (manifest mode, post-1.0 semver bumping) +
   npm Trusted Publishing via OIDC. The publish `if` compares `release_created == 'true'` explicitly
   (a non-empty string like "false" is truthy in GHA).
-- First publish (0.1.0) was manual; subsequent releases go via OIDC once Trusted Publishing is configured
-  on npmjs.org for the repo + `release.yml`.
+- First publish (0.1.0) was manual; every release since goes via OIDC (Trusted Publishing configured
+  on npmjs.org for the repo + `release.yml`). Merge the release-please PR to cut a version and publish.
 
 ## Current state
 
-- 0.1.0 and 0.2.0 published to npm (OIDC + provenance pipeline proven).
-- Local, unpushed (next release will be 0.3.0): coexistence reading (.03/.02), SEPA rulebook
-  elements on both types, dual validate, fuzz-hardened parse, complete EPC transliteration,
-  golden corpus, differential tests vs sepa.js, bank-profile seam + requireBic, DK pain.001.003.03
-  write+read variant.
+- 1.1.0 published to npm (OIDC + provenance pipeline proven; 1.0.0 froze the public API). The features
+  listed below all ship on main. Releases are cut by merging the release-please PR.
+- Typed message-type constants ship (1.1.0, #40): `MessageType`, `CreditTransferVariant`,
+  `DirectDebitVariant` exported as `as const` objects plus same-name derived type aliases (single
+  source of truth in `src/message-types.ts`; writer/parser types derive from it so they cannot drift).
+  Members carry plain-language TSDoc for non-experts. Modern-default members are `SCT_V09` / `SDD_V08`
+  (the "V" makes clear .09/.08 is the ISO message version, not a year), alongside `SCT_Legacy`,
+  `SCT_DK`, `SDD_DK`. NON-BREAKING: the resolved string-literal unions are byte-identical, so raw
+  strings like `"pain.001.001.09"` still type-check everywhere they did. Discriminator literals stay
+  `'pain.001'` / `'pain.008'`.
+- The earlier coexistence work also ships: reading (.03/.02), SEPA rulebook elements on both types,
+  dual validate, fuzz-hardened parse, complete EPC transliteration, golden corpus, differential tests
+  vs sepa.js, bank-profile seam + requireBic, DK pain.001.003.03 write+read variant.
 - pain.008 sequence-type and mandate cross-field validation (R1/R2/R3/R4) ships and is enforced by
   both validateDirectDebit (returns ruleIssues) and writeDirectDebit (throws before emitting XML).
   R1: signatureDate <= collectionDate. R2: OOFF mandate appears exactly once. R3: mandate id bound
