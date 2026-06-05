@@ -18,6 +18,7 @@
 
 import { XMLParser } from 'fast-xml-parser'
 import { detectSepaNamespace } from '../xmlns-detect.js'
+import type { MessageType } from '../message-types.js'
 import {
   CreditTransferDocumentSchema,
   type CreditTransferDocument,
@@ -56,14 +57,16 @@ import {
 
 export type ParseSuccess001 = {
   ok: true
-  type: 'pain.001'
+  /** Discriminator matching `MessageType.CreditTransfer` ("pain.001"). */
+  type: typeof MessageType.CreditTransfer
   /** Detected schema version, e.g. "pain.001.001.09" or "pain.001.001.03". */
   version?: string
   data: CreditTransferDocument
 }
 export type ParseSuccess008 = {
   ok: true
-  type: 'pain.008'
+  /** Discriminator matching `MessageType.DirectDebit` ("pain.008"). */
+  type: typeof MessageType.DirectDebit
   /** Detected schema version, e.g. "pain.008.001.08" or "pain.008.001.02". */
   version?: string
   data: DirectDebitDocument

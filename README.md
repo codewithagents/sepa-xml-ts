@@ -211,22 +211,26 @@ if (!result.ok) {
 input.
 
 ```ts
-import { parse } from "sepa-xml-ts";
+import { parse, MessageType } from "sepa-xml-ts";
 
 const parsed = parse(xml);
 if (!parsed.ok) {
   console.error(parsed.error);
-} else if (parsed.type === "pain.001") {
+} else if (parsed.type === MessageType.CreditTransfer) {
   // parsed.data is a CreditTransferDocument
   const total = parsed.data.batches
     .flatMap((b) => b.transfers)
     .reduce((sum, t) => sum + t.amount.minorUnits, 0n);
   console.log("credit transfer total:", total);
 } else {
-  // parsed.type === "pain.008" -> parsed.data is a DirectDebitDocument
+  // parsed.type === MessageType.DirectDebit -> parsed.data is a DirectDebitDocument
   console.log("collections:", parsed.data.batches.flatMap((b) => b.collections).length);
 }
 ```
+
+`MessageType.CreditTransfer` is `"pain.001"` and `MessageType.DirectDebit` is `"pain.008"`. Raw
+string comparisons still type-check: `parsed.type === "pain.001"` is identical in behaviour and
+the types are fully compatible.
 
 The round-trip is anchored on the model: for any valid model,
 `parse(write(model))` deep-equals the original. This is verified as a property test over thousands
@@ -568,13 +572,14 @@ variant is a different XML schema with its own element ordering and element name
 
 The legacy ISO credit transfer schema `pain.001.001.03` is supported as a write target for
 systems that have not yet migrated to the modern `pain.001.001.09`. Pass `variant:
-'pain.001.001.03'` to emit the older namespace. The model input is the same
-`CreditTransferDocument`; only the serialization differs.
+'pain.001.001.03'` (or the `CreditTransferVariant.SCT_Legacy` constant) to emit the older
+namespace. The model input is the same `CreditTransferDocument`; only the serialization differs.
 
 ```ts
-import { euros, writeCreditTransfer, type CreditTransferDocument } from "sepa-xml-ts";
+import { euros, writeCreditTransfer, CreditTransferVariant, type CreditTransferDocument } from "sepa-xml-ts";
 
-const xml = writeCreditTransfer(doc, { variant: "pain.001.001.03" });
+const xml = writeCreditTransfer(doc, { variant: CreditTransferVariant.SCT_Legacy });
+// equivalent to: writeCreditTransfer(doc, { variant: "pain.001.001.03" })
 // <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">...
 ```
 
@@ -589,15 +594,21 @@ Structural deltas from `pain.001.001.09`:
 ### German DK variant: pain.001.003.03
 
 The German DK (DFU agreement Anlage 3) uses the namespace
-`urn:iso:std:iso:20022:tech:xsd:pain.001.003.03`. Pass `variant: 'pain.001.003.03'` to emit and
-validate against this schema. The model input is the same `CreditTransferDocument` for both
-variants; only the serialization differs.
+`urn:iso:std:iso:20022:tech:xsd:pain.001.003.03`. Pass `variant: 'pain.001.003.03'` (or the
+`CreditTransferVariant.SCT_DK` constant) to emit and validate against this schema. The model
+input is the same `CreditTransferDocument` for both variants; only the serialization differs.
 
 ```ts
-import { euros, writeCreditTransfer, type CreditTransferDocument } from "sepa-xml-ts";
+import {
+  euros,
+  writeCreditTransfer,
+  CreditTransferVariant,
+  type CreditTransferDocument,
+} from "sepa-xml-ts";
 import { validateXsd } from "sepa-xml-ts/xsd";
 
-const xml = writeCreditTransfer(doc, { variant: "pain.001.003.03" });
+const xml = writeCreditTransfer(doc, { variant: CreditTransferVariant.SCT_DK });
+// equivalent to: writeCreditTransfer(doc, { variant: "pain.001.003.03" })
 // <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.003.03">...
 
 const xsdResult = await validateXsd(xml); // validates against the DK XSD
@@ -627,15 +638,21 @@ const xml = writeCreditTransfer(doc, {
 ### German DK variant: pain.008.003.02
 
 The German DK direct debit variant uses the namespace
-`urn:iso:std:iso:20022:tech:xsd:pain.008.003.02`. Pass `variant: 'pain.008.003.02'` to emit and
-validate against this schema. The model input is the same `DirectDebitDocument` for both
-variants; only the serialization differs.
+`urn:iso:std:iso:20022:tech:xsd:pain.008.003.02`. Pass `variant: 'pain.008.003.02'` (or the
+`DirectDebitVariant.SDD_DK` constant) to emit and validate against this schema. The model input
+is the same `DirectDebitDocument` for both variants; only the serialization differs.
 
 ```ts
-import { euros, writeDirectDebit, type DirectDebitDocument } from "sepa-xml-ts";
+import {
+  euros,
+  writeDirectDebit,
+  DirectDebitVariant,
+  type DirectDebitDocument,
+} from "sepa-xml-ts";
 import { validateXsd } from "sepa-xml-ts/xsd";
 
-const xml = writeDirectDebit(doc, { variant: "pain.008.003.02" });
+const xml = writeDirectDebit(doc, { variant: DirectDebitVariant.SDD_DK });
+// equivalent to: writeDirectDebit(doc, { variant: "pain.008.003.02" })
 // <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.003.02">...
 
 const xsdResult = await validateXsd(xml); // validates against the DK SDD XSD
