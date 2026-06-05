@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v1.0.1...sepa-xml-ts-v1.1.0) (2026-06-05)
+
+
+### Features
+
+* export typed message-type and variant constants ([#39](https://github.com/codewithagents/sepa-xml-ts/issues/39)) ([#40](https://github.com/codewithagents/sepa-xml-ts/issues/40)) ([2967f49](https://github.com/codewithagents/sepa-xml-ts/commit/2967f49eccb9971a1cfa3ccb89acf75a0c10ecc9))
+
 ## [1.0.1](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v1.0.0...sepa-xml-ts-v1.0.1) (2026-06-03)
 
 
