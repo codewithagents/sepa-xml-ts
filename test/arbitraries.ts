@@ -80,13 +80,12 @@ export function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string
 const EXTENDED_ONLY_CHARACTERS = [...EPC217_08_EXTENDED_ONLY]
 
 /** Characters that stress XML escaping and the extended set; drawn more often. */
-const EXTENDED_STRESS_CHARACTERS = [...'&<>"\'ŠčЖЩ€\u00A0']
+const EXTENDED_STRESS_CHARACTERS = [...'&<>"\'ŠčЖЩ€']
 
 /**
  * Arbitrary for text in the EPC217-08 extended set: basic characters, every green
- * table character, and a bias toward the XML-special and multi-byte ones.
- * Trimmed with String.prototype.trim (which also removes U+00A0), because the parser
- * trims element text.
+ * table character the library accepts, and a bias toward the XML-special and multi-byte
+ * ones. Trimmed, because the parser trims element text.
  */
 function arbExtendedText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   const unit = fc.oneof(

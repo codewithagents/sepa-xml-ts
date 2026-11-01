@@ -58,6 +58,11 @@ are red, so the extended target uses the basic conversion anyway.
 
 - Thorn: the table's note on Þ says "sender should send TH". This library is the sender, so
   `toSepaCharset` converts Þ to `TH` and þ to `th`, not the Sign column's `T` and `t`.
+- No-break space: U+00A0 is green, but the table's extended conversion (columns F and G) turns
+  it into a space, and the parser trims element text with `String.prototype.trim`, which strips
+  it, so it cannot round-trip. Text fields do not accept it in either charset, and
+  `toSepaCharset` converts it to a space for both targets. `test/epc217-08-table.test.ts` leaves
+  exactly this green entry out of the generated extended set.
 - Section 6.2 sender rules override the table: & becomes `+` (the table says N/A), @ becomes
   `(at)` (the table says `.`), € becomes `E` and _ becomes `-` (both match the table).
 - Anything without a conversion becomes a full stop (`.`), as section 6.1 prescribes for red
@@ -66,9 +71,9 @@ are red, so the extended target uses the basic conversion anyway.
 - Membership follows the colour column only. The apostrophe is green in the table but part of
   the basic Latin set of the EPC Implementation Guidelines (and section 3 of the paper), so it
   counts as basic.
-- The extended (long-term) column is not used to rewrite green characters: U+00A0 NO-BREAK
-  SPACE, Ŗ ŗ and the Cyrillic а е к о are green and stay as they are in extended text, even
-  though column F suggests a basic look-alike.
+- The extended (long-term) column is not used to rewrite green characters: Ŗ ŗ and the
+  Cyrillic а е к о are green and stay as they are in extended text, even though column F
+  suggests a basic look-alike. The no-break space is the exception (see above).
 - The German ae/oe/ue/ss convention is not part of EPC217-08 and is not applied: the table
   converts one to one (ä to a, ß to s).
 - `toSepaCharset` normalizes to NFC before converting, so canonically equivalent input gives

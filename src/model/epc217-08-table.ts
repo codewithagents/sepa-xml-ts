@@ -30,7 +30,6 @@ export const EPC217_08_EXTENDED_ONLY: ReadonlySet<string> = new Set([
   '|',
   '}',
   '~',
-  '\u00A0',
   '¡',
   '¢',
   '£',

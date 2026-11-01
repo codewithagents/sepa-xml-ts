@@ -138,7 +138,9 @@ toSepaCharset('Maja Štupica 🎉', { charset: 'extended' }) // 'Maja Štupica .
 anything without a conversion (emoji, other scripts, typographic quotes such as `’`). It never
 drops, trims or truncates, so the result can exceed a field's maximum length. It converts one to
 one (`ä` to `a`, `ß` to `s`); apply the German `ae`/`oe`/`ue`/`ss` convention yourself before
-calling it if you need it.
+calling it if you need it. The no-break space (U+00A0) becomes a plain space for both targets:
+text fields do not accept it in either charset, because the table converts it to a space and it
+would not survive a round trip.
 
 <Aside type="caution">
   The German DK variants (`pain.001.003.03`, `pain.008.003.02`) throw on `{ charset: 'extended' }`:

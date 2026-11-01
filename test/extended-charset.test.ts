@@ -749,6 +749,38 @@ describe('German DK variants refuse { charset: extended }', () => {
 // XML escaping, length and encoding
 // ---------------------------------------------------------------------------
 
+describe('the no-break space (U+00A0) is not accepted in extended text (decision, NOTICE.md)', () => {
+  const name = 'Maja\u00A0Štupica'
+
+  it('should reject it in validate and write, in both charsets', () => {
+    const doc = withCreditorName(MINIMAL_DD, name)
+    for (const charset of ['basic', 'extended'] as const) {
+      expect(firstErrorMessage(validateDirectDebit(doc, { charset }))).toContain(
+        'the no-break space (U+00A0)'
+      )
+      expect(() => writeDirectDebit(doc, { charset })).toThrow('creditor.name: ')
+    }
+  })
+
+  it('should reject it in a received file, also with the default extended parse', () => {
+    const xml = writeDirectDebit(withCreditorName(MINIMAL_DD, 'Maja Štupica'), EXTENDED).replace(
+      '<Nm>Maja Štupica</Nm>',
+      `<Nm>${name}</Nm>`
+    )
+    const result = parse(xml)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('creditor.name: ')
+  })
+
+  it('should convert it to a space for both targets, and the converted name round-trips', async () => {
+    expect(toSepaCharset(name)).toBe('Maja Stupica')
+    const converted = toSepaCharset(name, EXTENDED)
+    expect(converted).toBe('Maja Štupica')
+    const doc = withCreditorName(MINIMAL_DD, converted)
+    await expectXsdValidRoundTrip(writeDirectDebit(doc, EXTENDED), doc)
+  })
+})
+
 describe('extended text: XML escaping and length', () => {
   it('should escape the five XML special characters, validate and round-trip', async () => {
     const name = `A & B <C> "D" 'E'`

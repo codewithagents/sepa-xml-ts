@@ -324,6 +324,9 @@ toSepaCharset("Maja Štupica 🎉", { charset: "extended" }); // "Maja Štupica 
 - Anything without a conversion (emoji, other scripts, typographic quotes such as `’`) becomes a
   full stop, as EPC217-08 prescribes. Nothing is dropped, trimmed or truncated, so the result can
   be longer than the input and still fail a length limit.
+- The no-break space (U+00A0) becomes a plain space for both targets. Text fields do not accept
+  it in either charset, although the table colours it green: the table converts it to a space,
+  and it would not survive a round trip.
 
 EPC converts one to one; it does not use the German convention `ä` to `ae`. If you need that
 convention, replace those letters before calling the helper:

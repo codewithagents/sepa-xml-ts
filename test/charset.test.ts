@@ -55,6 +55,18 @@ describe('isSepaBasic: basic Latin membership', () => {
 })
 
 describe('isInSepaCharset and offendingCharacters', () => {
+  it('should not accept the no-break space in either set, naming it in messages', () => {
+    expect(isInSepaCharset(`a${NBSP}b`, 'basic')).toBe(false)
+    expect(isInSepaCharset(`a${NBSP}b`, 'extended')).toBe(false)
+    expect(offendingCharacters(`a${NBSP}b`, 'extended')).toEqual([NBSP])
+    const message = textCharsetMessage(`a${NBSP}b`, 'extended')
+    expect(message).toContain(': the no-break space (U+00A0). ')
+    expect(message).toContain(
+      'The no-break space is green in the EPC217-08 table, but the table converts it to a plain space, so only the space is accepted: toSepaCharset converts it.'
+    )
+    expect(textCharsetMessage('a\u0160b', 'basic')).not.toContain('no-break space')
+  })
+
   it('should accept local-language and special characters in the extended set only', () => {
     for (const value of [
       'Maja Štupica',
@@ -183,7 +195,12 @@ describe('toSepaCharset: extended target', () => {
       'Müller & Söhne'
     )
     expect(toSepaCharset('info@firma.si', { charset: 'extended' })).toBe('info@firma.si')
-    expect(toSepaCharset(`a${NBSP}b`, { charset: 'extended' })).toBe(`a${NBSP}b`)
+  })
+
+  it('should convert the no-break space to a space for both targets (decision, NOTICE.md)', () => {
+    expect(toSepaCharset(`a${NBSP}b`)).toBe('a b')
+    expect(toSepaCharset(`a${NBSP}b`, { charset: 'extended' })).toBe('a b')
+    expect(toSepaCharset(`Maja${NBSP}Štupica`, { charset: 'extended' })).toBe('Maja Štupica')
   })
 
   it('should compose decomposed text (NFD) into the precomposed extended letter', () => {

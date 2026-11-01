@@ -70,6 +70,14 @@ const SIGN_COLUMN_ERRATA: ReadonlyMap<string, string> = new Map([
   ['U+0127', 'h'],
 ])
 
+/**
+ * Green entries this library does not accept in extended text. U+00A0 NO-BREAK SPACE:
+ * the table's own extended conversion (columns F and G) turns it into a space, and the
+ * parser trims element text with String.prototype.trim, which strips it, so it cannot
+ * round-trip. toSepaCharset converts it to a space for both targets.
+ */
+const GREEN_NOT_ACCEPTED: ReadonlySet<string> = new Set(['U+00A0'])
+
 /** EPC217-08 section 6.2: best practice for the sender, overriding the table. */
 const SECTION_6_2: ReadonlyMap<string, string> = new Map([
   ['&', '+'],
@@ -80,6 +88,10 @@ const SECTION_6_2: ReadonlyMap<string, string> = new Map([
 
 function isBasicEntry(entry: TableEntry): boolean {
   return entry.set === 'basic' || entry.char === APOSTROPHE
+}
+
+function isExtendedEntry(entry: TableEntry): boolean {
+  return entry.set === 'extended' && !GREEN_NOT_ACCEPTED.has(entry.codePoint)
 }
 
 function tableBasicConversion(entry: TableEntry): string | null {
@@ -95,7 +107,7 @@ function expectedForCharacter(character: string, target: 'basic' | 'extended'): 
   const entry = ENTRY_BY_CHAR.get(character)
   if (entry === undefined) return '.'
   if (isBasicEntry(entry)) return entry.char
-  if (target === 'extended' && entry.set === 'extended') return entry.char
+  if (target === 'extended' && isExtendedEntry(entry)) return entry.char
   const conversion = SECTION_6_2.get(entry.char) ?? tableBasicConversion(entry)
   return conversion ?? '.'
 }
@@ -113,7 +125,7 @@ function expectedFor(entry: TableEntry, target: 'basic' | 'extended'): string {
 
 function deriveExtendedOnly(): string[] {
   return TABLE.entries
-    .filter((entry) => entry.set === 'extended' && entry.char !== APOSTROPHE)
+    .filter((entry) => isExtendedEntry(entry) && !isBasicEntry(entry))
     .map((entry) => entry.char)
 }
 
@@ -196,9 +208,19 @@ describe('EPC217-08 generated table module', () => {
     )
   })
 
-  it('should hold the 315 green characters other than the apostrophe, and 327 conversions', () => {
-    expect(EPC217_08_EXTENDED_ONLY.size).toBe(315)
+  it('should hold the 314 green characters other than the apostrophe and the no-break space, and 327 conversions', () => {
+    expect(EPC217_08_EXTENDED_ONLY.size).toBe(314)
+    expect(EPC217_08_EXTENDED_ONLY.has('\u00A0')).toBe(false)
     expect(EPC217_08_TO_BASIC.size).toBe(327)
+    expect(EPC217_08_TO_BASIC.get('\u00A0')).toBe(' ')
+  })
+
+  it('should leave out exactly the green entries the decisions name (NOTICE.md)', () => {
+    const green = TABLE.entries.filter((entry) => entry.set === 'extended')
+    const notAccepted = green.filter((entry) => !isExtendedEntry(entry))
+    expect(notAccepted.map((entry) => [entry.codePoint, entry.name, entry.extended])).toEqual([
+      ['U+00A0', 'NO-BREAK SPACE', ' '],
+    ])
   })
 
   it('should convert only to basic Latin text', () => {
@@ -281,11 +303,13 @@ describe('EPC217-08 fixture integrity', () => {
 })
 
 describe('toSepaCharset over every EPC217-08 table entry', () => {
-  it('should put each entry in the right set (apostrophe counts as basic)', () => {
+  it('should put each entry in the right set (apostrophe counts as basic, no-break space as neither)', () => {
     for (const entry of TABLE.entries) {
       expect(isSepaBasic(entry.char), entry.codePoint).toBe(isBasicEntry(entry))
       expect(isInSepaCharset(entry.char, 'basic'), entry.codePoint).toBe(isBasicEntry(entry))
-      expect(isInSepaCharset(entry.char, 'extended'), entry.codePoint).toBe(entry.set !== 'outside')
+      expect(isInSepaCharset(entry.char, 'extended'), entry.codePoint).toBe(
+        isBasicEntry(entry) || isExtendedEntry(entry)
+      )
     }
   })
 
@@ -297,9 +321,9 @@ describe('toSepaCharset over every EPC217-08 table entry', () => {
     }
   })
 
-  it('should keep every green and yellow entry in the extended target, converting only red ones', () => {
+  it('should keep every accepted green and yellow entry in the extended target, converting the rest', () => {
     for (const entry of TABLE.entries) {
-      if (entry.set !== 'outside') {
+      if (isBasicEntry(entry) || isExtendedEntry(entry)) {
         expect(toSepaCharset(entry.char, { charset: 'extended' }), entry.codePoint).toBe(entry.char)
       }
       expect(toSepaCharset(entry.char, { charset: 'extended' }), entry.codePoint).toBe(

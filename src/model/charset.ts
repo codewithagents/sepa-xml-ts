@@ -127,13 +127,17 @@ export function isInSepaCharset(value: string, charset: SepaCharset): boolean {
 const CHARSET_MESSAGE_PREFIX = 'Value contains characters outside the SEPA charset (EPC217-08)'
 const BASIC_SET_DESCRIPTION = "a-z A-Z 0-9 space / - ? : ( ) . , ' +"
 const MAX_LISTED_CHARACTERS = 5
+const NO_BREAK_SPACE = '\u00A0'
 const COMBINING_MARK = /\p{M}/u
 
 /**
  * Characters a message names instead of quoting. The writers join issues with "; ",
  * so no charset message may contain a semicolon.
  */
-const NAMED_CHARACTERS: ReadonlyMap<string, string> = new Map([[';', 'the semicolon']])
+const NAMED_CHARACTERS: ReadonlyMap<string, string> = new Map([
+  [';', 'the semicolon'],
+  [NO_BREAK_SPACE, 'the no-break space'],
+])
 
 function describeCharacter(character: string): string {
   const hex = (character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')
@@ -149,6 +153,12 @@ function describeOffending(offending: string[]): string {
 function combiningMarkHint(offending: string[]): string {
   return offending.some((character) => COMBINING_MARK.test(character))
     ? " The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'), which toSepaCharset does for you."
+    : ''
+}
+
+function noBreakSpaceHint(offending: string[]): string {
+  return offending.includes(NO_BREAK_SPACE)
+    ? ' The no-break space is green in the EPC217-08 table, but the table converts it to a plain space, so only the space is accepted: toSepaCharset converts it.'
     : ''
 }
 
@@ -188,7 +198,8 @@ function capitalize(text: string): string {
 export function textCharsetMessage(value: string, textCharset: TextCharset): string {
   const offending = offendingCharacters(value, charsetOfText(textCharset))
   const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
-  return `${head} ${textFieldAdvice(offending, textCharset)}${combiningMarkHint(offending)}`
+  const hints = `${combiningMarkHint(offending)}${noBreakSpaceHint(offending)}`
+  return `${head} ${textFieldAdvice(offending, textCharset)}${hints}`
 }
 
 /**
