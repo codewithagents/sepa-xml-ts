@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "ignorePatterns": ["dist/**", "docs/dist/**", "node_modules/**", "coverage/**"],
+  "ignoreDependencies": ["@astrojs/markdown-remark"],
   "entry": ["docs/src/components/Footer.astro", "docs/src/styles/custom.css"],
   "rules": {
     "unused-files": "warn",

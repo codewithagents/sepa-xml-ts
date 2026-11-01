@@ -447,12 +447,12 @@ function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
   const arbBase: fc.Arbitrary<MandateAmendment> = fc.oneof(
     arbSepaText(1, 35).map((id): MandateAmendment => ({ originalMandateId: id })),
     arbIban().map((iban): MandateAmendment => ({ originalDebtorAccount: iban })),
-    fc.record({ originalMandateId: arbSepaText(1, 35), originalDebtorAccount: arbIban() }).map(
-      (a): MandateAmendment => ({
+    fc
+      .record({ originalMandateId: arbSepaText(1, 35), originalDebtorAccount: arbIban() })
+      .map((a): MandateAmendment => ({
         originalMandateId: a.originalMandateId,
         originalDebtorAccount: a.originalDebtorAccount,
-      })
-    )
+      }))
   )
   return fc.oneof(
     fc.constant<MandateAmendment | undefined>(undefined),
