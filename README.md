@@ -25,6 +25,7 @@ XML, with **every generated file validated against the official EPC/ISO 20022 XS
 - [Install](#install)
 - [Write](#write)
 - [Parse](#parse)
+- [Character set (EPC217-08)](#character-set-epc217-08)
 - [Direct debit (pain.008)](#direct-debit-pain008)
 - [Money](#money)
 - [Advanced fields](#advanced-fields)
@@ -58,6 +59,8 @@ not talk to banks.
 | Parse SEPA XML back to a typed model (auto-detects message type) | `pain.001` / `pain.008` | ✅ Supported |
 | Read older coexistence direct debits | `pain.008.001.02` | ✅ Supported (read-only) |
 | Validate business rules (IBAN mod-97, EPC charset, exact CtrlSum, dates) | all | ✅ Supported |
+| EPC217-08 extended character set in text fields (opt-in, `{ charset: 'extended' }`) | all but the DK variants | ✅ Supported |
+| Transliteration to the basic set (official EPC217-08 conversion table, `toSepaCharset`) | | ✅ Supported |
 | Per-transaction amount cap and floor (EPC AT-06: 0.01 to 999,999,999.99 EUR) | all | ✅ Supported |
 | Identifier slash rules (MsgId / PmtInfId / EndToEndId: no leading/trailing `/`, no `//`) | all | ✅ Supported |
 | German Creditor Identifier length check (DE = exactly 18 chars) | direct debit | ✅ Supported |
@@ -98,7 +101,9 @@ and it is enforced, not hoped for:
 
 - **Money cannot float.** Amounts are integer minor units (`bigint`), never JS `number` arithmetic.
 - **CtrlSum is exact.** The control sum equals the sum of transfers with zero rounding tolerance.
-- **SEPA character set enforced** (EPC217-08), as a concern separate from XML escaping.
+- **SEPA character set enforced** (EPC217-08), as a concern separate from XML escaping. Basic
+  Latin by default; the EPC217-08 extended set is an explicit opt-in for text fields only, and
+  identifiers, references and codes stay basic Latin in every mode.
 - **IBANs validated by mod-97**, not just a regex.
 - **SEPA Creditor Identifier check digits validated** (ISO 7064 MOD 97-10, with the business code
   excluded per EPC262-08). A creditor id that passes a regex but fails the check digit is caught
@@ -232,9 +237,105 @@ if (!parsed.ok) {
 string comparisons still type-check: `parsed.type === "pain.001"` is identical in behaviour and
 the types are fully compatible.
 
+`parse` accepts the EPC217-08 extended character set in text fields by default, so a received
+file with `č š ž` in a name parses. Pass `parse(xml, { charset: "basic" })` to accept only basic
+Latin. See [Character set (EPC217-08)](#character-set-epc217-08). Numeric character references
+(`&#352;`, `&#x160;`) are decoded; a bare `&` or an undefined entity such as `&nbsp;` is not
+well-formed XML and returns `ok: false`.
+
 The round-trip is anchored on the model: for any valid model,
 `parse(write(model))` deep-equals the original. This is verified as a property test over thousands
 of generated inputs, for both message types.
+
+## Character set (EPC217-08)
+
+SEPA defines a basic Latin character set that every bank accepts:
+
+```
+a-z A-Z 0-9 space / - ? : ( ) . , ' +
+```
+
+By default the writer and the validators accept only this set, so a name such as
+`"Maja Štupica"` is rejected with an error that names the character and the way out:
+
+```
+Invalid DirectDebitDocument: creditor.name: Value contains characters outside the SEPA charset
+(EPC217-08): "Š" (U+0160). By default only the basic Latin set is allowed (a-z A-Z 0-9 space / - ? : ( ) . , ' +). If your
+bank accepts the EPC217-08 extended character set, pass { charset: 'extended' }
+(SepaCharset.Extended); otherwise convert the value with toSepaCharset(value).
+```
+
+**Opt in to the extended set** when your bank has agreed to receive it. EPC217-08 extends the
+basic set with the local-language and special characters of its official conversion table
+(for example `č š ž ä ö ü ß æ ø å`, Greek and Cyrillic letters, `€ & @ # %`):
+
+```ts
+import { writeDirectDebit, validateDirectDebit, SepaCharset } from "sepa-xml-ts";
+
+const xml = writeDirectDebit(doc, { charset: SepaCharset.Extended }); // or { charset: "extended" }
+const result = validateDirectDebit(input, { charset: "extended" });
+```
+
+The opt-in applies to **human-readable text fields** only (EPC217-08 section 6.3):
+
+- Text fields follow the option: party names (`initiatingParty`, debtor, creditor, ultimate
+  parties, the amendment's original creditor and debtor names), postal address fields
+  (except `country`), and unstructured remittance information (`remittanceInfo`).
+- Identifiers, references and codes stay basic Latin in every mode: `messageId`, batch `id`,
+  `endToEndId`, the mandate id, purpose and category-purpose codes (including `proprietary`),
+  every field of a structured party identification, and every field of a structured
+  remittance.
+
+`parse` defaults to `"extended"`, because EPC217-08 asks a receiver to process text as
+received and to reject only characters outside the conversion table. A parsed document with
+extended text therefore needs `{ charset: "extended" }` to be written again.
+
+| Function | Default `charset` |
+|---|---|
+| `writeCreditTransfer`, `writeDirectDebit` | `"basic"` |
+| `validateCreditTransfer`, `validateDirectDebit` | `"basic"` |
+| `parse` | `"extended"` |
+
+The German DK variants (`pain.001.003.03`, `pain.008.003.02`) throw on `{ charset: "extended" }`:
+the DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does
+not ship. The legacy ISO `pain.001.001.03` accepts the extended set.
+
+**Convert text** with `toSepaCharset`, which applies the official EPC217-08 conversion table:
+
+```ts
+import { toSepaCharset } from "sepa-xml-ts";
+
+toSepaCharset("Maja Štupica"); // "Maja Stupica"
+toSepaCharset("Müller & Söhne"); // "Muller + Sohne"
+toSepaCharset("info@firma.si"); // "info(at)firma.si"
+toSepaCharset("Жеков Щ"); // "ZHekov SHT"
+toSepaCharset("€ 50"); // "E 50"
+toSepaCharset("Maja Štupica 🎉", { charset: "extended" }); // "Maja Štupica ."
+```
+
+- The value is normalized to NFC first, so decomposed text (`S` plus a combining caron) becomes
+  `Š`.
+- EPC217-08 section 6.2 applies first: `&` becomes `+`, `@` becomes `(at)`, `€` becomes `E`,
+  `_` becomes `-`.
+- Every other character uses the table's basic conversion, one to one where possible
+  (`ä` becomes `a`, `ß` becomes `s`); some Greek and Cyrillic letters become two or three letters
+  (`Ж` becomes `ZH`, `Щ` becomes `SHT`).
+- Anything without a conversion (emoji, other scripts, typographic quotes such as `’`) becomes a
+  full stop, as EPC217-08 prescribes. Nothing is dropped, trimmed or truncated, so the result can
+  be longer than the input and still fail a length limit.
+
+EPC converts one to one; it does not use the German convention `ä` to `ae`. If you need that
+convention, replace those letters before calling the helper:
+
+```ts
+const german = name.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+  .replace(/Ä/g, "Ae").replace(/Ö/g, "Oe").replace(/Ü/g, "Ue");
+const sepaName = toSepaCharset(german);
+```
+
+The writer returns a string whose XML declaration says `encoding="UTF-8"` and writes extended
+characters as they are (only `& < > " '` are escaped). Save the file as UTF-8 (Node's default),
+and decode received files as UTF-8 before calling `parse`.
 
 ## Direct debit (pain.008)
 
@@ -635,6 +736,11 @@ const xml = writeCreditTransfer(doc, {
 });
 ```
 
+`{ charset: "extended" }` throws for this variant: the DK formats define their own character rules
+(DFU-Abkommen Anlage 3), which this library does not ship. Use `pain.001.001.09` for extended text,
+or convert text fields with `toSepaCharset(value)`. `parse()` still accepts extended text in DK
+files.
+
 ### German DK variant: pain.008.003.02
 
 The German DK direct debit variant uses the namespace
@@ -678,6 +784,9 @@ const xml = writeDirectDebit(doc, {
 });
 ```
 
+`{ charset: "extended" }` throws for this variant, for the same reason as `pain.001.003.03`. Use
+`pain.008.001.08` for extended text, or convert text fields with `toSepaCharset(value)`.
+
 ## Validate against the official XSD (optional)
 
 Business rules (charset, IBAN, CtrlSum, dates) are already enforced by the model and the writer.
@@ -708,12 +817,13 @@ From `sepa-xml-ts`:
 | `CreditTransferDocumentSchema`, `DirectDebitDocumentSchema` | The Zod schemas (single source of truth) |
 | `euros(amount: string): Money` | Build a `Money` value safely |
 | `formatMoney(m: Money): string` | Format a `Money` value to `"123.45"` |
-| `writeCreditTransfer(model, options?): string` | Model to `pain.001` XML (`options.variant` selects schema) |
-| `writeDirectDebit(model, options?): string` | Model to `pain.008` XML (`options.variant` selects schema) |
-| `parse(xml: string): ParseResult` | SEPA XML to model, auto-detecting message type |
+| `writeCreditTransfer(model, options?): string` | Model to `pain.001` XML (`options.variant` selects schema, `options.charset` the text charset, default `"basic"`) |
+| `writeDirectDebit(model, options?): string` | Model to `pain.008` XML (`options.variant` selects schema, `options.charset` the text charset, default `"basic"`) |
+| `parse(xml: string, options?: ParseOptions): ParseResult` | SEPA XML to model, auto-detecting message type (`options.charset`, default `"extended"`) |
+| `ParseOptions` | Options type for `parse` (`charset`) |
 | `ParseResult`, `ParseSuccess001`, `ParseSuccess008`, `ParseFailure` | Discriminated union from `parse`. `ParseSuccess001` has `type: "pain.001"`, `ParseSuccess008` has `type: "pain.008"`. |
-| `validateCreditTransfer(input, options?): ValidationResult` | Validate a credit-transfer model (schema + optional profile) |
-| `validateDirectDebit(input, options?): DirectDebitValidationResult` | Validate a direct-debit model (schema + rules R1-R4 + optional profile) |
+| `validateCreditTransfer(input, options?): ValidationResult` | Validate a credit-transfer model (schema + optional profile; `options.charset`, default `"basic"`) |
+| `validateDirectDebit(input, options?): DirectDebitValidationResult` | Validate a direct-debit model (schema + rules R1-R4 + optional profile; `options.charset`, default `"basic"`) |
 | `ValidationResult`, `ValidationSuccess`, `ValidationFailure` | Result types for `validateCreditTransfer` |
 | `DirectDebitValidationResult`, `DirectDebitValidationSuccess`, `DirectDebitValidationFailure` | Result types for `validateDirectDebit` (adds `ruleIssues` for R1-R4 violations) |
 | `ValidateOptions` | Options type for `validateCreditTransfer` / `validateDirectDebit` |
@@ -725,6 +835,8 @@ From `sepa-xml-ts`:
 | `BankProfile`, `ProfileIssue` | Types for authoring overlay bank profiles |
 | `requireBic` | Built-in profile: requires a BIC on every agent |
 | `ibanBicCountryMatch` | Built-in profile: opt-in IBAN vs BIC country consistency check |
+| `SepaCharset` | `{ Basic: 'basic', Extended: 'extended' }`, and the type `'basic' \| 'extended'` |
+| `toSepaCharset(value, options?): string` | Convert text to the basic set (default) or the extended set with the EPC217-08 conversion table |
 
 From `sepa-xml-ts/xsd`:
 
@@ -732,7 +844,8 @@ From `sepa-xml-ts/xsd`:
 |---|---|
 | `validateXsd(xml: string): Promise<XsdResult>` | Validate XML against the official EPC XSD (all 6 supported schemas) |
 
-Internal helpers (IBAN, SEPA charset, XML escaping) are intentionally not exported.
+Internal helpers (IBAN validation, charset predicates, XML escaping) are intentionally not exported.
+The only public charset surface is `SepaCharset` and `toSepaCharset`.
 
 ## Scope
 

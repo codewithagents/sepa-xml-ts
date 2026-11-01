@@ -138,7 +138,8 @@ if (!xsdResult.valid) {
   </Card>
   <Card title="EPC charset enforced" icon="information">
     SEPA character set EPC217-08 is enforced as a concern separate from XML escaping. Non-SEPA
-    characters are rejected, not silently dropped.
+    characters are rejected, not silently dropped. The EPC217-08 extended set (č š ž ä ß €) is an
+    opt-in for text fields; identifiers stay basic Latin.
   </Card>
   <Card title="IBAN mod-97 check" icon="approve-check-circle">
     Every IBAN is validated by mod-97 checksum, not just a regex. Invalid IBANs are caught before a

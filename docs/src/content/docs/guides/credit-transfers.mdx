@@ -170,7 +170,7 @@ const transfer = {
 it is `SCOR`. Setting both `remittanceInfo` and `structuredRemittance` on the same transfer is
 rejected at validation.
 
-The reference value is validated for SEPA charset and length. If it starts with the uppercase `RF`
+The reference value is validated for the SEPA basic Latin charset (in every charset mode) and length. If it starts with the uppercase `RF`
 prefix (declaring itself an ISO 11649 creditor reference), its check digits are validated with the
 ISO 7064 MOD 97-10 algorithm and a broken reference is rejected. National or proprietary references
 that do not use the `RF` prefix pass through unchecked, so a legitimate national format is never
@@ -203,7 +203,7 @@ const doc = {
 }
 ```
 
-The codes are validated for SEPA charset and length (1 to 4 characters) only. They are NOT checked
+The codes are validated for the SEPA basic Latin charset (in every charset mode) and length (1 to 4 characters) only. They are NOT checked
 against the ISO external code list, which is published separately and updated quarterly: validating
 membership would risk falsely rejecting a valid but newer code. Supported for `pain.001.001.09` and
 `pain.008.001.08`; the legacy and DK variants throw rather than dropping the codes silently.

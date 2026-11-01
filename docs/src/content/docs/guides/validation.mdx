@@ -14,7 +14,9 @@ model. It enforces all semantic constraints:
 
 - IBAN mod-97 checksum
 - BIC format (when provided)
-- SEPA charset EPC217-08 on all string fields
+- SEPA charset EPC217-08: basic Latin by default; the extended set in text fields only with
+  `{ charset: 'extended' }`; identifiers, references and codes basic Latin in every mode (see
+  [Character set](#character-set-epc217-08))
 - Amount constraints: max 2 decimal places, and the EPC AT-06 range of 0.01 to 999,999,999.99 EUR per transaction
 - Identifier slash rules: MsgId, PmtInfId, and EndToEndId must not start or end with `/` and must not contain `//`
 - Date format `YYYY-MM-DD` for execution and collection dates
@@ -28,7 +30,8 @@ third-party library.
 ### `validateCreditTransfer(input, options?)`
 
 Validates any unknown input as a `CreditTransferDocument`. Returns a typed result.
-Accepts an optional `{ profile }` option to run bank-profile checks on top of the base Zod rules.
+Accepts an optional `{ profile }` option to run bank-profile checks on top of the base Zod rules,
+and an optional `{ charset }` option (default `'basic'`).
 
 ```typescript
 import { validateCreditTransfer, requireBic } from 'sepa-xml-ts'
@@ -79,8 +82,74 @@ type ValidationResult<T> =
 ## Writers validate implicitly
 
 `writeCreditTransfer` and `writeDirectDebit` run the same validation internally. If the model
-fails, they throw a `ValidationError` with the same issue list. You do not have to call
-`validateCreditTransfer` separately before writing unless you want the typed result shape.
+fails, they throw an `Error` whose message lists the same issues as `path: message`. You do not
+have to call `validateCreditTransfer` separately before writing unless you want the typed result
+shape.
+
+## Character set (EPC217-08)
+
+SEPA defines a basic Latin set every bank accepts: `a-z A-Z 0-9 space / - ? : ( ) . , ' +`.
+EPC217-08 extends it with the local-language and special characters of its official conversion
+table (for example `č š ž ä ö ü ß`, Greek and Cyrillic letters, `€ & @`), which banks may accept
+by prior agreement.
+
+| Function                                        | Default `charset` |
+| ----------------------------------------------- | ----------------- |
+| `writeCreditTransfer`, `writeDirectDebit`       | `'basic'`         |
+| `validateCreditTransfer`, `validateDirectDebit` | `'basic'`         |
+| `parse`                                         | `'extended'`      |
+
+`parse` defaults to `'extended'` because EPC217-08 asks a receiver to process text as received
+and to reject only characters outside the conversion table. Use `parse(xml, { charset: 'basic' })`
+for the strict check. A parsed document with extended text needs `{ charset: 'extended' }` to be
+written again.
+
+The option applies to human-readable **text fields** only (EPC217-08 section 6.3):
+
+- **Text fields follow the option:** party names, postal address fields (except `country`), and
+  unstructured remittance information (`remittanceInfo`).
+- **Basic Latin in every mode:** `messageId`, batch `id`, `endToEndId`, the mandate id, purpose and
+  category-purpose codes (including `proprietary`), structured party identifications, and every
+  field of a structured remittance.
+
+A value outside the set fails with a message that names each character and its code point:
+
+```text
+creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "Š" (U+0160).
+By default only the basic Latin set is allowed (a-z A-Z 0-9 space / - ? : ( ) . , ' +). If your
+bank accepts the EPC217-08 extended character set, pass { charset: 'extended' }
+(SepaCharset.Extended); otherwise convert the value with toSepaCharset(value).
+```
+
+```typescript
+import { writeDirectDebit, toSepaCharset, SepaCharset } from 'sepa-xml-ts'
+
+// Your bank accepts the extended set:
+const xml = writeDirectDebit(doc, { charset: SepaCharset.Extended })
+
+// Otherwise convert text fields with the official EPC conversion table:
+toSepaCharset('Maja Štupica') // 'Maja Stupica'
+toSepaCharset('Müller & Söhne') // 'Muller + Sohne'
+toSepaCharset('Maja Štupica 🎉', { charset: 'extended' }) // 'Maja Štupica .'
+```
+
+`toSepaCharset` normalizes to NFC, applies the section 6.2 sender rules (`&` to `+`, `@` to
+`(at)`, `€` to `E`, `_` to `-`), then the table's basic conversion, and uses a full stop for
+anything without a conversion (emoji, other scripts, typographic quotes such as `’`). It never
+drops, trims or truncates, so the result can exceed a field's maximum length. It converts one to
+one (`ä` to `a`, `ß` to `s`); apply the German `ae`/`oe`/`ue`/`ss` convention yourself before
+calling it if you need it.
+
+<Aside type="caution">
+  The German DK variants (`pain.001.003.03`, `pain.008.003.02`) throw on `{ charset: 'extended' }`:
+  the DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does
+  not ship.
+</Aside>
+
+The writers return a string with an `encoding="UTF-8"` declaration and write extended characters
+as they are (only `& < > " '` are escaped). Save files as UTF-8, and decode received files as
+UTF-8 before calling `parse`. `parse` decodes numeric character references such as `&#352;`; a
+bare `&` or an undefined entity such as `&nbsp;` is not well-formed XML and returns `ok: false`.
 
 ## Layer 2: XSD validation (optional)
 

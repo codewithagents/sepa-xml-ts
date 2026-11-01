@@ -65,7 +65,9 @@ Every correctness invariant is enforced before output is ever generated:
 - **No-float money.** Amounts are `bigint` minor units. Float arithmetic is structurally excluded.
 - **Exact CtrlSum.** Derived with exact integer addition. Zero rounding tolerance.
 - **IBAN mod-97 validation.** Not just a regex: the checksum is verified.
-- **SEPA charset.** EPC217-08 characters enforced, as a separate concern from XML escaping.
+- **SEPA charset.** EPC217-08 characters enforced, as a separate concern from XML escaping. Basic
+  Latin by default; the extended set is an opt-in for text fields (`{ charset: 'extended' }`), and
+  `toSepaCharset` converts text with the official EPC conversion table.
 - **Dates, not datetimes.** Execution and collection dates are plain `YYYY-MM-DD`.
 - **XSD-oracle property testing.** The CI generates hundreds of random valid models, writes them,
   and asserts every file passes the official EPC XSD. The XSD is the ground truth.

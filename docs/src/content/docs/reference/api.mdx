@@ -48,13 +48,16 @@ description: Complete reference for all exports from sepa-xml-ts and sepa-xml-ts
 | `writeCreditTransfer` | `(model: CreditTransferDocument, options?: WriteCreditTransferOptions): string` | Write a pain.001 XML string |
 | `writeDirectDebit`    | `(model: DirectDebitDocument, options?: WriteDirectDebitOptions): string`       | Write a pain.008 XML string |
 
-Both writers validate the model internally and throw a `ValidationError` if validation fails.
+Both writers validate the model internally and throw an `Error` if validation fails. The message
+names each failing field path, for example `creditor.name: Value contains characters outside the
+SEPA charset (EPC217-08): "Š" (U+0160). ...`.
 
 ### Parser
 
-| Export  | Signature                    | Description                                          |
-| ------- | ---------------------------- | ---------------------------------------------------- |
-| `parse` | `(xml: string): ParseResult` | Parse SEPA XML to model, auto-detecting message type |
+| Export         | Signature                                            | Description                                                  |
+| -------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| `parse`        | `(xml: string, options?: ParseOptions): ParseResult` | Parse SEPA XML to model, auto-detecting message type         |
+| `ParseOptions` | `{ charset?: SepaCharset }`                          | Text-field charset accepted by `parse`, default `'extended'` |
 
 `ParseResult` is a discriminated union:
 
@@ -67,11 +70,11 @@ type ParseResult =
 
 ### Validation functions
 
-| Export                   | Signature                                                                                         | Description                                              |
-| ------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `validate`               | `(input: unknown): ValidationResult<CreditTransferDocument>`                                      | Validate a credit-transfer model                         |
-| `validateCreditTransfer` | `(input: unknown, options?: { profile?: BankProfile }): ValidationResult<CreditTransferDocument>` | Validate with optional bank profile                      |
-| `validateDirectDebit`    | `(input: unknown, options?: { profile?: BankProfile }): ValidationResult<DirectDebitDocument>`    | Validate a direct-debit model with optional bank profile |
+| Export                   | Signature                                                                                                                | Description                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `validate`               | `(input: unknown): ValidationResult<CreditTransferDocument>`                                                             | Validate a credit-transfer model                                                          |
+| `validateCreditTransfer` | `(input: unknown, options?: { profile?: BankProfile, charset?: SepaCharset }): ValidationResult<CreditTransferDocument>` | Validate with optional bank profile; `charset` defaults to `'basic'`                      |
+| `validateDirectDebit`    | `(input: unknown, options?: { profile?: BankProfile, charset?: SepaCharset }): ValidationResult<DirectDebitDocument>`    | Validate a direct-debit model with optional bank profile; `charset` defaults to `'basic'` |
 
 `ValidationResult` shape:
 
@@ -88,14 +91,26 @@ type ValidationResult<T> =
 | `ProfileIssue` | `{ path: string, message: string }`                                    |
 | `requireBic`   | Built-in profile: rejects documents where any account is missing a BIC |
 
+### Character set (EPC217-08)
+
+| Export          | Signature                                                                       | Description                                                                                              |
+| --------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `SepaCharset`   | `{ Basic: 'basic', Extended: 'extended' }` and the type `'basic' \| 'extended'` | The SEPA character sets a text field can use                                                             |
+| `toSepaCharset` | `(value: string, options?: { charset?: SepaCharset }): string`                  | Convert text to the basic set (default) or the extended set with the official EPC217-08 conversion table |
+
+`charset` applies to human-readable text fields only (names, addresses, remittance
+information). Identifiers, references and codes are basic Latin in every mode. Writers and
+validators default to `'basic'`, `parse` defaults to `'extended'`. See
+[Validation & XSD](/guides/validation#character-set-epc217-08).
+
 ### Writer option types
 
-| Export                       | Description                                                  |
-| ---------------------------- | ------------------------------------------------------------ |
-| `WriteCreditTransferOptions` | `{ variant?: CreditTransferVariant, profile?: BankProfile }` |
-| `WriteDirectDebitOptions`    | `{ variant?: DirectDebitVariant, profile?: BankProfile }`    |
-| `CreditTransferVariant`      | `'pain.001.001.09' \| 'pain.001.003.03'`                     |
-| `DirectDebitVariant`         | `'pain.008.001.08' \| 'pain.008.003.02'`                     |
+| Export                       | Description                                                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `WriteCreditTransferOptions` | `{ variant?: CreditTransferVariant, profile?: BankProfile, charset?: SepaCharset }` (`charset` defaults to `'basic'`; the DK variant throws on `'extended'`) |
+| `WriteDirectDebitOptions`    | `{ variant?: DirectDebitVariant, profile?: BankProfile, charset?: SepaCharset }` (`charset` defaults to `'basic'`; the DK variant throws on `'extended'`)    |
+| `CreditTransferVariant`      | `'pain.001.001.09' \| 'pain.001.003.03'`                                                                                                                     |
+| `DirectDebitVariant`         | `'pain.008.001.08' \| 'pain.008.003.02'`                                                                                                                     |
 
 ---
 
@@ -121,9 +136,9 @@ Lazy-loads `libxml2-wasm` on first call.
 The following are intentionally internal and not part of the public API:
 
 - IBAN mod-97 validation
-- SEPA charset EPC217-08 transliteration
+- SEPA charset predicates (the public charset surface is `SepaCharset` and `toSepaCharset`)
 - XML escaper
 - Raw creditor-id helpers (the public surface is `isValidCreditorId` and `buildCreditorId`)
 
-If you need IBAN validation or SEPA charset filtering in your own code, use a dedicated library
-for those concerns rather than depending on internals that may change.
+If you need IBAN validation in your own code, use a dedicated library for that concern rather
+than depending on internals that may change.

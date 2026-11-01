@@ -47,6 +47,14 @@ console.log(xsdResult.valid) // true -- validates against the DK XSD
 The `NOTPROVIDED` fallback in `DbtrAgt` is the only allowed placeholder in the DK XSD when the
 debtor's BIC is unknown. The writer handles this automatically.
 
+### Character set
+
+`writeCreditTransfer(doc, { variant: 'pain.001.003.03', charset: 'extended' })` throws. The DK
+formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not
+ship, so it cannot prove that a DK bank accepts the EPC217-08 extended set. Write text fields in
+basic Latin (convert them with `toSepaCharset(value)`), or use `pain.001.001.09` for extended
+text. Reading is lenient: `parse()` accepts extended text in DK files.
+
 ### Parsing pain.001.003.03
 
 `parse()` auto-detects the namespace and reads a DK credit transfer file into a
@@ -85,10 +93,16 @@ console.log(xsdResult.valid) // true
 | `DbtrAgt` when no BIC    | Empty placeholder | `<Othr><Id>NOTPROVIDED</Id></Othr>` |
 | `GrpHdr/CtrlSum`         | Required          | Omitted (optional in DK XSD)        |
 
+### Character set
+
+`writeDirectDebit(doc, { variant: 'pain.008.003.02', charset: 'extended' })` throws, for the same
+reason as the DK credit transfer: the DFU-Abkommen Anlage 3 character rules are not shipped. Use
+`toSepaCharset(value)` for text fields, or `pain.008.001.08` for extended text.
+
 ### Parsing pain.008.003.02
 
 `parse()` reads a DK direct debit file into a `DirectDebitDocument`. The returned `parsed.type`
-is `'pain.008'` in both cases.
+is `'pain.008'` in both cases. Extended text in DK files is accepted on read.
 
 ## Legacy ISO format: pain.001.001.03
 
@@ -107,7 +121,8 @@ The model input is the same `CreditTransferDocument` as for `.09`. Structural di
 `pain.001.001.09`: a plain `ReqdExctnDt` element (no `Dt` wrapper), the `BIC` element instead of
 `BICFI`, and a debtor `FinInstnId` that is emitted (empty when no BIC is set). The output is
 verified against the official `schemas/iso20022/pain.001.001.03.xsd` and round-trips through
-`parse()`. By default `writeCreditTransfer` still emits the modern `pain.001.001.09`.
+`parse()`. By default `writeCreditTransfer` still emits the modern `pain.001.001.09`. Unlike the DK
+variants, `.03` accepts `{ charset: 'extended' }`: its ISO XSD puts no pattern on text types.
 
 ## Combining variant and profile
 
