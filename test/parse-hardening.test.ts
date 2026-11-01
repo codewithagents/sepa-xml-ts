@@ -1091,10 +1091,13 @@ describe('parse() reads element text the way an XML parser reads it', () => {
 // Differential fuzz: parse against libxml2
 // ---------------------------------------------------------------------------
 
-type Libxml2Reading = { wellFormed: true; creditorName: string | null } | { wellFormed: false }
+type Libxml2Result<T> = { wellFormed: true } & T
 
-/** What libxml2 reads: whether the document is well-formed, and the first creditor name. */
-function libxml2Read(xml: string): Libxml2Reading {
+/** Parse with libxml2 (as validateXsd does) and read the document, or report it as not well-formed. */
+function readWithLibxml2<T>(
+  xml: string,
+  read: (doc: XmlDocument) => T
+): Libxml2Result<T> | { wellFormed: false } {
   let doc: XmlDocument
   try {
     doc = XmlDocument.fromString(xml, { option: ParseOption.XML_PARSE_NO_XXE })
@@ -1103,14 +1106,151 @@ function libxml2Read(xml: string): Libxml2Reading {
     throw e
   }
   try {
-    const name = doc.get("(//*[local-name()='Cdtr'])[1]/*[local-name()='Nm']")
-    return { wellFormed: true, creditorName: name === null ? null : name.content }
+    return { wellFormed: true, ...read(doc) }
   } finally {
     doc[Symbol.dispose]()
   }
 }
 
-const FUZZ_CHARACTERS = [...'<?![]>"\'-&#;x0123456789/=:A']
+/** What libxml2 reads: whether the document is well-formed, and the first creditor name. */
+function libxml2Read(
+  xml: string
+): Libxml2Result<{ creditorName: string | null }> | { wellFormed: false } {
+  return readWithLibxml2(xml, (doc) => {
+    const name = doc.get("(//*[local-name()='Cdtr'])[1]/*[local-name()='Nm']")
+    return { creditorName: name === null ? null : name.content }
+  })
+}
+
+const XML_WHITESPACE_AT_EDGES = /^[ \t\r\n]+|[ \t\r\n]+$/g
+
+/** A decimal amount as the model holds it (minor units), or the text itself when it is not one. */
+function minorUnitsOf(text: string): string {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text)
+  if (match === null) return text
+  return String(BigInt(match[1] ?? '0') * 100n + BigInt((match[2] ?? '0').padEnd(2, '0')))
+}
+
+type FuzzTransfer = CreditTransferDocument['batches'][number]['transfers'][number]
+const transferOf = (doc: CreditTransferDocument): FuzzTransfer | undefined =>
+  doc.batches[0]?.transfers[0]
+
+/**
+ * Every modelled text field of the fuzz template: the path libxml2 reads it at (below
+ * CstmrCdtTrfInitn, by local name), the value the model holds, and how a libxml2 text
+ * compares to it (after XML whitespace is trimmed at the edges).
+ */
+const FUZZ_FIELDS: ReadonlyArray<{
+  path: string
+  model: (doc: CreditTransferDocument) => string | undefined
+  fromXml?: (text: string) => string
+}> = [
+  { path: 'GrpHdr/MsgId', model: (doc) => doc.messageId },
+  { path: 'GrpHdr/CreDtTm', model: (doc) => doc.createdAt },
+  { path: 'GrpHdr/InitgPty/Nm', model: (doc) => doc.initiatingParty },
+  { path: 'PmtInf/PmtInfId', model: (doc) => doc.batches[0]?.id },
+  { path: 'PmtInf/ReqdExctnDt/Dt', model: (doc) => doc.batches[0]?.executionDate },
+  { path: 'PmtInf/Dbtr/Nm', model: (doc) => doc.batches[0]?.debtor.name },
+  { path: 'PmtInf/DbtrAcct/Id/IBAN', model: (doc) => doc.batches[0]?.debtor.iban },
+  { path: 'PmtInf/DbtrAgt/FinInstnId/BICFI', model: (doc) => doc.batches[0]?.debtor.bic },
+  { path: 'PmtInf/CdtTrfTxInf/PmtId/EndToEndId', model: (doc) => transferOf(doc)?.endToEndId },
+  {
+    path: 'PmtInf/CdtTrfTxInf/Amt/InstdAmt',
+    model: (doc) => transferOf(doc)?.amount.minorUnits.toString(),
+    fromXml: minorUnitsOf,
+  },
+  {
+    path: 'PmtInf/CdtTrfTxInf/Amt/InstdAmt/@Ccy',
+    model: (doc) => transferOf(doc)?.amount.currencyCode,
+  },
+  {
+    path: 'PmtInf/CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI',
+    model: (doc) => transferOf(doc)?.creditor.bic,
+  },
+  { path: 'PmtInf/CdtTrfTxInf/Cdtr/Nm', model: (doc) => transferOf(doc)?.creditor.name },
+  { path: 'PmtInf/CdtTrfTxInf/CdtrAcct/Id/IBAN', model: (doc) => transferOf(doc)?.creditor.iban },
+  { path: 'PmtInf/CdtTrfTxInf/RmtInf/Ustrd', model: (doc) => transferOf(doc)?.remittanceInfo },
+]
+
+function xpathOf(path: string): string {
+  const steps = ['Document', 'CstmrCdtTrfInitn', ...path.split('/')]
+  return steps
+    .map((step) => (step.startsWith('@') ? step : `*[local-name()='${step}']`))
+    .join('/')
+    .replace(/^/, '/')
+}
+
+/** Every FUZZ_FIELDS text as libxml2 reads it: one entry per element (or attribute) found. */
+function libxml2Fields(
+  xml: string
+): Libxml2Result<{ fields: Record<string, string[]> }> | { wellFormed: false } {
+  return readWithLibxml2(xml, (doc) => ({
+    fields: Object.fromEntries(
+      FUZZ_FIELDS.map(({ path }) => [path, doc.find(xpathOf(path)).map((node) => node.content)])
+    ),
+  }))
+}
+
+/**
+ * parse returns ok:false with "Cannot read <X>: ..." only when libxml2 agrees that X is not
+ * one text value: it occurs twice under one parent, or it holds the named child element.
+ */
+function expectUnreadableClaimHolds(xml: string, error: string): void {
+  const repeated = /^Cannot read <([^>]+)>: it occurs \d+ times/.exec(error)
+  const nested = /^Cannot read <([^>]+)>: it contains the element <([^>]+)>/.exec(error)
+  const xpath =
+    repeated !== null
+      ? `//*[count(*[local-name()='${repeated[1]}']) > 1]`
+      : nested !== null
+        ? `//*[local-name()='${nested[1]}']/*[local-name()='${nested[2]}']`
+        : null
+  if (xpath === null) return
+  const found = readWithLibxml2(xml, (doc) => ({ count: doc.find(xpath).length }))
+  expect(found.wellFormed && found.count > 0, `libxml2 does not see why: ${error}`).toBe(true)
+}
+
+/** The scan rules that are parse's own, not XML's: libxml2 reads these documents as well-formed. */
+const PARSE_ONLY_PROBLEMS = [
+  'has a quote that is not closed',
+  'a Unicode space that parse does not accept',
+]
+
+function expectParseAgreesWithLibxml2(xml: string): void {
+  const libxml2 = libxml2Fields(xml)
+  const problem = findWellFormednessProblem(xml)
+  if (problem === null || !PARSE_ONLY_PROBLEMS.some((own) => problem.includes(own))) {
+    expect(problem === null, `scan: ${problem}`).toBe(libxml2.wellFormed)
+  }
+  const result = parse(xml)
+  if (!result.ok) {
+    expectUnreadableClaimHolds(xml, result.error)
+    return
+  }
+  expect(libxml2.wellFormed).toBe(true)
+  if (!libxml2.wellFormed || result.type !== 'pain.001') throw new Error('expected a pain.001')
+  for (const { path, model, fromXml } of FUZZ_FIELDS) {
+    const texts = libxml2.fields[path] ?? []
+    expect(texts.length, `${path}: libxml2 reads ${texts.length} values`).toBeLessThanOrEqual(1)
+    const trimmed = texts[0]?.replace(XML_WHITESPACE_AT_EDGES, '')
+    const text = trimmed === undefined || fromXml === undefined ? trimmed : fromXml(trimmed)
+    const value = model(result.data)
+    if (value === undefined) {
+      expect(text ?? '', `${path}: present in libxml2's reading but absent in the model`).toBe('')
+    } else {
+      expect(value, `${path}: the model holds a value libxml2 does not read`).toBe(text)
+    }
+  }
+}
+
+/** The fuzz template: the minimal pain.001 with remittance information. */
+const FUZZ_TEMPLATE = writeCreditTransfer(MINIMAL_CT_WITH_REMITTANCE)
+
+const XML_WHITESPACE_PIECES = [' ', '\t', '\n', '\r', '\r\n']
+const FUZZ_CHARACTERS = [
+  ...'<?![]>"\'-&#;x0123456789/=:A',
+  ...XML_WHITESPACE_PIECES,
+  ...JS_ONLY_WHITESPACE,
+]
 const FUZZ_TOKENS = [
   '<Nm>',
   '</Nm>',
@@ -1146,23 +1286,93 @@ const FUZZ_TOKENS = [
   '<p:x/>',
   '<x xmlns:p="urn:p"><p:x/></x>',
 ]
+
+/** Pieces of text content: whitespace of both kinds, CDATA next to text, PIs, comments, a second element. */
+const FUZZ_TEXT_PIECES = [
+  'A',
+  '1',
+  '-',
+  '/',
+  ...XML_WHITESPACE_PIECES,
+  ...JS_ONLY_WHITESPACE,
+  '<![CDATA[A]]>',
+  '<![CDATA[ ]]>',
+  '<![CDATA[]]>',
+  ' <![CDATA[B]]> ',
+  '<?app note?>',
+  '<?app?>',
+  '<!-- c -->',
+  '&#32;',
+  '&#9;',
+  '&#10;',
+  '&#xA0;',
+  '&#xFEFF;',
+  '&#65;',
+  '</Ustrd><Ustrd>',
+  '</Nm><Nm>',
+]
 const arbFuzzPiece = fc.oneof(fc.constantFrom(...FUZZ_CHARACTERS), fc.constantFrom(...FUZZ_TOKENS))
 const arbFuzzPart = fc.array(arbFuzzPiece, { maxLength: 8 }).map((pieces) => pieces.join(''))
+const arbTextPart = fc
+  .array(fc.constantFrom(...FUZZ_TEXT_PIECES), { maxLength: 3 })
+  .map((pieces) => pieces.join(''))
+
+/** Replace the creditor block of the fuzz template with raw XML. */
+function withFuzzCreditorXml(rawCreditorXml: string): string {
+  return FUZZ_TEMPLATE.replace(CREDITOR_BLOCK, rawCreditorXml)
+}
+
 const arbCreditorDocument = fc
   .tuple(arbFuzzPart, arbFuzzPart, arbFuzzPart)
-  .map(([before, name, after]) => withCreditorXml(`<Cdtr>${before}<Nm>${name}</Nm>${after}</Cdtr>`))
+  .map(([before, name, after]) =>
+    withFuzzCreditorXml(`<Cdtr>${before}<Nm>${name}</Nm>${after}</Cdtr>`)
+  )
 const FUZZ_ANCHORS = [
   '<?xml version="1.0" encoding="UTF-8"?>',
   '<GrpHdr>',
   '</GrpHdr>',
   '<Cdtr>',
+  '<RmtInf>',
   '</Document>',
 ]
 const arbAnywhereDocument = fc
   .tuple(fc.constantFrom(...FUZZ_ANCHORS), fc.boolean(), arbFuzzPart)
   .map(([anchor, before, part]) =>
-    writeCreditTransfer(MINIMAL_CT).replace(anchor, before ? part + anchor : anchor + part)
+    FUZZ_TEMPLATE.replace(anchor, before ? part + anchor : anchor + part)
   )
+
+/** Every element of the fuzz template whose text the model holds, as written. */
+const FUZZ_TEXT_ELEMENTS = [
+  '<MsgId>HARDEN-CT-001</MsgId>',
+  '<CreDtTm>2024-06-01T09:00:00Z</CreDtTm>',
+  '<Nm>Test Initiator</Nm>',
+  '<PmtInfId>BATCH-001</PmtInfId>',
+  '<Dt>2024-06-05</Dt>',
+  '<Nm>Test Debtor</Nm>',
+  '<IBAN>DE89370400440532013000</IBAN>',
+  '<BICFI>COBADEFFXXX</BICFI>',
+  '<EndToEndId>E2E-0001</EndToEndId>',
+  '<InstdAmt Ccy="EUR">1.00</InstdAmt>',
+  '<Nm>Test Creditor</Nm>',
+  '<IBAN>DE65200400300234567000</IBAN>',
+  USTRD,
+]
+const arbTextFieldDocument = fc
+  .record({
+    element: fc.constantFrom(...FUZZ_TEXT_ELEMENTS),
+    before: arbTextPart,
+    middle: arbTextPart,
+    after: arbTextPart,
+    at: fc.nat(),
+  })
+  .map(({ element, before, middle, after, at }) => {
+    const open = element.slice(0, element.indexOf('>') + 1)
+    const close = element.slice(element.lastIndexOf('<'))
+    const value = element.slice(open.length, element.length - close.length)
+    const split = at % (value.length + 1)
+    const text = `${before}${value.slice(0, split)}${middle}${value.slice(split)}${after}`
+    return FUZZ_TEMPLATE.replace(element, `${open}${text}${close}`)
+  })
 
 const HIDDEN_NAME = '<Nm>Maja &#x160;tupica</Nm>'
 const HIDDEN_HTML_NAME = '<Nm>Maja &euro; Stupica</Nm>'
@@ -1176,10 +1386,13 @@ const DIFFERENTIAL_SEEDS: ReadonlyArray<readonly string[]> = [
   ['<![X[', ' > ', '<!--', ' ]]>', HIDDEN_NAME, '<!-- -->'],
   ['<![X[', ' > ', '<!--', ' ]]>', HIDDEN_HTML_NAME, '<!-- -->'],
   ['<!--', '"', '-->', HIDDEN_NAME],
+  ['<Nm>Maja ', '<![CDATA[Stupica]]>', '</Nm>'],
+  ['<Nm>Maja', ' ', '</Nm>'],
+  ['<Nm >', 'Hidden', '</Nm >', '<Nm>Maja</Nm>'],
 ]
 const arbEdit = fc.record({
   at: fc.nat(),
-  piece: arbFuzzPiece,
+  piece: fc.oneof(arbFuzzPiece, fc.constantFrom(...FUZZ_TEXT_PIECES)),
   kind: fc.constantFrom('insert', 'replace', 'delete'),
 })
 const arbSeededDocument = fc
@@ -1191,53 +1404,37 @@ const arbSeededDocument = fc
       if (kind === 'insert') pieces.splice(index, 0, piece)
       else pieces.splice(index, 1, ...(kind === 'replace' ? [piece] : []))
     }
-    return withCreditorXml(`<Cdtr>${pieces.join('')}</Cdtr>`)
+    return withFuzzCreditorXml(`<Cdtr>${pieces.join('')}</Cdtr>`)
   })
 
-function expectParseAgreesWithLibxml2(xml: string): void {
-  const libxml2 = libxml2Read(xml)
-  const problem = findWellFormednessProblem(xml)
-  if (problem === null || !problem.includes('has a quote that is not closed')) {
-    expect(problem === null, `scan: ${problem}`).toBe(libxml2.wellFormed)
-  }
-  const result = parse(xml)
-  if (!result.ok) return
-  expect(libxml2.wellFormed).toBe(true)
-  if (!libxml2.wellFormed || result.type !== 'pain.001') throw new Error('expected a pain.001')
-  expect(result.data.batches[0]?.transfers[0]?.creditor.name).toBe(
-    libxml2.creditorName?.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '') ?? null
+/** Run the differential over generated documents; at least one must parse (the fuzz is not vacuous). */
+function assertDifferential(arbitrary: fc.Arbitrary<string>): void {
+  let accepted = 0
+  fc.assert(
+    fc.property(arbitrary, (xml) => {
+      expectParseAgreesWithLibxml2(xml)
+      if (parse(xml).ok) accepted++
+    }),
+    { numRuns: 300 }
   )
+  expect(accepted).toBeGreaterThan(0)
 }
 
 describe('parse() agrees with libxml2 on generated documents (differential fuzz)', () => {
   it('property: markup around and inside the creditor name (numRuns=300)', () => {
-    let accepted = 0
-    fc.assert(
-      fc.property(arbCreditorDocument, (xml) => {
-        expectParseAgreesWithLibxml2(xml)
-        if (parse(xml).ok) accepted++
-      }),
-      { numRuns: 300 }
-    )
-    expect(accepted).toBeGreaterThan(0)
+    assertDifferential(arbCreditorDocument)
   })
 
   it('property: edits of the known differentials, PI quotes and pseudo CDATA (numRuns=300)', () => {
-    fc.assert(
-      fc.property(arbSeededDocument, (xml) => {
-        expectParseAgreesWithLibxml2(xml)
-      }),
-      { numRuns: 300 }
-    )
+    assertDifferential(arbSeededDocument)
   })
 
   it('property: markup in the prolog, the epilog and between elements (numRuns=300)', () => {
-    fc.assert(
-      fc.property(arbAnywhereDocument, (xml) => {
-        expectParseAgreesWithLibxml2(xml)
-      }),
-      { numRuns: 300 }
-    )
+    assertDifferential(arbAnywhereDocument)
+  })
+
+  it('property: whitespace, CDATA, PIs, comments and a second element in every modelled text field (numRuns=300)', () => {
+    assertDifferential(arbTextFieldDocument)
   })
 })
 
