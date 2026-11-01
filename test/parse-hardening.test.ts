@@ -1110,10 +1110,31 @@ describe('parse() reads element text the way an XML parser reads it', () => {
     )
   })
 
-  it('should read the text of an element that carries attributes, such as a namespace declaration', async () => {
-    const xml = withRemittanceXml('<Ustrd xmlns:x="urn:x">Invoice 1</Ustrd>')
-    expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
-    expect(parsedTransfer(xml).remittanceInfo).toBe('Invoice 1')
+  it('should read a text element whose namespace declarations keep its namespace', async () => {
+    const prefixed = withRemittanceXml('<Ustrd xmlns:x="urn:x">Invoice 1</Ustrd>')
+    expect(await validateXsd(prefixed)).toEqual({ valid: true, errors: [] })
+    expect(parsedTransfer(prefixed).remittanceInfo).toBe('Invoice 1')
+    const repeated = writeCreditTransfer(MINIMAL_CT).replace(
+      '<BICFI>COBADEFFXXX</BICFI>',
+      `<BICFI xmlns="${NS_PAIN001}">COBADEFFXXX</BICFI>`
+    )
+    expect(await validateXsd(repeated)).toEqual({ valid: true, errors: [] })
+    const result = parse(repeated)
+    expect(result.ok && result.data.batches[0]?.debtor.bic).toBe('COBADEFFXXX')
+  })
+
+  it('should return ok:false for a text element with an attribute the model does not hold', () => {
+    expect(parseError(withRemittanceXml('<Ustrd xmlns="urn:other">Invoice 1</Ustrd>'))).toBe(
+      'Cannot read <Ustrd>: it carries the attribute xmlns, which the model does not hold'
+    )
+    expect(
+      parseError(
+        withCreditorNameXml('Test Creditor').replace(
+          '<Nm>Test Creditor',
+          '<Nm xml:lang="de">Test Creditor'
+        )
+      )
+    ).toBe('Cannot read <Nm>: it carries the attribute xml:lang, which the model does not hold')
   })
 
   it('should not let indentation between elements reach the model', () => {

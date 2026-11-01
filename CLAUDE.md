@@ -129,9 +129,9 @@ deep-equal.
   two fast-xml-parser rules: no PI quote open at its `?>`, no element or attribute name with a JS
   `\s` character. fast-xml-parser decodes through `XML_REFERENCE_DECODER` (src/xml-references.ts)
   with `trimValues: false` and `ignorePiTags: true`; the parser's textOf trims XML whitespace only
-  and fails on a repeated or nested element the model holds once. The differential fuzz in
-  test/parse-hardening.test.ts compares the 15 modelled fields of its template with libxml2;
-  never re-enable `htmlEntities` or `trimValues`.
+  and fails on a repeated element, a nested element or an unread attribute. The differential
+  fuzz in test/parse-hardening.test.ts compares the 15 modelled fields of its template with
+  libxml2; never re-enable `htmlEntities` or `trimValues`.
 - IBAN by mod-97 checksum. BIC by format when present.
 - SEPA Creditor Identifier: ISO 7064 MOD 97-10 with the business code (positions 5-7) EXCLUDED from the check (verified by test); German `DE` ids must be exactly 18 chars.
 - Dates not datetimes for execution date.

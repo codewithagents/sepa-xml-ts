@@ -224,21 +224,30 @@ function nav(obj: unknown, ...keys: string[]): unknown {
  * The text of an element the model reads as one string, or null when the element is
  * absent. The text is everything XML reads as the element's character data (CDATA
  * sections and the text around comments and processing instructions included), with XML
- * whitespace trimmed at both ends. Attributes do not change the text.
+ * whitespace trimmed at both ends.
  *
- * @throws UnreadableElementError when the element holds child elements
+ * @param attributes the attributes the model reads from this element (Ccy on an amount)
+ * @throws UnreadableElementError when the element holds child elements or another
+ *   attribute (a namespace declaration included, since xmlns="..." would change the
+ *   element's namespace)
  */
-function textOf(value: unknown, name: string): string | null {
+function textOf(value: unknown, name: string, attributes: readonly string[] = []): string | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'string') return trimXmlWhitespace(value)
   const fields = value as Record<string, unknown>
-  const element = Object.keys(fields).find(
-    (key) => key !== TEXT_NODE && !key.startsWith(ATTRIBUTE_PREFIX)
-  )
-  if (element !== undefined) {
-    throw new UnreadableElementError(
-      `Cannot read <${name}>: it contains the element <${element}>, but the model holds text`
-    )
+  for (const key of Object.keys(fields)) {
+    if (key === TEXT_NODE) continue
+    if (!key.startsWith(ATTRIBUTE_PREFIX)) {
+      throw new UnreadableElementError(
+        `Cannot read <${name}>: it contains the element <${key}>, but the model holds text`
+      )
+    }
+    const attribute = key.slice(ATTRIBUTE_PREFIX.length)
+    if (!attributes.includes(attribute)) {
+      throw new UnreadableElementError(
+        `Cannot read <${name}>: it carries the attribute ${attribute}, which the model does not hold`
+      )
+    }
   }
   const text = fields[TEXT_NODE]
   return trimXmlWhitespace(typeof text === 'string' ? text : '')
@@ -493,7 +502,7 @@ function extractCdOrPrtry(cdOrPrtryEl: unknown): string | { proprietary: string 
  */
 function parseAmtElement(parent: unknown, ...path: string[]): Money | null {
   const amtEl = nav(parent, ...path)
-  const amountStr = textOf(amtEl, path.at(-1) ?? '')
+  const amountStr = textOf(amtEl, path.at(-1) ?? '', ['Ccy'])
   if (amountStr === null) return null
   return parseMoneyString(amountStr, attributeOf(amtEl, 'Ccy') ?? 'EUR')
 }
@@ -1051,8 +1060,9 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
  * character JS matches with \s (U+1680, U+FEFF), where fast-xml-parser would split it.
  *
  * Element text is read as XML reads it, trimmed of space, tab, CR and LF at both ends.
- * An element the model holds once that occurs more than once, or a text element that
- * contains an element, returns ok:false ("Cannot read <Ustrd>: ...").
+ * An element the model holds once that occurs more than once, a text element that
+ * contains an element, or a text element with an attribute the model does not hold
+ * (xmlns="urn:other" included) returns ok:false ("Cannot read <Ustrd>: ...").
  *
  * Text fields accept the EPC217-08 extended character set by default (see
  * ParseOptions.charset); pass { charset: 'basic' } to accept only basic Latin.
@@ -1106,7 +1116,29 @@ function parseDocument(xml: string, options: ParseOptions | undefined): ParseRes
     }
   }
 
+  dropNamespaceDeclarationsThatKeepTheNamespace(parsed, ns)
   return parseByNamespace(parsed, ns, charset)
+}
+
+const DEFAULT_NAMESPACE_ATTRIBUTE = `${ATTRIBUTE_PREFIX}xmlns`
+const PREFIX_DECLARATION_PREFIX = `${ATTRIBUTE_PREFIX}xmlns:`
+
+/**
+ * Remove the namespace declarations that cannot change which element the model reads:
+ * every prefix declaration (xmlns:p, already checked by the scan) and every default
+ * declaration that repeats the document namespace. A default declaration of another
+ * namespace stays, so a text element that carries one fails in textOf.
+ */
+function dropNamespaceDeclarationsThatKeepTheNamespace(node: unknown, namespace: string): void {
+  if (node === null || typeof node !== 'object') return
+  const fields = node as Record<string, unknown>
+  for (const key of Object.keys(fields)) {
+    const keepsNamespace =
+      key.startsWith(PREFIX_DECLARATION_PREFIX) ||
+      (key === DEFAULT_NAMESPACE_ATTRIBUTE && fields[key] === namespace)
+    if (keepsNamespace) delete fields[key]
+    else dropNamespaceDeclarationsThatKeepTheNamespace(fields[key], namespace)
+  }
 }
 
 function resolveParseCharset(options: ParseOptions | undefined): SepaCharset | ParseFailure {

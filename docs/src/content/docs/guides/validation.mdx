@@ -166,16 +166,17 @@ U+FEFF.
 Element text is read as XML reads it: CDATA sections and the text around comments and
 processing instructions are joined as written, and only space, tab, CR and LF are trimmed at the
 ends (raw or as a reference); U+00A0 and the other Unicode spaces are kept, so the charset check
-sees them. An element the model holds once that occurs twice (two `Ustrd`), or a text element
-that contains an element, returns `ok: false` instead of being read as absent; an empty
-optional element such as `<Ustrd/>` reads as absent.
+sees them. An element the model holds once that occurs twice (two `Ustrd`), a text element that
+contains an element, or a text element with an attribute the model does not hold (such as
+`xmlns="urn:other"`) returns `ok: false` instead of being read as absent; an empty optional
+element such as `<Ustrd/>` reads as absent.
 
 A differential fuzz (four fast-check properties, 300 runs each) checks on generated pain.001
 documents that `parse` accepts only what libxml2 finds well-formed, and that each of the 15
 modelled text fields of its template equals libxml2's text after that trimming. Known limits:
-elements are matched by the name they are written with, not by namespace, so a modelled element
-that redeclares the default namespace is still read and a prefixed `<p:Document>` is not
-recognized; the declared encoding is not checked; content the model does not hold (unmodelled
+elements are matched by the name they are written with, not by namespace, so a text element
+below a parent that redeclares the default namespace is still read and a prefixed
+`<p:Document>` is not recognized; the declared encoding is not checked; content the model does not hold (unmodelled
 elements, text directly inside an element that holds elements) is not read; and `validateXsd`
 throws, instead of returning `valid: false`, when libxml2 cannot read the document at all.
 

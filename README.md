@@ -266,8 +266,11 @@ How `parse` reads the document:
   are trimmed at both ends, written raw or as a reference; every other character, including
   U+00A0 and the other Unicode spaces, is kept and then checked against the charset.
 - An element the model holds once that occurs more than once (two `Ustrd` in one transaction),
-  or a text element that contains an element, returns `ok: false` with a message that names it,
-  instead of being read as absent. An empty optional element such as `<Ustrd/>` reads as absent.
+  a text element that contains an element, or a text element with an attribute the model does
+  not hold (such as `xmlns="urn:other"`), returns `ok: false` with a message that names it,
+  instead of being read as absent. Namespace declarations that keep the element in the
+  document's namespace are allowed. An empty optional element such as `<Ustrd/>` reads as
+  absent.
 
 The test suite holds `parse` to libxml2, the parser `validateXsd` uses. The well-formedness
 rules are checked against libxml2 row by row in a table of malformed documents, and a
@@ -277,9 +280,10 @@ template (message and batch ids, dates, names, IBANs, BICs, the end-to-end id, t
 its currency, `Ustrd`) equals libxml2's text after the trimming above, with no field that
 libxml2 reads missing from the model. Known limits:
 
-- Elements are matched by the name they are written with, not by namespace: a modelled element
-  that redeclares the default namespace (`<Nm xmlns="urn:other">`) is still read, and a document
-  that writes the ISO namespace with a prefix (`<p:Document xmlns:p="...">`) is not recognized.
+- Elements are matched by the name they are written with, not by namespace: a text element below
+  a parent that redeclares the default namespace (`<Cdtr xmlns="urn:other"><Nm>`) is still read,
+  and a document that writes the ISO namespace with a prefix (`<p:Document xmlns:p="...">`) is
+  not recognized.
 - The encoding named in the XML declaration is not checked: `parse` and `validateXsd` read the
   string they are given (see [Character set (EPC217-08)](#character-set-epc217-08)).
 - `validateXsd` throws, instead of returning `valid: false`, when libxml2 cannot read the
