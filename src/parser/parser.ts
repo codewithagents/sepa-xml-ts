@@ -105,6 +105,9 @@ const PARSER = new XMLParser({
   parseAttributeValue: false,
   parseTagValue: false,
   trimValues: true,
+  // XML expands references in text and attribute values only, never in a processing
+  // instruction, whose pseudo-attributes fast-xml-parser reads under a "?target" name.
+  processEntities: { tagFilter: (tagName) => !tagName.startsWith('?') },
   entityDecoder: XML_REFERENCE_DECODER,
 })
 

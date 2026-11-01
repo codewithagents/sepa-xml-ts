@@ -668,6 +668,15 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
     expect(parseError(xml)).toBe(PI_QUOTE_PROBLEM)
   })
 
+  it('should not decode or check references inside a processing instruction', () => {
+    const declaration = '<?xml version="1.0" encoding="UTF-8"?>'
+    const xml = writeCreditTransfer(MINIMAL_CT)
+      .replace(declaration, `${declaration}<?app note="R&D &nbsp;"?>`)
+      .replace('<Cdtr>', '<Cdtr><?app a="&" b="&#0;"?>')
+    expect(libxml2Read(xml)).toEqual({ wellFormed: true, creditorName: 'Test Creditor' })
+    expect(parsedCreditorName(xml)).toBe('Test Creditor')
+  })
+
   it('should keep processing instructions whose quotes are balanced, and the XML declaration', () => {
     const declaration = '<?xml version="1.0" encoding="UTF-8"?>'
     const xml = writeCreditTransfer(MINIMAL_CT)
