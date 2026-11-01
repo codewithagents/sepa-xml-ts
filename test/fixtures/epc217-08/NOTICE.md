@@ -15,10 +15,14 @@ EPC217-08 character sets: `src/model/epc217-08-table.ts` is generated from it, a
 - Companion paper: "EPC217-08 Best Practices SEPA Requirements for an Extended Character Set
   (UNICODE Subset)", version 1.1. Its sections 5 and 6 define how the table is used.
 
-Source: European Payments Council (EPC AISBL), EPC217-08. The EPC authorises reproduction
-for non-commercial purposes with acknowledgement of the source; this file is that
-acknowledgement. The European Payments Council is not affiliated with this library and has
-not reviewed it.
+## Basis for inclusion and acknowledgement
+
+The vendored data is factual mapping data: Unicode code points, their characters and Unicode
+names, the set each belongs to, and their romanisation, which the EPC paper bases on ISO 9
+(Cyrillic) and ISO 843 (Greek). It is included as such data, with this acknowledgement of its
+source: European Payments Council (EPC AISBL), "EPC217-08 SEPA Conversion Table". The
+package README carries the same acknowledgement. The European Payments Council is not
+affiliated with this library and has not reviewed it.
 
 ## What is vendored, and what is not
 

@@ -41,6 +41,7 @@ XML, with **every generated file validated against the official EPC/ISO 20022 XS
 - [Validate against the official XSD (optional)](#validate-against-the-official-xsd-optional)
 - [API surface](#api-surface)
 - [Scope](#scope)
+- [Acknowledgements](#acknowledgements)
 - [License](#license)
 
 ## What it covers
@@ -858,6 +859,15 @@ The only public charset surface is `SepaCharset` and `toSepaCharset`.
   SDD variant).
 - **Read-only (coexistence):** `pain.008.001.02`.
 - **Out of scope:** bank connectivity / transmission (EBICS, FinTS, Peppol). This is a file library.
+
+## Acknowledgements
+
+The character conversion table in `src/model/epc217-08-table.ts`, which `toSepaCharset` and the
+extended character set use, is derived from the "EPC217-08 SEPA Conversion Table" published by
+the European Payments Council (EPC AISBL). Its source, checksum, errata and the decisions this
+library applies are in
+[test/fixtures/epc217-08/NOTICE.md](https://github.com/codewithagents/sepa-xml-ts/blob/main/test/fixtures/epc217-08/NOTICE.md).
+The European Payments Council is not affiliated with this library and has not reviewed it.
 
 ## License
 
