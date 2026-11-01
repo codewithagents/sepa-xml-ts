@@ -18,6 +18,7 @@
 
 import { XMLParser } from 'fast-xml-parser'
 import { detectSepaNamespace } from '../xmlns-detect.js'
+import { findInvalidReference } from '../xml-references.js'
 import type { MessageType } from '../message-types.js'
 import {
   CreditTransferDocumentSchema,
@@ -88,6 +89,7 @@ const PARSER = new XMLParser({
   parseAttributeValue: false,
   parseTagValue: false,
   trimValues: true,
+  htmlEntities: true,
 })
 
 // ---------------------------------------------------------------------------
@@ -106,6 +108,17 @@ const NS_PAIN008_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
 const NS_PAIN008_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.02'
 /** German DK national variant (write target and read support). */
 const NS_PAIN008_003_02 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.003.02'
+
+const PAIN001_NAMESPACES: ReadonlySet<string> = new Set([
+  NS_PAIN001_09,
+  NS_PAIN001_03,
+  NS_PAIN001_003_03,
+])
+const PAIN008_NAMESPACES: ReadonlySet<string> = new Set([
+  NS_PAIN008_08,
+  NS_PAIN008_02,
+  NS_PAIN008_003_02,
+])
 
 // ---------------------------------------------------------------------------
 // Shared internal helpers
@@ -953,19 +966,7 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
 // Main parse function (auto-detects namespace)
 // ---------------------------------------------------------------------------
 
-/**
- * Parse a SEPA XML string, auto-detecting pain.001 or pain.008 by xmlns.
- *
- * Namespace detection: reads the xmlns attribute from the raw XML string using
- * a regex. This is more reliable than trying to extract it from the XMLParser
- * output, which may not preserve xmlns as a regular attribute.
- *
- * This function never throws. All failure modes return { ok: false, error }.
- *
- * @param xml the XML string to parse
- * @returns ParseResult discriminated union
- */
-export function parse(xml: string): ParseResult {
+function rejectUnsafeInput(xml: unknown): ParseFailure | null {
   // Runtime type guard: protects against non-string values reaching the parser
   if (typeof xml !== 'string') {
     return { ok: false, error: 'Input must be a string' }
@@ -981,6 +982,36 @@ export function parse(xml: string): ParseResult {
   // attacks via the fast-xml-parser layer.
   if (/<!DOCTYPE/i.test(xml)) {
     return { ok: false, error: 'DOCTYPE/DTD is not permitted in SEPA documents' }
+  }
+
+  const invalidReference = findInvalidReference(xml)
+  if (invalidReference !== null) {
+    return { ok: false, error: `XML parse error: ${invalidReference}` }
+  }
+
+  return null
+}
+
+/**
+ * Parse a SEPA XML string, auto-detecting pain.001 or pain.008 by xmlns.
+ *
+ * Namespace detection: reads the xmlns attribute from the raw XML string using
+ * a regex. This is more reliable than trying to extract it from the XMLParser
+ * output, which may not preserve xmlns as a regular attribute.
+ *
+ * Character references (&#352; and &#x160;) are decoded. A document with a bare "&", an
+ * undefined entity such as &nbsp; (there is no DTD), or a reference to a code point that
+ * is not a legal XML character is not well-formed and returns ok:false.
+ *
+ * This function never throws. All failure modes return { ok: false, error }.
+ *
+ * @param xml the XML string to parse
+ * @returns ParseResult discriminated union
+ */
+export function parse(xml: string): ParseResult {
+  const unsafe = rejectUnsafeInput(xml)
+  if (unsafe !== null) {
+    return unsafe
   }
 
   // Detect namespace anchored to the <Document> root element (strips comments first
@@ -1002,15 +1033,19 @@ export function parse(xml: string): ParseResult {
     }
   }
 
+  return parseByNamespace(parsed, ns)
+}
+
+function parseByNamespace(parsed: unknown, ns: string): ParseResult {
   // Extract a short version string from the namespace URI, e.g. "pain.001.001.09".
   const version = ns.split(':xsd:')[1] ?? ns
 
   try {
-    if (ns === NS_PAIN008_08 || ns === NS_PAIN008_02 || ns === NS_PAIN008_003_02) {
+    if (PAIN008_NAMESPACES.has(ns)) {
       return parsePain008(parsed, version)
     }
 
-    if (ns === NS_PAIN001_09 || ns === NS_PAIN001_03 || ns === NS_PAIN001_003_03) {
+    if (PAIN001_NAMESPACES.has(ns)) {
       return parsePain001(parsed, version)
     }
 
