@@ -68,7 +68,7 @@ export function resolveWriterCharset(
   }
   if (charset === SepaCharset.Extended) {
     throw new Error(
-      `charset 'extended' is not supported for variant ${dkVariant}: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Use variant ${modernVariant}, or convert text fields with toSepaCharset(value).`
+      `charset 'extended' is not supported for variant ${dkVariant}: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Convert text fields with toSepaCharset(value) to write them in the basic set. Variant ${modernVariant} supports charset 'extended' if the text must keep extended characters.`
     )
   }
   return BASIC_ONLY

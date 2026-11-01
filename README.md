@@ -751,9 +751,9 @@ const xml = writeCreditTransfer(doc, {
 ```
 
 `{ charset: "extended" }` throws for this variant: the DK formats define their own character rules
-(DFU-Abkommen Anlage 3), which this library does not ship. Use `pain.001.001.09` for extended text,
-or convert text fields with `toSepaCharset(value)`. `parse()` still accepts extended text in DK
-files.
+(DFU-Abkommen Anlage 3), which this library does not ship. Convert text fields with
+`toSepaCharset(value)` to write them in the basic set; `pain.001.001.09` supports extended text.
+`parse()` still accepts extended text in DK files.
 
 ### German DK variant: pain.008.003.02
 

@@ -656,7 +656,7 @@ describe('field kinds: property over identifiers and references', () => {
 describe('German DK variants refuse { charset: extended }', () => {
   it('pain.001.003.03 throws even for an ASCII-only document, and before validation', () => {
     const expected =
-      "charset 'extended' is not supported for variant pain.001.003.03: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Use variant pain.001.001.09, or convert text fields with toSepaCharset(value)."
+      "charset 'extended' is not supported for variant pain.001.003.03: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Convert text fields with toSepaCharset(value) to write them in the basic set. Variant pain.001.001.09 supports charset 'extended' if the text must keep extended characters."
     expect(() =>
       writeCreditTransfer(MINIMAL_CT, { variant: 'pain.001.003.03', charset: 'extended' })
     ).toThrow(expected)
@@ -672,7 +672,7 @@ describe('German DK variants refuse { charset: extended }', () => {
 
   it('pain.008.003.02 throws even for an ASCII-only document, and before validation', () => {
     const expected =
-      "charset 'extended' is not supported for variant pain.008.003.02: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Use variant pain.008.001.08, or convert text fields with toSepaCharset(value)."
+      "charset 'extended' is not supported for variant pain.008.003.02: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Convert text fields with toSepaCharset(value) to write them in the basic set. Variant pain.008.001.08 supports charset 'extended' if the text must keep extended characters."
     expect(() =>
       writeDirectDebit(MINIMAL_DD, { variant: 'pain.008.003.02', charset: 'extended' })
     ).toThrow(expected)
