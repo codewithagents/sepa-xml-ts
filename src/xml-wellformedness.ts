@@ -52,6 +52,7 @@ const XML_DECLARATION = new RegExp(
 )
 
 const ATTRIBUTE_TEXT: Readonly<Record<string, RegExp>> = { '"': /[^"<&]*/y, "'": /[^'<&]*/y }
+const JS_WHITESPACE = /\s/
 
 const BYTE_ORDER_MARK = '﻿'
 const XML_NAMESPACE = 'http://www.w3.org/XML/1998/namespace'
@@ -174,6 +175,22 @@ class DocumentScan {
     return end === at ? null : this.xml.slice(at, end)
   }
 
+  /**
+   * Read the Name of an element or an attribute. fast-xml-parser ends these names at any
+   * character JS matches with \s, so a Name that holds one (U+1680 and U+FEFF are XML name
+   * characters) is rejected: fast-xml-parser would read a different element or attribute.
+   */
+  private readTagName(at: number): string | null {
+    const name = this.readName(at)
+    const space = name === null ? null : JS_WHITESPACE.exec(name)
+    if (space !== null) {
+      this.fail(
+        `the name "${name}" contains ${describeCodePoint(space[0])}, a Unicode space that parse does not accept in element and attribute names`
+      )
+    }
+    return name
+  }
+
   private readXmlDeclaration(): void {
     if (!this.startsWith('<?') || this.readName(this.index + 2) !== 'xml') return
     const declaration = matchAt(XML_DECLARATION, this.xml, this.index)
@@ -264,7 +281,7 @@ class DocumentScan {
   }
 
   private readStartTag(): void {
-    const name = this.readName(this.index + 1)
+    const name = this.readTagName(this.index + 1)
     if (name === null) this.fail('unescaped "<" (write it as &lt;)')
     this.index += 1 + name.length
     const attributes = this.readAttributes(name)
@@ -301,7 +318,7 @@ class DocumentScan {
   }
 
   private readAttribute(element: string): Attribute {
-    const name = this.readName(this.index)
+    const name = this.readTagName(this.index)
     this.expectInTag(name !== null, `malformed start tag <${element}>`)
     this.index += name.length
     this.skipWhitespace()
@@ -333,7 +350,7 @@ class DocumentScan {
   }
 
   private readEndTag(element: OpenElement): void {
-    const name = this.readName(this.index + 2)
+    const name = this.readTagName(this.index + 2)
     if (name === null) this.fail('malformed end tag')
     this.index += 2 + name.length
     this.skipWhitespace()

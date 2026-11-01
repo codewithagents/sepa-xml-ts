@@ -370,6 +370,19 @@ function parseError(xml: string, options?: ParseOptions): string {
   return result.error
 }
 
+/**
+ * Every code point that JS matches with \s (and String.prototype.trim removes) but XML does
+ * not treat as whitespace, derived from the regex engine itself.
+ */
+const JS_ONLY_WHITESPACE = Array.from({ length: 0x110000 }, (_, codePoint) => codePoint)
+  .filter((codePoint) => codePoint < 0xd800 || codePoint > 0xdfff)
+  .map((codePoint) => String.fromCodePoint(codePoint))
+  .filter((character) => /\s/u.test(character) && !' \t\r\n'.includes(character))
+
+function codePointLabel(character: string): string {
+  return `U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}`
+}
+
 describe('parse() character references', () => {
   it('should decode decimal and hexadecimal character references to the characters they name', () => {
     expect(parsedCreditorName(withCreditorNameXml('&#77;aja &#x53;tupica'))).toBe('Maja Stupica')
@@ -761,6 +774,50 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
     }
   })
 
+  it('should reject every JS-only space in an element name, which fast-xml-parser would split (review repro)', () => {
+    const base = writeCreditTransfer(MINIMAL_CT)
+    const xmlNameCharacters = ['\u1680', '\uFEFF']
+    for (const character of JS_ONLY_WHITESPACE) {
+      const label = codePointLabel(character)
+      const xml = base.replace(
+        '<Nm>Test Creditor</Nm>',
+        `<Nm${character}>Hidden</Nm${character}><Nm>Test Creditor</Nm>`
+      )
+      expect(parse(xml).ok, label).toBe(false)
+      expect(libxml2Read(xml).wellFormed, label).toBe(xmlNameCharacters.includes(character))
+    }
+    for (const character of xmlNameCharacters) {
+      const xml = base.replace('<Nm>Test Creditor</Nm>', `<Nm${character}>Hidden</Nm${character}>`)
+      expect(libxml2Read(xml)).toEqual({ wellFormed: true, creditorName: null })
+      expect(parseError(xml)).toBe(
+        `XML parse error: the name "Nm${character}" contains ${codePointLabel(character)}, a Unicode space that parse does not accept in element and attribute names`
+      )
+      const leading = base.replace('</Cdtr>', `<${character}x/></Cdtr>`)
+      expect(libxml2Read(leading).wellFormed).toBe(true)
+      expect(parseError(leading)).toContain(`the name "${character}x" contains`)
+    }
+  })
+
+  it('should reject every JS-only space in an attribute name, which fast-xml-parser would split (review repro)', () => {
+    const base = writeCreditTransfer(MINIMAL_CT)
+    for (const character of JS_ONLY_WHITESPACE) {
+      const label = codePointLabel(character)
+      const xml = base.replace(
+        '<InstdAmt Ccy="EUR">',
+        `<InstdAmt Ccy="USD" X${character}Ccy="EUR">`
+      )
+      expect(parse(xml).ok, label).toBe(false)
+    }
+    for (const character of ['\u1680', '\uFEFF']) {
+      const xml = base.replace(
+        '<InstdAmt Ccy="EUR">',
+        `<InstdAmt Ccy="USD" X${character}Ccy="EUR">`
+      )
+      expect(libxml2Read(xml).wellFormed).toBe(true)
+      expect(parseError(xml)).toContain(`the name "X${character}Ccy" contains`)
+    }
+  })
+
   it('should accept well-formed namespace use and XML whitespace inside tags', () => {
     const xml = writeCreditTransfer(MINIMAL_CT)
       .replace(
@@ -824,11 +881,6 @@ function parsedTransfer(
   return transfer
 }
 
-/** The JS whitespace that String.prototype.trim removes but XML does not treat as whitespace. */
-const NON_XML_WHITESPACE = Array.from({ length: 0x10000 }, (_, code) => String.fromCharCode(code))
-  .filter((character) => character.trim() === '')
-  .filter((character) => !' \t\r\n'.includes(character))
-
 describe('parse() reads element text the way an XML parser reads it', () => {
   it('should keep the space next to a CDATA section (review repro)', async () => {
     const names: Array<[string, string]> = [
@@ -876,13 +928,14 @@ describe('parse() reads element text the way an XML parser reads it', () => {
   })
 
   it('should keep every other JS whitespace character at the edges, so the charset rejects it (review repro)', () => {
-    expect(NON_XML_WHITESPACE.map((character) => character.codePointAt(0))).toEqual([
+    expect(JS_ONLY_WHITESPACE.map((character) => character.codePointAt(0))).toEqual([
       0x0b, 0x0c, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
       0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
     ])
+    expect(JS_ONLY_WHITESPACE.every((character) => character.trim() === '')).toBe(true)
     const base = writeCreditTransfer(MINIMAL_CT)
-    for (const character of NON_XML_WHITESPACE.filter((c) => c !== '\v' && c !== '\f')) {
-      const label = `U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase()}`
+    for (const character of JS_ONLY_WHITESPACE.filter((c) => c !== '\v' && c !== '\f')) {
+      const label = codePointLabel(character)
       for (const xml of [
         base.replace(
           '<EndToEndId>E2E-0001</EndToEndId>',
