@@ -99,6 +99,48 @@ export function isInSepaCharset(value: string, charset: SepaCharset): boolean {
   return offendingCharacters(value, charset).length === 0
 }
 
+const CHARSET_MESSAGE_PREFIX = 'Value contains characters outside the SEPA charset (EPC217-08)'
+const BASIC_SET_DESCRIPTION = "a-z A-Z 0-9 space / - ? : ( ) . , ' +"
+const MAX_LISTED_CHARACTERS = 5
+const COMBINING_MARK = /\p{M}/u
+
+function describeCharacter(character: string): string {
+  const hex = (character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')
+  return `"${character}" (U+${hex})`
+}
+
+function describeOffending(offending: string[]): string {
+  const listed = offending.slice(0, MAX_LISTED_CHARACTERS).map(describeCharacter).join(', ')
+  const more = offending.length - MAX_LISTED_CHARACTERS
+  return more > 0 ? `${listed}, and ${more} more` : listed
+}
+
+function combiningMarkHint(offending: string[]): string {
+  return offending.some((character) => COMBINING_MARK.test(character))
+    ? " The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'); toSepaCharset does this for you."
+    : ''
+}
+
+/**
+ * The validation message for a human-readable text field (names, addresses, remittance
+ * information) whose value has characters outside the charset in force.
+ */
+export function textCharsetMessage(value: string, charset: SepaCharset): string {
+  const offending = offendingCharacters(value, charset)
+  const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
+  return `${head} Only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}). Convert the value with toSepaCharset(value).${combiningMarkHint(offending)}`
+}
+
+/**
+ * The validation message for an identifier, reference or code field, which must use
+ * the basic Latin set in every charset mode (EPC217-08 section 6.3).
+ */
+export function referenceCharsetMessage(value: string): string {
+  const offending = offendingCharacters(value, SepaCharset.Basic)
+  const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
+  return `${head} Identifiers, references and codes must use the basic Latin set (${BASIC_SET_DESCRIPTION}) in every charset mode (EPC217-08 section 6.3). Convert the value with toSepaCharset(value).${combiningMarkHint(offending)}`
+}
+
 function convertCharacter(character: string, charset: SepaCharset): string {
   if (isCharacterIn(character, charset)) {
     return character

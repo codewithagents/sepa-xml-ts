@@ -9,8 +9,8 @@
 
 import { z } from 'zod'
 import { isValidIso11649Ref } from './iban.js'
-import { isSepaBasic } from './charset.js'
-import { IBANSchema, BICSchema } from './shared.js'
+import { SepaCharset } from './charset.js'
+import { IBANSchema, BICSchema, sepaText, sepaReference, sepaIdentifier } from './shared.js'
 
 // ---------------------------------------------------------------------------
 // Internal validators (not exported from public API)
@@ -21,41 +21,6 @@ const ISO_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-
 
 // ISO 8601 date pattern (ISODate in XSD, YYYY-MM-DD only, no time component)
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-
-/**
- * A SEPA name or text field: max N chars, SEPA charset.
- */
-function sepaText(maxLen: number) {
-  return z
-    .string()
-    .min(1)
-    .max(maxLen)
-    .refine((v) => isSepaBasic(v), {
-      message: `Value contains characters outside the SEPA charset (EPC217-08): allowed are a-z A-Z 0-9 space / - ? : ( ) . , ' +`,
-    })
-}
-
-/**
- * A SEPA identifier field (MsgId, PmtInfId, EndToEndId): SEPA charset PLUS
- * EPC slash rules: must not start or end with '/', must not contain '//'.
- * Scoped to identifier elements per the EPC rulebook. Party names and mandate
- * ids are NOT subject to this rule.
- */
-function sepaIdentifier(maxLen: number) {
-  return sepaText(maxLen)
-    .refine((v) => !v.startsWith('/'), {
-      message: 'Identifier must not start with a slash (EPC slash rule)',
-    })
-    .refine((v) => !v.endsWith('/'), {
-      message: 'Identifier must not end with a slash (EPC slash rule)',
-    })
-    .refine((v) => !v.includes('//'), {
-      message: 'Identifier must not contain consecutive slashes (EPC slash rule)',
-    })
-}
-
-/** Max140Text with SEPA charset validation */
-const SepaMax140Text = sepaText(140)
 
 /**
  * Purpose code (Cd): ExternalPurpose1Code and ExternalCategoryPurpose1Code.
@@ -72,7 +37,7 @@ const SepaMax140Text = sepaText(140)
  * ExternalPurpose1Code: minLength=1, maxLength=4 (open string)
  * ExternalCategoryPurpose1Code: minLength=1, maxLength=4 (open string)
  */
-const PurposeCodeSchema = sepaText(4)
+const PurposeCodeSchema = sepaReference(4)
 
 /**
  * Proprietary purpose value (Prtry), a Max35Text open string. SEPA charset, 1..35 chars.
@@ -80,8 +45,8 @@ const PurposeCodeSchema = sepaText(4)
  * both typed as Max35Text.
  */
 const ProprietaryPurposeSchema = z.object({
-  /** Proprietary purpose value (Prtry), max 35 chars, SEPA charset. */
-  proprietary: sepaText(35),
+  /** Proprietary purpose value (Prtry), max 35 chars, basic Latin in every charset mode. */
+  proprietary: sepaReference(35),
 })
 
 /**
@@ -201,64 +166,6 @@ export function formatMoney(m: Money): string {
 }
 
 // ---------------------------------------------------------------------------
-// PostalAddress: structured postal address (PostalAddress24 in XSD)
-// ---------------------------------------------------------------------------
-
-/**
- * Structured postal address, mapping to PostalAddress24 in the ISO 20022 XSD.
- *
- * All fields are optional; at least one must be present when the address object
- * itself is included. EPC mandates a structured address for pain.001.001.09 and
- * pain.008.001.08 from 2026-11-22.
- *
- * Field names mirror PostalAddress24 semantics; max lengths and character set
- * match the XSD constraints (SEPA charset, EPC217-08).
- *
- * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK variants
- * will throw a clear error if an address is present in the model.
- */
-export const PostalAddressSchema = z
-  .object({
-    /** Street name (StrtNm), max 70 chars, SEPA charset. */
-    streetName: sepaText(70).optional(),
-    /** Building number (BldgNb), max 16 chars, SEPA charset. */
-    buildingNumber: sepaText(16).optional(),
-    /** Post code (PstCd), max 16 chars, SEPA charset. */
-    postCode: sepaText(16).optional(),
-    /** Town name (TwnNm), max 35 chars, SEPA charset. */
-    townName: sepaText(35).optional(),
-    /** Country sub-division (CtrySubDvsn), max 35 chars, SEPA charset. */
-    countrySubDivision: sepaText(35).optional(),
-    /** Country code (Ctry), exactly 2 uppercase letters (ISO 3166-1 alpha-2). */
-    country: z
-      .string()
-      .regex(/^[A-Z]{2}$/, 'Country must be exactly 2 uppercase letters (ISO 3166-1 alpha-2)')
-      .optional(),
-    /** Address lines (AdrLine), max 7 entries, each max 70 chars, SEPA charset. */
-    addressLines: z.array(sepaText(70)).max(7).optional(),
-  })
-  .refine(
-    (a) => {
-      // At least one field must be set when the address object is present.
-      return (
-        a.streetName !== undefined ||
-        a.buildingNumber !== undefined ||
-        a.postCode !== undefined ||
-        a.townName !== undefined ||
-        a.countrySubDivision !== undefined ||
-        a.country !== undefined ||
-        (a.addressLines !== undefined && a.addressLines.length > 0)
-      )
-    },
-    {
-      message:
-        'PostalAddress must have at least one field set (empty address object is not allowed)',
-    }
-  )
-
-export type PostalAddress = z.infer<typeof PostalAddressSchema>
-
-// ---------------------------------------------------------------------------
 // Party identification: structured Id for UltmtDbtr / UltmtCdtr
 // ---------------------------------------------------------------------------
 
@@ -294,7 +201,7 @@ const CountryCodeSchema = z
  * max 4), NOT enumerations, so we validate charset and length only and never
  * reject against a published code list (same rationale as purpose codes).
  */
-const SchemeNameCodeSchema = sepaText(4)
+const SchemeNameCodeSchema = sepaReference(4)
 
 /**
  * A generic identifier (GenericOrganisationIdentification1 / GenericPersonIdentification1).
@@ -303,15 +210,15 @@ const SchemeNameCodeSchema = sepaText(4)
  * Used by both the organisation and private identification shapes.
  */
 export const GenericIdentificationSchema = z.object({
-  /** Identifier value (Othr/Id), max 35 chars, SEPA charset. */
-  id: sepaText(35),
+  /** Identifier value (Othr/Id), max 35 chars, basic Latin in every charset mode. */
+  id: sepaReference(35),
   /**
    * Scheme name code (Othr/SchmeNm/Cd), 1-4 char external code. Optional.
    * Emitted as Cd; proprietary scheme names (Prtry) are not modelled.
    */
   schemeName: SchemeNameCodeSchema.optional(),
-  /** Issuer of the identifier (Othr/Issr), max 35 chars, SEPA charset. Optional. */
-  issuer: sepaText(35).optional(),
+  /** Issuer of the identifier (Othr/Issr), max 35 chars, basic Latin in every charset mode. Optional. */
+  issuer: sepaReference(35).optional(),
 })
 
 export type GenericIdentification = z.infer<typeof GenericIdentificationSchema>
@@ -349,10 +256,10 @@ export type OrganisationIdentification = z.infer<typeof OrganisationIdentificati
 export const DateAndPlaceOfBirthSchema = z.object({
   /** Birth date (BirthDt), YYYY-MM-DD. */
   birthDate: ISODateSchema,
-  /** Province of birth (PrvcOfBirth), max 35 chars, SEPA charset. Optional. */
-  provinceOfBirth: sepaText(35).optional(),
-  /** City of birth (CityOfBirth), max 35 chars, SEPA charset. */
-  cityOfBirth: sepaText(35),
+  /** Province of birth (PrvcOfBirth), max 35 chars, basic Latin in every charset mode. Optional. */
+  provinceOfBirth: sepaReference(35).optional(),
+  /** City of birth (CityOfBirth), max 35 chars, basic Latin in every charset mode. */
+  cityOfBirth: sepaReference(35),
   /** Country of birth (CtryOfBirth), 2-letter ISO country code. */
   countryOfBirth: CountryCodeSchema,
 })
@@ -406,62 +313,6 @@ export const PartyIdentificationSchema = z
 export type PartyIdentification = z.infer<typeof PartyIdentificationSchema>
 
 // ---------------------------------------------------------------------------
-// UltimateParty: party for UltmtDbtr / UltmtCdtr (name + optional structured Id)
-// ---------------------------------------------------------------------------
-
-/**
- * An ultimate party (UltmtDbtr or UltmtCdtr): identifies the party on whose
- * behalf a payment is ultimately made or received (common in factoring and
- * payment-service-provider flows).
- *
- * Carries a name (max 70 chars, SEPA charset) and an optional structured
- * identifier (Id, Party38Choice: OrgId XOR PrvtId). Name-only is always
- * XSD-valid and remains the common case; the id is purely additive and absent
- * by default.
- *
- * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK
- * variants will throw a clear error if an ultimate party is present.
- */
-export const UltimatePartySchema = z.object({
-  /** Party name (max 70 chars, SEPA charset). */
-  name: sepaText(70),
-  /**
-   * Structured party identification (Id), optional. Party38Choice: an
-   * organisation id (OrgId) XOR a private id (PrvtId). Emitted after Nm,
-   * matching PartyIdentification135 element order.
-   */
-  id: PartyIdentificationSchema.optional(),
-})
-
-export type UltimateParty = z.infer<typeof UltimatePartySchema>
-
-// ---------------------------------------------------------------------------
-// AccountParty: a party tied to a bank account
-// ---------------------------------------------------------------------------
-
-/**
- * A party (debtor or creditor) tied to a bank account.
- * Groups name, IBAN, optional BIC, and optional structured postal address.
- */
-const AccountPartySchema = z.object({
-  /** Party name (max 70 chars, SEPA charset). */
-  name: sepaText(70),
-  /** IBAN of the account (mod-97 validated). */
-  iban: IBANSchema,
-  /** BIC of the party's bank. Optional; validated when present. */
-  bic: BICSchema.optional(),
-  /**
-   * Structured postal address (PstlAdr), optional.
-   * Emitted for pain.001.001.09 and pain.008.001.08 only.
-   * Throws a clear error for legacy/DK variants.
-   * EPC mandates this from 2026-11-22.
-   */
-  address: PostalAddressSchema.optional(),
-})
-
-export type AccountParty = z.infer<typeof AccountPartySchema>
-
-// ---------------------------------------------------------------------------
 // StructuredRemittance: structured creditor reference (ISO 11649 or national)
 // ---------------------------------------------------------------------------
 
@@ -478,8 +329,8 @@ const ReferenceTypeCodeSchema = z.enum(['RADM', 'RPIN', 'FXDR', 'DISP', 'PUOR', 
  * Confirmed against the XSD: CreditorReferenceType1Choice/Prtry is typed as Max35Text.
  */
 const ProprietaryReferenceTypeSchema = z.object({
-  /** Proprietary reference type value (Prtry), max 35 chars, SEPA charset. */
-  proprietary: sepaText(35),
+  /** Proprietary reference type value (Prtry), max 35 chars, basic Latin in every charset mode. */
+  proprietary: sepaReference(35),
 })
 
 /**
@@ -544,8 +395,8 @@ export const ReferredDocumentSchema = z
   .object({
     /** Document type (RfrdDocInf/Tp/CdOrPrtry): a DocumentType6Code string XOR { proprietary }. */
     type: DocumentTypeSchema.optional(),
-    /** Document number (RfrdDocInf/Nb), max 35 chars, SEPA charset. */
-    number: sepaText(35).optional(),
+    /** Document number (RfrdDocInf/Nb), max 35 chars, basic Latin in every charset mode. */
+    number: sepaReference(35).optional(),
     /** Related date (RfrdDocInf/RltdDt), YYYY-MM-DD. */
     relatedDate: ISODateSchema.optional(),
   })
@@ -623,12 +474,12 @@ export const StructuredRemittanceSchema = z
      */
     referredDocumentAmount: RemittanceAmountSchema.optional(),
     /**
-     * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, SEPA charset.
+     * Creditor reference (RmtInf/Strd/CdtrRefInf/Ref), max 35 chars, basic Latin in every charset mode.
      * If the trimmed value starts with "RF" (uppercase), ISO 11649 check digits
      * are validated. All other values pass through without check-digit validation.
      * Optional: structured remittance may carry only RfrdDocInf / RfrdDocAmt.
      */
-    creditorReference: sepaText(35)
+    creditorReference: sepaReference(35)
       .refine(
         (v) => {
           // Only validate check digits for ISO 11649 RF references.
@@ -652,9 +503,9 @@ export const StructuredRemittanceSchema = z
     referenceType: ReferenceTypeSchema.optional(),
     /**
      * Issuer of the reference type (RmtInf/Strd/CdtrRefInf/Tp/Issr).
-     * Emitted only when present. Max 35 chars, SEPA charset.
+     * Emitted only when present. Max 35 chars, basic Latin in every charset mode.
      */
-    issuer: sepaText(35).optional(),
+    issuer: sepaReference(35).optional(),
   })
   .refine(
     (s) =>
@@ -678,89 +529,235 @@ export const StructuredRemittanceSchema = z
 export type StructuredRemittance = z.infer<typeof StructuredRemittanceSchema>
 
 // ---------------------------------------------------------------------------
-// Transfer: one credit transfer transaction
+// Text-bearing schemas, built per charset
+//
+// Human-readable text fields (names, addresses, remittance information) follow the
+// charset option; every other string field is basic Latin in every mode (sepaReference,
+// sepaIdentifier). The exported schemas below are the basic instances.
 // ---------------------------------------------------------------------------
+
+function buildCreditTransferSchemas(charset: SepaCharset) {
+  const PostalAddress = z
+    .object({
+      /** Street name (StrtNm), max 70 chars, text charset. */
+      streetName: sepaText(70, charset).optional(),
+      /** Building number (BldgNb), max 16 chars, text charset. */
+      buildingNumber: sepaText(16, charset).optional(),
+      /** Post code (PstCd), max 16 chars, text charset. */
+      postCode: sepaText(16, charset).optional(),
+      /** Town name (TwnNm), max 35 chars, text charset. */
+      townName: sepaText(35, charset).optional(),
+      /** Country sub-division (CtrySubDvsn), max 35 chars, text charset. */
+      countrySubDivision: sepaText(35, charset).optional(),
+      /** Country code (Ctry), exactly 2 uppercase letters (ISO 3166-1 alpha-2). */
+      country: z
+        .string()
+        .regex(/^[A-Z]{2}$/, 'Country must be exactly 2 uppercase letters (ISO 3166-1 alpha-2)')
+        .optional(),
+      /** Address lines (AdrLine), max 7 entries, each max 70 chars, text charset. */
+      addressLines: z.array(sepaText(70, charset)).max(7).optional(),
+    })
+    .refine(
+      (a) => {
+        // At least one field must be set when the address object is present.
+        return (
+          a.streetName !== undefined ||
+          a.buildingNumber !== undefined ||
+          a.postCode !== undefined ||
+          a.townName !== undefined ||
+          a.countrySubDivision !== undefined ||
+          a.country !== undefined ||
+          (a.addressLines !== undefined && a.addressLines.length > 0)
+        )
+      },
+      {
+        message:
+          'PostalAddress must have at least one field set (empty address object is not allowed)',
+      }
+    )
+
+  const UltimateParty = z.object({
+    /** Party name (max 70 chars, text charset). */
+    name: sepaText(70, charset),
+    /**
+     * Structured party identification (Id), optional. Party38Choice: an
+     * organisation id (OrgId) XOR a private id (PrvtId). Emitted after Nm,
+     * matching PartyIdentification135 element order.
+     */
+    id: PartyIdentificationSchema.optional(),
+  })
+
+  /**
+   * A party (debtor or creditor) tied to a bank account.
+   * Groups name, IBAN, optional BIC, and optional structured postal address.
+   */
+  const AccountParty = z.object({
+    /** Party name (max 70 chars, text charset). */
+    name: sepaText(70, charset),
+    /** IBAN of the account (mod-97 validated). */
+    iban: IBANSchema,
+    /** BIC of the party's bank. Optional; validated when present. */
+    bic: BICSchema.optional(),
+    /**
+     * Structured postal address (PstlAdr), optional.
+     * Emitted for pain.001.001.09 and pain.008.001.08 only.
+     * Throws a clear error for legacy/DK variants.
+     * EPC mandates this from 2026-11-22.
+     */
+    address: PostalAddress.optional(),
+  })
+
+  /** One credit transfer transaction (maps to CdtTrfTxInf). */
+  const Transfer = z
+    .object({
+      /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, basic Latin, EPC slash rules. */
+      endToEndId: sepaIdentifier(35),
+      /** Amount: a Money value (euros helper recommended). */
+      amount: MoneySchema,
+      /**
+       * Ultimate debtor (UltmtDbtr): the party on whose behalf the transfer is initiated.
+       * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
+       */
+      ultimateDebtor: UltimateParty.optional(),
+      /** Creditor party (Cdtr + CdtrAcct/IBAN + CdtrAgt/BIC). */
+      creditor: AccountParty,
+      /**
+       * Ultimate creditor (UltmtCdtr): the party that ultimately receives the funds.
+       * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
+       */
+      ultimateCreditor: UltimateParty.optional(),
+      /** Remittance information / payment purpose (RmtInf/Ustrd), max 140 chars, text charset. Optional. */
+      remittanceInfo: sepaText(140, charset).optional(),
+      /**
+       * Structured remittance information (RmtInf/Strd/CdtrRefInf).
+       * Mutually exclusive with remittanceInfo. Supported for pain.001.001.09 ONLY.
+       * Legacy and DK variants throw if this field is set.
+       */
+      structuredRemittance: StructuredRemittanceSchema.optional(),
+      /**
+       * Transaction-level purpose (CdtTrfTxInf/Purp), Purpose2Choice (Cd XOR Prtry).
+       * A plain string is the Cd code path (ExternalPurpose1Code, open string, 1-4 chars,
+       * not validated against the ISO external list). An object { proprietary } is the
+       * Prtry path (Max35Text). Common Cd values: SALA, SUPP, TAXS, GDDS.
+       * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
+       */
+      purpose: PurposeSchema.optional(),
+    })
+    .refine((tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined), {
+      message:
+        'A transfer must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
+    })
+
+  /** A batch of transfers debited from one account on one date (maps to PmtInf). */
+  const PaymentBatch = z
+    .object({
+      /** Payment information identifier (PmtInfId), max 35 chars, basic Latin, EPC slash rules. */
+      id: sepaIdentifier(35),
+      /** Requested execution date (ReqdExctnDt), YYYY-MM-DD. Emitted as Dt (not DtTm). */
+      executionDate: ISODateSchema,
+      /** Debtor party (Dbtr + DbtrAcct/IBAN + DbtrAgt/BIC). */
+      debtor: AccountParty,
+      /**
+       * Batch-level category purpose (PmtTpInf/CtgyPurp), CategoryPurpose1Choice (Cd XOR Prtry).
+       * A plain string is the Cd code path (ExternalCategoryPurpose1Code, open string, 1-4 chars,
+       * not validated against the ISO external list). An object { proprietary } is the Prtry path
+       * (Max35Text). Common Cd values: SALA, SUPP, CASH, SECU.
+       * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
+       */
+      categoryPurpose: CategoryPurposeSchema.optional(),
+      /** Credit transfers in this batch. At least one required. */
+      transfers: z.array(Transfer).min(1),
+    })
+    .refine((b) => b.transfers.length > 0, {
+      message: 'PaymentBatch must contain at least one transfer',
+    })
+
+  const CreditTransferDocument = z
+    .object({
+      /** Message ID (GrpHdr/MsgId), max 35 chars, basic Latin, EPC slash rules. */
+      messageId: sepaIdentifier(35),
+      /** Creation date-time (GrpHdr/CreDtTm), ISO 8601 datetime. */
+      createdAt: ISODateTimeSchema,
+      /** Initiating party name (GrpHdr/InitgPty/Nm), max 70 chars, text charset. */
+      initiatingParty: sepaText(70, charset),
+      /** Payment batches (PmtInf). At least one required. */
+      batches: z.array(PaymentBatch).min(1),
+    })
+    .refine(
+      (doc) => {
+        const totalTxs = doc.batches.reduce((sum, batch) => sum + batch.transfers.length, 0)
+        return totalTxs >= 1
+      },
+      { message: 'Document must contain at least one transfer' }
+    )
+
+  return {
+    PostalAddress,
+    UltimateParty,
+    AccountParty,
+    Transfer,
+    PaymentBatch,
+    CreditTransferDocument,
+  }
+}
+
+type CreditTransferSchemas = ReturnType<typeof buildCreditTransferSchemas>
+
+const BASIC_CREDIT_TRANSFER_SCHEMAS = buildCreditTransferSchemas(SepaCharset.Basic)
+let extendedCreditTransferSchemas: CreditTransferSchemas | undefined
 
 /**
- * One credit transfer transaction (maps to CdtTrfTxInf).
+ * The text-bearing pain.001 schemas for a charset. The basic set is the exported
+ * schemas; the extended set is built on first use.
  */
-const TransferSchema = z
-  .object({
-    /** End-to-end identifier (PmtId/EndToEndId), max 35 chars, SEPA charset, EPC slash rules. */
-    endToEndId: sepaIdentifier(35),
-    /** Amount: a Money value (euros helper recommended). */
-    amount: MoneySchema,
-    /**
-     * Ultimate debtor (UltmtDbtr): the party on whose behalf the transfer is initiated.
-     * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
-     */
-    ultimateDebtor: UltimatePartySchema.optional(),
-    /** Creditor party (Cdtr + CdtrAcct/IBAN + CdtrAgt/BIC). */
-    creditor: AccountPartySchema,
-    /**
-     * Ultimate creditor (UltmtCdtr): the party that ultimately receives the funds.
-     * Optional. Supported for pain.001.001.09 only. Name only in this version (max 70 chars).
-     */
-    ultimateCreditor: UltimatePartySchema.optional(),
-    /** Remittance information / payment purpose (RmtInf/Ustrd), max 140 chars, SEPA charset. Optional. */
-    remittanceInfo: SepaMax140Text.optional(),
-    /**
-     * Structured remittance information (RmtInf/Strd/CdtrRefInf).
-     * Mutually exclusive with remittanceInfo. Supported for pain.001.001.09 ONLY.
-     * Legacy and DK variants throw if this field is set.
-     */
-    structuredRemittance: StructuredRemittanceSchema.optional(),
-    /**
-     * Transaction-level purpose (CdtTrfTxInf/Purp), Purpose2Choice (Cd XOR Prtry).
-     * A plain string is the Cd code path (ExternalPurpose1Code, open string, 1-4 chars,
-     * not validated against the ISO external list). An object { proprietary } is the
-     * Prtry path (Max35Text). Common Cd values: SALA, SUPP, TAXS, GDDS.
-     * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
-     */
-    purpose: PurposeSchema.optional(),
-  })
-  .refine((tx) => !(tx.remittanceInfo !== undefined && tx.structuredRemittance !== undefined), {
-    message:
-      'A transfer must not have both remittanceInfo (unstructured) and structuredRemittance (structured) set: the SEPA rulebook allows only one form of remittance information per transaction',
-  })
-
-export type Transfer = z.infer<typeof TransferSchema>
-
-// ---------------------------------------------------------------------------
-// PaymentBatch: one debit account on one execution date
-// ---------------------------------------------------------------------------
+export function creditTransferSchemasFor(charset: SepaCharset): CreditTransferSchemas {
+  if (charset === SepaCharset.Basic) {
+    return BASIC_CREDIT_TRANSFER_SCHEMAS
+  }
+  extendedCreditTransferSchemas ??= buildCreditTransferSchemas(SepaCharset.Extended)
+  return extendedCreditTransferSchemas
+}
 
 /**
- * A batch of transfers debited from one account on one date (maps to PmtInf).
+ * Structured postal address, mapping to PostalAddress24 in the ISO 20022 XSD.
+ *
+ * All fields are optional; at least one must be present when the address object
+ * itself is included. EPC mandates a structured address for pain.001.001.09 and
+ * pain.008.001.08 from 2026-11-22.
+ *
+ * Field names mirror PostalAddress24 semantics; max lengths match the XSD constraints.
+ * The fields are text fields: basic Latin by default, the EPC217-08 extended set with
+ * { charset: 'extended' }.
+ *
+ * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK variants
+ * will throw a clear error if an address is present in the model.
  */
-const PaymentBatchSchema = z
-  .object({
-    /** Payment information identifier (PmtInfId), max 35 chars, SEPA charset, EPC slash rules. */
-    id: sepaIdentifier(35),
-    /** Requested execution date (ReqdExctnDt), YYYY-MM-DD. Emitted as Dt (not DtTm). */
-    executionDate: ISODateSchema,
-    /** Debtor party (Dbtr + DbtrAcct/IBAN + DbtrAgt/BIC). */
-    debtor: AccountPartySchema,
-    /**
-     * Batch-level category purpose (PmtTpInf/CtgyPurp), CategoryPurpose1Choice (Cd XOR Prtry).
-     * A plain string is the Cd code path (ExternalCategoryPurpose1Code, open string, 1-4 chars,
-     * not validated against the ISO external list). An object { proprietary } is the Prtry path
-     * (Max35Text). Common Cd values: SALA, SUPP, CASH, SECU.
-     * Supported for pain.001.001.09 ONLY. Legacy and DK variants throw if this is set.
-     */
-    categoryPurpose: CategoryPurposeSchema.optional(),
-    /** Credit transfers in this batch. At least one required. */
-    transfers: z.array(TransferSchema).min(1),
-  })
-  .refine((b) => b.transfers.length > 0, {
-    message: 'PaymentBatch must contain at least one transfer',
-  })
+export const PostalAddressSchema = BASIC_CREDIT_TRANSFER_SCHEMAS.PostalAddress
 
-export type PaymentBatch = z.infer<typeof PaymentBatchSchema>
+export type PostalAddress = z.infer<typeof PostalAddressSchema>
 
-// ---------------------------------------------------------------------------
-// CreditTransferDocument: the whole document
-// ---------------------------------------------------------------------------
+/**
+ * An ultimate party (UltmtDbtr or UltmtCdtr): identifies the party on whose
+ * behalf a payment is ultimately made or received (common in factoring and
+ * payment-service-provider flows).
+ *
+ * Carries a name (max 70 chars, a text field) and an optional structured
+ * identifier (Id, Party38Choice: OrgId XOR PrvtId, basic Latin). Name-only is always
+ * XSD-valid and remains the common case; the id is purely additive and absent
+ * by default.
+ *
+ * Supported for pain.001.001.09 and pain.008.001.08 ONLY. Legacy and DK
+ * variants will throw a clear error if an ultimate party is present.
+ */
+export const UltimatePartySchema = BASIC_CREDIT_TRANSFER_SCHEMAS.UltimateParty
+
+export type UltimateParty = z.infer<typeof UltimatePartySchema>
+
+export type AccountParty = z.infer<typeof BASIC_CREDIT_TRANSFER_SCHEMAS.AccountParty>
+
+export type Transfer = z.infer<typeof BASIC_CREDIT_TRANSFER_SCHEMAS.Transfer>
+
+export type PaymentBatch = z.infer<typeof BASIC_CREDIT_TRANSFER_SCHEMAS.PaymentBatch>
 
 /**
  * The top-level document model for pain.001.001.09.
@@ -768,23 +765,6 @@ export type PaymentBatch = z.infer<typeof PaymentBatchSchema>
  * NbOfTxs and CtrlSum are DERIVED by the writer (exact bigint arithmetic),
  * so they are NOT part of this model.
  */
-export const CreditTransferDocumentSchema = z
-  .object({
-    /** Message ID (GrpHdr/MsgId), max 35 chars, SEPA charset, EPC slash rules. */
-    messageId: sepaIdentifier(35),
-    /** Creation date-time (GrpHdr/CreDtTm), ISO 8601 datetime. */
-    createdAt: ISODateTimeSchema,
-    /** Initiating party name (GrpHdr/InitgPty/Nm), max 70 chars, SEPA charset. */
-    initiatingParty: sepaText(70),
-    /** Payment batches (PmtInf). At least one required. */
-    batches: z.array(PaymentBatchSchema).min(1),
-  })
-  .refine(
-    (doc) => {
-      const totalTxs = doc.batches.reduce((sum, batch) => sum + batch.transfers.length, 0)
-      return totalTxs >= 1
-    },
-    { message: 'Document must contain at least one transfer' }
-  )
+export const CreditTransferDocumentSchema = BASIC_CREDIT_TRANSFER_SCHEMAS.CreditTransferDocument
 
 export type CreditTransferDocument = z.infer<typeof CreditTransferDocumentSchema>

@@ -342,8 +342,10 @@ describe('parse() character references', () => {
     for (const reference of ['&#352;tupica', '&#x160;tupica']) {
       const error = parseError(withCreditorNameXml(reference))
       expect(error).toMatch(/^Model validation failed after parse: /)
-      expect(error).toContain('transfers.0.creditor.name')
-      expect(error).not.toMatch(/XML parse error/)
+      expect(error).toContain(
+        'batches.0.transfers.0.creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "Š" (U+0160).'
+      )
+      expect(error).not.toContain('"&"')
     }
   })
 

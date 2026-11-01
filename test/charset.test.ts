@@ -13,6 +13,8 @@ import {
   isInSepaCharset,
   offendingCharacters,
   resolveSepaCharset,
+  textCharsetMessage,
+  referenceCharsetMessage,
 } from '../src/model/charset.js'
 import * as publicApi from '../src/index.js'
 
@@ -263,5 +265,34 @@ describe('toSepaCharset: properties over arbitrary Unicode', () => {
       }),
       { numRuns: 300 }
     )
+  })
+})
+
+describe('charset validation messages', () => {
+  const PREFIX = 'Value contains characters outside the SEPA charset (EPC217-08): '
+
+  it('should name each offending character with its code point, keeping the stable prefix', () => {
+    expect(referenceCharsetMessage('MND-\u017D')).toBe(
+      `${PREFIX}"\u017D" (U+017D). Identifiers, references and codes must use the basic Latin set (a-z A-Z 0-9 space / - ? : ( ) . , ' +) in every charset mode (EPC217-08 section 6.3). Convert the value with toSepaCharset(value).`
+    )
+  })
+
+  it('should list at most 5 characters and count the rest', () => {
+    expect(referenceCharsetMessage('\u00C4\u00D6\u00DC\u00E4\u00F6\u00FC\u00DF')).toContain(
+      '"\u00C4" (U+00C4), "\u00D6" (U+00D6), "\u00DC" (U+00DC), "\u00E4" (U+00E4), "\u00F6" (U+00F6), and 2 more.'
+    )
+  })
+
+  it('should show code points above U+FFFF in full', () => {
+    expect(textCharsetMessage('Party \u{1F600}', 'basic')).toContain('"\u{1F600}" (U+1F600)')
+  })
+
+  it('should add a normalization hint when the value contains combining marks', () => {
+    const message = textCharsetMessage('S\u030Ctupica', 'basic')
+    expect(message).toContain('"\u030C" (U+030C)')
+    expect(message).toContain(
+      "The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'); toSepaCharset does this for you."
+    )
+    expect(textCharsetMessage('\u0160tupica', 'basic')).not.toContain('combining marks')
   })
 })
