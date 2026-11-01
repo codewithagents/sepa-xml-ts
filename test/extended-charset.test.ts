@@ -791,6 +791,73 @@ describe('charset option validation', () => {
   })
 })
 
+describe('the default charset of every entry point', () => {
+  const name = 'Maja Štupica'
+  const creditTransfer = withTransferText(name, 'Invoice 1')
+  const directDebit = withCreditorName(MINIMAL_DD, name)
+
+  /** The message a call throws, failing the test when it does not throw. */
+  function thrownMessage(call: () => unknown): string {
+    try {
+      call()
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+    throw new Error('expected the call to throw')
+  }
+
+  it('writeCreditTransfer defaults to basic and names the opt-in', () => {
+    const message = thrownMessage(() => writeCreditTransfer(creditTransfer))
+    expect(message).toContain('batches.0.transfers.0.creditor.name: ')
+    expect(message).toContain('"Š" (U+0160)')
+    expect(message).toContain(OPT_IN_HINT)
+    expect(writeCreditTransfer(creditTransfer, EXTENDED)).toContain(`<Nm>${name}</Nm>`)
+  })
+
+  it('writeDirectDebit defaults to basic and names the opt-in', () => {
+    const message = thrownMessage(() => writeDirectDebit(directDebit))
+    expect(message).toContain('creditor.name: ')
+    expect(message).toContain(OPT_IN_HINT)
+    expect(writeDirectDebit(directDebit, EXTENDED)).toContain(`<Nm>${name}</Nm>`)
+  })
+
+  it('validateCreditTransfer defaults to basic and names the opt-in', () => {
+    const result = validateCreditTransfer(creditTransfer)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.map((issue) => issue.path.join('.'))).toEqual([
+      'batches.0.transfers.0.creditor.name',
+    ])
+    expect(firstErrorMessage(result)).toContain('"Š" (U+0160)')
+    expect(firstErrorMessage(result)).toContain(OPT_IN_HINT)
+    expect(validateCreditTransfer(creditTransfer, EXTENDED).ok).toBe(true)
+  })
+
+  it('validateDirectDebit defaults to basic and names the opt-in', () => {
+    const result = validateDirectDebit(directDebit)
+    expect(firstErrorMessage(result)).toContain(OPT_IN_HINT)
+    expect(validateDirectDebit(directDebit, EXTENDED).ok).toBe(true)
+  })
+
+  it('parse defaults to extended for both message types', () => {
+    for (const xml of [
+      writeCreditTransfer(creditTransfer, EXTENDED),
+      writeDirectDebit(directDebit, EXTENDED),
+    ]) {
+      const result = parse(xml)
+      expect(result.ok, result.ok ? '' : result.error).toBe(true)
+      expect(result).toEqual(parse(xml, EXTENDED))
+      expect(parse(xml, { charset: 'basic' }).ok).toBe(false)
+    }
+  })
+
+  it('toSepaCharset defaults to the basic target', () => {
+    expect(toSepaCharset(name)).toBe('Maja Stupica')
+    expect(toSepaCharset(name, {})).toBe('Maja Stupica')
+    expect(toSepaCharset(name, EXTENDED)).toBe(name)
+  })
+})
+
 describe('extended mode messages', () => {
   it('should name characters outside the extended set and point to both helper targets', () => {
     const doc = withCreditorName(MINIMAL_DD, 'Maja \u{1F600}')
