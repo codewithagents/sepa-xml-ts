@@ -96,7 +96,18 @@ export function offendingCharacters(value: string, charset: SepaCharset): string
  * An empty string is allowed (callers enforce min-length separately).
  */
 export function isInSepaCharset(value: string, charset: SepaCharset): boolean {
-  return offendingCharacters(value, charset).length === 0
+  if (SEPA_BASIC.test(value)) {
+    return true
+  }
+  if (charset === SepaCharset.Basic) {
+    return false
+  }
+  for (const character of value) {
+    if (!isCharacterIn(character, charset)) {
+      return false
+    }
+  }
+  return true
 }
 
 const CHARSET_MESSAGE_PREFIX = 'Value contains characters outside the SEPA charset (EPC217-08)'
