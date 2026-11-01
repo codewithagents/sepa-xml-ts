@@ -527,6 +527,18 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
     )
   })
 
+  it('should accept raw characters above U+FFFF as legal XML characters', () => {
+    const xml = writeCreditTransfer(MINIMAL_CT).replace(
+      '</GrpHdr>',
+      '<Unmodelled>\u{10000}\u{1F600}\u{10FFFF}</Unmodelled></GrpHdr>'
+    )
+    expect(findWellFormednessProblem(xml)).toBeNull()
+    expect(parse(xml).ok).toBe(true)
+    expect(parseError(withCreditorNameXml('Maja \u{1F600}'))).toContain(
+      'creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "\u{1F600}" (U+1F600).'
+    )
+  })
+
   it('should reject a reference split by a comment', () => {
     expect(parseError(withCreditorNameXml('A &amp<!-- -->; B'))).toBe(
       'XML parse error: unescaped "&" (write it as &amp;)'
