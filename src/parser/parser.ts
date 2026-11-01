@@ -104,7 +104,10 @@ const PARSER = new XMLParser({
   // Preserve string values (don't auto-convert numbers/booleans)
   parseAttributeValue: false,
   parseTagValue: false,
-  trimValues: true,
+  // Text is kept as XML reads it (CDATA and the text around a processing instruction
+  // join without losing spaces); textOf trims only XML whitespace at the edges.
+  trimValues: false,
+  ignorePiTags: true,
   // XML expands references in text and attribute values only, never in a processing
   // instruction, whose pseudo-attributes fast-xml-parser reads under a "?target" name.
   processEntities: { tagFilter: (tagName) => !tagName.startsWith('?') },
@@ -152,34 +155,105 @@ function parseMoneyString(amountStr: string, ccy: string): Money | null {
   if (ccy !== 'EUR') {
     return null
   }
-  const trimmed = amountStr.trim()
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+  if (!/^\d+(\.\d{1,2})?$/.test(amountStr)) {
     return null
   }
-  const parts = trimmed.split('.')
+  const parts = amountStr.split('.')
   const wholePart = parts[0] ?? '0'
   const fracPart = (parts[1] ?? '0').padEnd(2, '0')
   const minorUnits = BigInt(wholePart) * 100n + BigInt(fracPart)
   return { currencyCode: 'EUR', minorUnits }
 }
 
-/** Safely get a string value from a parsed object, or null. */
-function str(val: unknown): string | null {
-  if (typeof val === 'string') return val
-  if (typeof val === 'number') return String(val)
-  return null
+const TEXT_NODE = '#text'
+const ATTRIBUTE_PREFIX = '@_'
+
+/** The elements the model reads as lists. Every other element it reads occurs at most once. */
+const REPEATABLE_ELEMENTS: ReadonlySet<string> = new Set([
+  'PmtInf',
+  'CdtTrfTxInf',
+  'DrctDbtTxInf',
+  'RfrdDocInf',
+  'AdrLine',
+])
+
+/**
+ * An element the model reads is present, but not in a shape the model can hold: it repeats
+ * where the model holds one value, or it holds child elements where the model holds text.
+ * parse() returns ok:false with this message instead of dropping the element.
+ */
+class UnreadableElementError extends Error {}
+
+function isXmlWhitespace(code: number): boolean {
+  return code === 0x20 || code === 0x09 || code === 0x0d || code === 0x0a
+}
+
+/** Remove XML whitespace (space, tab, CR, LF) from both ends; other spaces are text. */
+function trimXmlWhitespace(value: string): string {
+  let start = 0
+  let end = value.length
+  while (start < end && isXmlWhitespace(value.charCodeAt(start))) start++
+  while (end > start && isXmlWhitespace(value.charCodeAt(end - 1))) end--
+  return value.slice(start, end)
+}
+
+/** The child element `name` of a parsed element, or null/undefined when absent. */
+function child(parent: unknown, name: string): unknown {
+  if (parent === null || parent === undefined || typeof parent !== 'object') {
+    return null
+  }
+  const value = (parent as Record<string, unknown>)[name]
+  if (Array.isArray(value) && !REPEATABLE_ELEMENTS.has(name)) {
+    throw new UnreadableElementError(
+      `Cannot read <${name}>: it occurs ${value.length} times, but the model holds a single value`
+    )
+  }
+  return value
 }
 
 /** Safely get a nested value by path, returning null if any step is missing. */
 function nav(obj: unknown, ...keys: string[]): unknown {
   let cur: unknown = obj
   for (const key of keys) {
-    if (cur === null || cur === undefined || typeof cur !== 'object') {
-      return null
-    }
-    cur = (cur as Record<string, unknown>)[key]
+    cur = child(cur, key)
   }
   return cur
+}
+
+/**
+ * The text of an element the model reads as one string, or null when the element is
+ * absent. The text is everything XML reads as the element's character data (CDATA
+ * sections and the text around comments and processing instructions included), with XML
+ * whitespace trimmed at both ends. Attributes do not change the text.
+ *
+ * @throws UnreadableElementError when the element holds child elements
+ */
+function textOf(value: unknown, name: string): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return trimXmlWhitespace(value)
+  const fields = value as Record<string, unknown>
+  const element = Object.keys(fields).find(
+    (key) => key !== TEXT_NODE && !key.startsWith(ATTRIBUTE_PREFIX)
+  )
+  if (element !== undefined) {
+    throw new UnreadableElementError(
+      `Cannot read <${name}>: it contains the element <${element}>, but the model holds text`
+    )
+  }
+  const text = fields[TEXT_NODE]
+  return trimXmlWhitespace(typeof text === 'string' ? text : '')
+}
+
+/** The text of the element at `path` below `parent` (see textOf), or null when absent. */
+function textAt(parent: unknown, ...path: string[]): string | null {
+  return textOf(nav(parent, ...path), path.at(-1) ?? '')
+}
+
+/** An attribute value of a parsed element with XML whitespace trimmed, or null when absent. */
+function attributeOf(element: unknown, name: string): string | null {
+  if (element === null || typeof element !== 'object') return null
+  const value = (element as Record<string, unknown>)[`${ATTRIBUTE_PREFIX}${name}`]
+  return typeof value === 'string' ? trimXmlWhitespace(value) : null
 }
 
 // ---------------------------------------------------------------------------
@@ -197,29 +271,18 @@ function extractPstlAdr(partyEl: unknown): PostalAddress | undefined {
     return undefined
   }
 
-  const streetName = str(nav(pstlAdrEl, 'StrtNm')) ?? undefined
-  const buildingNumber = str(nav(pstlAdrEl, 'BldgNb')) ?? undefined
-  const postCode = str(nav(pstlAdrEl, 'PstCd')) ?? undefined
-  const townName = str(nav(pstlAdrEl, 'TwnNm')) ?? undefined
-  const countrySubDivision = str(nav(pstlAdrEl, 'CtrySubDvsn')) ?? undefined
-  const country = str(nav(pstlAdrEl, 'Ctry')) ?? undefined
+  const streetName = textAt(pstlAdrEl, 'StrtNm') ?? undefined
+  const buildingNumber = textAt(pstlAdrEl, 'BldgNb') ?? undefined
+  const postCode = textAt(pstlAdrEl, 'PstCd') ?? undefined
+  const townName = textAt(pstlAdrEl, 'TwnNm') ?? undefined
+  const countrySubDivision = textAt(pstlAdrEl, 'CtrySubDvsn') ?? undefined
+  const country = textAt(pstlAdrEl, 'Ctry') ?? undefined
 
-  // AdrLine can be a single string (when only one line) or an array
-  let addressLines: string[] | undefined
-  const rawAdrLine = nav(pstlAdrEl, 'AdrLine')
-  if (Array.isArray(rawAdrLine)) {
-    const lines = rawAdrLine
-      .map((l: unknown) => str(l))
-      .filter((l): l is string => l !== null && l !== '')
-    if (lines.length > 0) {
-      addressLines = lines
-    }
-  } else {
-    const single = str(rawAdrLine)
-    if (single !== null && single !== '') {
-      addressLines = [single]
-    }
-  }
+  // AdrLine can be a single element (when only one line) or an array
+  const lines = asArray(nav(pstlAdrEl, 'AdrLine'))
+    .map((l: unknown) => textOf(l, 'AdrLine'))
+    .filter((l): l is string => l !== null && l !== '')
+  const addressLines = lines.length > 0 ? lines : undefined
 
   // If no field was populated, return undefined (no empty object)
   if (
@@ -262,7 +325,7 @@ function extractUltimateParty(txEl: unknown, tag: string): UltimateParty | undef
   if (el === null || el === undefined) {
     return undefined
   }
-  const name = str(nav(el, 'Nm'))
+  const name = textAt(el, 'Nm')
   if (name === null || name === '') {
     return undefined
   }
@@ -284,12 +347,12 @@ function extractGenericOther(parentEl: unknown): GenericIdentification | undefin
   if (othrEl === null || othrEl === undefined) {
     return undefined
   }
-  const id = str(nav(othrEl, 'Id'))
+  const id = textAt(othrEl, 'Id')
   if (id === null || id === '') {
     return undefined
   }
-  const schemeName = str(nav(othrEl, 'SchmeNm', 'Cd')) ?? undefined
-  const issuer = str(nav(othrEl, 'Issr')) ?? undefined
+  const schemeName = textAt(othrEl, 'SchmeNm', 'Cd') ?? undefined
+  const issuer = textAt(othrEl, 'Issr') ?? undefined
   const out: GenericIdentification = { id }
   if (schemeName !== undefined) out.schemeName = schemeName
   if (issuer !== undefined) out.issuer = issuer
@@ -298,11 +361,11 @@ function extractGenericOther(parentEl: unknown): GenericIdentification | undefin
 
 /**
  * Read a non-empty string from a path, or return null.
- * Combines the common str() + empty-check pattern.
+ * Combines the common textAt() + empty-check pattern.
  */
-function strRequired(val: unknown): string | null {
-  const s = str(val)
-  return s !== null && s !== '' ? s : null
+function requiredTextAt(parent: unknown, ...path: string[]): string | null {
+  const text = textAt(parent, ...path)
+  return text !== null && text !== '' ? text : null
 }
 
 /**
@@ -314,8 +377,8 @@ function extractOrgId(idEl: unknown): OrganisationIdentification | undefined {
   if (orgEl === null || orgEl === undefined) {
     return undefined
   }
-  const bic = str(nav(orgEl, 'AnyBIC')) ?? undefined
-  const lei = str(nav(orgEl, 'LEI')) ?? undefined
+  const bic = textAt(orgEl, 'AnyBIC') ?? undefined
+  const lei = textAt(orgEl, 'LEI') ?? undefined
   const other = extractGenericOther(orgEl)
   if (bic === undefined && lei === undefined && other === undefined) {
     return undefined
@@ -336,14 +399,14 @@ function extractDateAndPlaceOfBirth(prvtEl: unknown): DateAndPlaceOfBirth | unde
   if (dobEl === null || dobEl === undefined) {
     return undefined
   }
-  const birthDate = strRequired(nav(dobEl, 'BirthDt'))
-  const cityOfBirth = strRequired(nav(dobEl, 'CityOfBirth'))
-  const countryOfBirth = strRequired(nav(dobEl, 'CtryOfBirth'))
+  const birthDate = requiredTextAt(dobEl, 'BirthDt')
+  const cityOfBirth = requiredTextAt(dobEl, 'CityOfBirth')
+  const countryOfBirth = requiredTextAt(dobEl, 'CtryOfBirth')
   if (birthDate === null || cityOfBirth === null || countryOfBirth === null) {
     return undefined
   }
   const out: DateAndPlaceOfBirth = { birthDate, cityOfBirth, countryOfBirth }
-  const provinceOfBirth = str(nav(dobEl, 'PrvcOfBirth')) ?? undefined
+  const provinceOfBirth = textAt(dobEl, 'PrvcOfBirth') ?? undefined
   if (provinceOfBirth !== undefined) out.provinceOfBirth = provinceOfBirth
   return out
 }
@@ -413,32 +476,26 @@ function asArray(val: unknown): unknown[] {
  */
 function extractCdOrPrtry(cdOrPrtryEl: unknown): string | { proprietary: string } | undefined {
   if (cdOrPrtryEl === null || cdOrPrtryEl === undefined) return undefined
-  const cd = str(nav(cdOrPrtryEl, 'Cd'))
+  const cd = textAt(cdOrPrtryEl, 'Cd')
   if (cd !== null && cd !== '') return cd
-  const prtry = str(nav(cdOrPrtryEl, 'Prtry'))
+  const prtry = textAt(cdOrPrtryEl, 'Prtry')
   if (prtry !== null && prtry !== '') return { proprietary: prtry }
   return undefined
 }
 
 /**
- * Parse an EUR amount element (e.g. DuePyblAmt) which carries a Ccy attribute and
- * a text value: <DuePyblAmt Ccy="EUR">12.34</DuePyblAmt>. Returns null when absent
+ * Parse an EUR amount element (e.g. InstdAmt, DuePyblAmt) which carries a Ccy attribute
+ * and a text value: <DuePyblAmt Ccy="EUR">12.34</DuePyblAmt>. Returns null when absent
  * or not a valid EUR amount.
+ *
+ * @param parent the element that holds the amount element
+ * @param path the path to the amount element
  */
-function parseAmtElement(amtEl: unknown): Money | null {
-  if (amtEl === null || amtEl === undefined) return null
-  let amountStr: string | null
-  let ccy = 'EUR'
-  if (typeof amtEl === 'object') {
-    const obj = amtEl as Record<string, unknown>
-    amountStr = str(obj['#text'])
-    const rawCcy = obj['@_Ccy']
-    ccy = typeof rawCcy === 'string' ? rawCcy : 'EUR'
-  } else {
-    amountStr = str(amtEl)
-  }
+function parseAmtElement(parent: unknown, ...path: string[]): Money | null {
+  const amtEl = nav(parent, ...path)
+  const amountStr = textOf(amtEl, path.at(-1) ?? '')
   if (amountStr === null) return null
-  return parseMoneyString(amountStr, ccy)
+  return parseMoneyString(amountStr, attributeOf(amtEl, 'Ccy') ?? 'EUR')
 }
 
 /**
@@ -447,8 +504,8 @@ function parseAmtElement(amtEl: unknown): Money | null {
  */
 function extractRfrdDocInf(docEl: unknown): ReferredDocument | undefined {
   const type = extractCdOrPrtry(nav(docEl, 'Tp', 'CdOrPrtry'))
-  const number = str(nav(docEl, 'Nb')) ?? undefined
-  const relatedDate = str(nav(docEl, 'RltdDt')) ?? undefined
+  const number = textAt(docEl, 'Nb') ?? undefined
+  const relatedDate = textAt(docEl, 'RltdDt') ?? undefined
   if (type === undefined && number === undefined && relatedDate === undefined) {
     return undefined
   }
@@ -465,9 +522,9 @@ function extractRfrdDocInf(docEl: unknown): ReferredDocument | undefined {
  */
 function extractRfrdDocAmt(amtEl: unknown): RemittanceAmount | undefined {
   if (amtEl === null || amtEl === undefined) return undefined
-  const duePayableAmount = parseAmtElement(nav(amtEl, 'DuePyblAmt')) ?? undefined
-  const creditNoteAmount = parseAmtElement(nav(amtEl, 'CdtNoteAmt')) ?? undefined
-  const remittedAmount = parseAmtElement(nav(amtEl, 'RmtdAmt')) ?? undefined
+  const duePayableAmount = parseAmtElement(amtEl, 'DuePyblAmt') ?? undefined
+  const creditNoteAmount = parseAmtElement(amtEl, 'CdtNoteAmt') ?? undefined
+  const remittedAmount = parseAmtElement(amtEl, 'RmtdAmt') ?? undefined
   if (
     duePayableAmount === undefined &&
     creditNoteAmount === undefined &&
@@ -488,12 +545,12 @@ function extractRfrdDocAmt(amtEl: unknown): RemittanceAmount | undefined {
  */
 function extractCdtrRefInf(cdtrRefInfEl: unknown): Partial<StructuredRemittance> {
   if (cdtrRefInfEl === null || cdtrRefInfEl === undefined) return {}
-  const creditorReference = str(nav(cdtrRefInfEl, 'Ref'))
+  const creditorReference = textAt(cdtrRefInfEl, 'Ref')
   if (creditorReference === null || creditorReference === '') return {}
   // Tp/CdOrPrtry is the reference type (Cd enum XOR Prtry). We cast the raw value
   // here; out-of-enum Cd values are rejected by post-parse model validation.
   const referenceType = extractCdOrPrtry(nav(cdtrRefInfEl, 'Tp', 'CdOrPrtry'))
-  const issuer = str(nav(cdtrRefInfEl, 'Tp', 'Issr')) ?? undefined
+  const issuer = textAt(cdtrRefInfEl, 'Tp', 'Issr') ?? undefined
   return {
     creditorReference,
     ...(referenceType !== undefined
@@ -554,9 +611,9 @@ function extractStructuredRemittance(txEl: unknown): StructuredRemittance | unde
  */
 function extractPurposeChoice(choiceEl: unknown): Purpose | undefined {
   if (choiceEl === null || choiceEl === undefined) return undefined
-  const cd = str(nav(choiceEl, 'Cd'))
+  const cd = textAt(choiceEl, 'Cd')
   if (cd !== null && cd !== '') return cd
-  const prtry = str(nav(choiceEl, 'Prtry'))
+  const prtry = textAt(choiceEl, 'Prtry')
   if (prtry !== null && prtry !== '') return { proprietary: prtry }
   return undefined
 }
@@ -570,15 +627,15 @@ function extractAccountParty(
   acctEl: unknown,
   agtEl: unknown
 ): AccountParty | null {
-  const name = str(nav(partyEl, 'Nm'))
+  const name = textAt(partyEl, 'Nm')
   if (!name) return null
 
-  const iban = str(nav(acctEl, 'Id', 'IBAN'))
+  const iban = textAt(acctEl, 'Id', 'IBAN')
   if (!iban) return null
 
   // Try BICFI (pain.001.001.09 / pain.008.001.08) then fall back to BIC (pain.001.001.03 / .02).
   const bic =
-    str(nav(agtEl, 'FinInstnId', 'BICFI')) ?? str(nav(agtEl, 'FinInstnId', 'BIC')) ?? undefined
+    textAt(agtEl, 'FinInstnId', 'BICFI') ?? textAt(agtEl, 'FinInstnId', 'BIC') ?? undefined
 
   const address = extractPstlAdr(partyEl)
 
@@ -593,24 +650,11 @@ function extractAccountParty(
 function extractTransfer(txEl: unknown): Transfer | null {
   if (!txEl || typeof txEl !== 'object') return null
 
-  const endToEndId = str(nav(txEl, 'PmtId', 'EndToEndId'))
+  const endToEndId = textAt(txEl, 'PmtId', 'EndToEndId')
   if (!endToEndId) return null
 
   // Amount: <Amt><InstdAmt Ccy="EUR">123.45</InstdAmt></Amt>
-  const instdAmt = nav(txEl, 'Amt', 'InstdAmt')
-  let amountStr: string | null = null
-  let ccy = 'EUR'
-  if (typeof instdAmt === 'object' && instdAmt !== null) {
-    const amtObj = instdAmt as Record<string, unknown>
-    amountStr = str(amtObj['#text'])
-    const rawCcy = amtObj['@_Ccy']
-    ccy = typeof rawCcy === 'string' ? rawCcy : 'EUR'
-  } else {
-    amountStr = str(instdAmt)
-  }
-  if (!amountStr) return null
-
-  const amount = parseMoneyString(amountStr, ccy)
+  const amount = parseAmtElement(txEl, 'Amt', 'InstdAmt')
   if (!amount) return null
 
   // Creditor: Cdtr + CdtrAcct + CdtrAgt (optional)
@@ -622,7 +666,7 @@ function extractTransfer(txEl: unknown): Transfer | null {
 
   // Optional remittanceInfo. Treat empty strings as absent; some older libraries
   // (e.g. sepa / kewisch.js) emit <RmtInf><Ustrd/></RmtInf> when no value is set.
-  const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
+  const ustrdRaw = textAt(txEl, 'RmtInf', 'Ustrd')
   const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
   // Optional structured remittance (RmtInf/Strd/CdtrRefInf). Absent when the
@@ -651,12 +695,12 @@ function extractTransfer(txEl: unknown): Transfer | null {
 function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
   if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
-  const id = str(nav(pmtInfEl, 'PmtInfId'))
+  const id = textAt(pmtInfEl, 'PmtInfId')
   if (!id) return null
 
   // pain.001.001.09 wraps the date in DateAndDateTime2Choice: <ReqdExctnDt><Dt>YYYY-MM-DD</Dt></ReqdExctnDt>
   // pain.001.001.03 emits a plain text element: <ReqdExctnDt>YYYY-MM-DD</ReqdExctnDt>
-  const executionDate = str(nav(pmtInfEl, 'ReqdExctnDt', 'Dt')) ?? str(nav(pmtInfEl, 'ReqdExctnDt'))
+  const executionDate = textAt(pmtInfEl, 'ReqdExctnDt', 'Dt') ?? textAt(pmtInfEl, 'ReqdExctnDt')
   if (!executionDate) return null
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
@@ -696,27 +740,6 @@ function extractPaymentBatch(pmtInfEl: unknown): PaymentBatch | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the InstdAmt element which appears directly on DrctDbtTxInf
- * (not wrapped in Amt like pain.001).
- * Format: <InstdAmt Ccy="EUR">123.45</InstdAmt>
- */
-function extractInstdAmt(txEl: unknown): Money | null {
-  const instdAmt = nav(txEl, 'InstdAmt')
-  let amountStr: string | null = null
-  let ccy = 'EUR'
-  if (typeof instdAmt === 'object' && instdAmt !== null) {
-    const amtObj = instdAmt as Record<string, unknown>
-    amountStr = str(amtObj['#text'])
-    const rawCcy = amtObj['@_Ccy']
-    ccy = typeof rawCcy === 'string' ? rawCcy : 'EUR'
-  } else {
-    amountStr = str(instdAmt)
-  }
-  if (!amountStr) return null
-  return parseMoneyString(amountStr, ccy)
-}
-
-/**
  * Extract OrgnlCdtrSchmeId (PartyIdentification135) from an AmdmntInfDtls element.
  * Reads Nm and the SEPA Creditor Identifier (Id/PrvtId/Othr/Id). Returns undefined when neither is present.
  */
@@ -725,8 +748,8 @@ function extractOrgnlCdtrSchmeId(
 ): MandateAmendment['originalCreditorSchemeId'] {
   const schemeEl = nav(amdmntInfDtlsEl, 'OrgnlCdtrSchmeId')
   if (schemeEl === null || schemeEl === undefined) return undefined
-  const name = str(nav(schemeEl, 'Nm')) ?? undefined
-  const creditorId = str(nav(schemeEl, 'Id', 'PrvtId', 'Othr', 'Id')) ?? undefined
+  const name = textAt(schemeEl, 'Nm') ?? undefined
+  const creditorId = textAt(schemeEl, 'Id', 'PrvtId', 'Othr', 'Id') ?? undefined
   if (name === undefined && creditorId === undefined) return undefined
   const scheme: MandateAmendment['originalCreditorSchemeId'] = {}
   if (name !== undefined) scheme.name = name
@@ -741,9 +764,9 @@ function extractOrgnlCdtrSchmeId(
 function extractOrgnlRsn(amdmntInfDtlsEl: unknown): MandateAmendment['originalReason'] {
   const rsnEl = nav(amdmntInfDtlsEl, 'OrgnlRsn')
   if (rsnEl === null || rsnEl === undefined) return undefined
-  const cd = str(nav(rsnEl, 'Cd'))
+  const cd = textAt(rsnEl, 'Cd')
   if (cd !== null && cd !== '') return cd
-  const prtry = str(nav(rsnEl, 'Prtry'))
+  const prtry = textAt(rsnEl, 'Prtry')
   if (prtry !== null && prtry !== '') return { proprietary: prtry }
   return undefined
 }
@@ -754,8 +777,8 @@ function extractOrgnlRsn(amdmntInfDtlsEl: unknown): MandateAmendment['originalRe
  * or a real agent BIC (FinInstnId/BICFI). Returns whichever is present (or both keys absent).
  */
 function extractOrgnlDbtrAgt(amdmntInfDtlsEl: unknown): Partial<MandateAmendment> {
-  const smndaId = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'Othr', 'Id'))
-  const bic = str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'BICFI')) ?? undefined
+  const smndaId = textAt(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'Othr', 'Id')
+  const bic = textAt(amdmntInfDtlsEl, 'OrgnlDbtrAgt', 'FinInstnId', 'BICFI') ?? undefined
   return {
     ...(smndaId === 'SMNDA' ? { sameMandateNewDebtorAccount: true } : {}),
     ...(bic !== undefined ? { originalDebtorAgent: bic } : {}),
@@ -769,13 +792,12 @@ function extractOrgnlDbtrAgt(amdmntInfDtlsEl: unknown): Partial<MandateAmendment
  * Returns a Partial with only the keys that are present in the XML.
  */
 function extractAmendmentScalarFields(amdmntInfDtlsEl: unknown): Partial<MandateAmendment> {
-  const originalMandateId = str(nav(amdmntInfDtlsEl, 'OrgnlMndtId')) ?? undefined
-  const originalDebtorAccount =
-    str(nav(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN')) ?? undefined
-  const originalFinalCollectionDate = str(nav(amdmntInfDtlsEl, 'OrgnlFnlColltnDt')) ?? undefined
+  const originalMandateId = textAt(amdmntInfDtlsEl, 'OrgnlMndtId') ?? undefined
+  const originalDebtorAccount = textAt(amdmntInfDtlsEl, 'OrgnlDbtrAcct', 'Id', 'IBAN') ?? undefined
+  const originalFinalCollectionDate = textAt(amdmntInfDtlsEl, 'OrgnlFnlColltnDt') ?? undefined
   // The raw frequency string is cast to the FrequencyCode enum; post-parse model
   // validation rejects an out-of-enum value rather than silently accepting it.
-  const originalFrequency = str(nav(amdmntInfDtlsEl, 'OrgnlFrqcy', 'Tp')) ?? undefined
+  const originalFrequency = textAt(amdmntInfDtlsEl, 'OrgnlFrqcy', 'Tp') ?? undefined
   const originalReason = extractOrgnlRsn(amdmntInfDtlsEl)
   return {
     ...(originalMandateId !== undefined ? { originalMandateId } : {}),
@@ -812,7 +834,7 @@ function extractMandateAmendment(amdmntInfDtlsEl: unknown): MandateAmendment | u
   }
 
   const originalCreditorSchemeId = extractOrgnlCdtrSchmeId(amdmntInfDtlsEl)
-  const originalDebtorName = str(nav(amdmntInfDtlsEl, 'OrgnlDbtr', 'Nm')) ?? undefined
+  const originalDebtorName = textAt(amdmntInfDtlsEl, 'OrgnlDbtr', 'Nm') ?? undefined
 
   const amd: MandateAmendment = {
     ...extractAmendmentScalarFields(amdmntInfDtlsEl),
@@ -827,20 +849,21 @@ function extractMandateAmendment(amdmntInfDtlsEl: unknown): MandateAmendment | u
 function extractCollection(txEl: unknown): Collection | null {
   if (!txEl || typeof txEl !== 'object') return null
 
-  const endToEndId = str(nav(txEl, 'PmtId', 'EndToEndId'))
+  const endToEndId = textAt(txEl, 'PmtId', 'EndToEndId')
   if (!endToEndId) return null
 
-  const amount = extractInstdAmt(txEl)
+  // InstdAmt sits directly on DrctDbtTxInf (not wrapped in Amt like pain.001).
+  const amount = parseAmtElement(txEl, 'InstdAmt')
   if (!amount) return null
 
   // Mandate: DrctDbtTx/MndtRltdInf
-  const mandateId = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'MndtId'))
+  const mandateId = textAt(txEl, 'DrctDbtTx', 'MndtRltdInf', 'MndtId')
   if (!mandateId) return null
-  const signatureDate = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'DtOfSgntr'))
+  const signatureDate = textAt(txEl, 'DrctDbtTx', 'MndtRltdInf', 'DtOfSgntr')
   if (!signatureDate) return null
 
   // Optional amendment: AmdmntInfDtls (only extracted when AmdmntInd=true is present)
-  const amdmntInd = str(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInd'))
+  const amdmntInd = textAt(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInd')
   const amendment =
     amdmntInd === 'true'
       ? extractMandateAmendment(nav(txEl, 'DrctDbtTx', 'MndtRltdInf', 'AmdmntInfDtls'))
@@ -854,14 +877,14 @@ function extractCollection(txEl: unknown): Collection | null {
 
   // Debtor: Dbtr + DbtrAcct + DbtrAgt
   const dbtrEl = nav(txEl, 'Dbtr')
-  const dbtrName = str(nav(dbtrEl, 'Nm'))
+  const dbtrName = textAt(dbtrEl, 'Nm')
   if (!dbtrName) return null
-  const dbtrIban = str(nav(txEl, 'DbtrAcct', 'Id', 'IBAN'))
+  const dbtrIban = textAt(txEl, 'DbtrAcct', 'Id', 'IBAN')
   if (!dbtrIban) return null
   // Try BICFI (modern) then fall back to BIC (legacy .02).
   const dbtrBic =
-    str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BICFI')) ??
-    str(nav(txEl, 'DbtrAgt', 'FinInstnId', 'BIC')) ??
+    textAt(txEl, 'DbtrAgt', 'FinInstnId', 'BICFI') ??
+    textAt(txEl, 'DbtrAgt', 'FinInstnId', 'BIC') ??
     undefined
   const dbtrAddress = extractPstlAdr(dbtrEl)
 
@@ -873,7 +896,7 @@ function extractCollection(txEl: unknown): Collection | null {
   }
 
   // Optional remittanceInfo. Treat empty strings as absent (defensive against empty elements).
-  const ustrdRaw = str(nav(txEl, 'RmtInf', 'Ustrd'))
+  const ustrdRaw = textAt(txEl, 'RmtInf', 'Ustrd')
   const remittanceInfo = ustrdRaw !== null && ustrdRaw !== '' ? ustrdRaw : undefined
 
   // Optional structured remittance (RmtInf/Strd/CdtrRefInf). Absent when the
@@ -903,21 +926,21 @@ function extractCollection(txEl: unknown): Collection | null {
 function extractDirectDebitBatch(pmtInfEl: unknown): DirectDebitBatch | null {
   if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
-  const id = str(nav(pmtInfEl, 'PmtInfId'))
+  const id = textAt(pmtInfEl, 'PmtInfId')
   if (!id) return null
 
-  const collectionDate = str(nav(pmtInfEl, 'ReqdColltnDt'))
+  const collectionDate = textAt(pmtInfEl, 'ReqdColltnDt')
   if (!collectionDate) return null
 
   // Sequence type (PmtTpInf/SeqTp)
-  const seqTpRaw = str(nav(pmtInfEl, 'PmtTpInf', 'SeqTp'))
+  const seqTpRaw = textAt(pmtInfEl, 'PmtTpInf', 'SeqTp')
   if (!seqTpRaw) return null
   const validSeqTypes: SequenceType[] = ['FRST', 'RCUR', 'OOFF', 'FNAL']
   if (!validSeqTypes.includes(seqTpRaw as SequenceType)) return null
   const sequenceType = seqTpRaw as SequenceType
 
   // Local instrument (PmtTpInf/LclInstrm/Cd) - always present in our writer
-  const lclInstrmRaw = str(nav(pmtInfEl, 'PmtTpInf', 'LclInstrm', 'Cd'))
+  const lclInstrmRaw = textAt(pmtInfEl, 'PmtTpInf', 'LclInstrm', 'Cd')
   const validLocalInstruments: LocalInstrument[] = ['CORE', 'B2B']
   const localInstrument: LocalInstrument =
     lclInstrmRaw !== null && validLocalInstruments.includes(lclInstrmRaw as LocalInstrument)
@@ -954,22 +977,22 @@ function extractCreditorFromPmtInf(pmtInfEl: unknown): Creditor | null {
   if (!pmtInfEl || typeof pmtInfEl !== 'object') return null
 
   const cdtrEl = nav(pmtInfEl, 'Cdtr')
-  const name = str(nav(cdtrEl, 'Nm'))
+  const name = textAt(cdtrEl, 'Nm')
   if (!name) return null
 
-  const iban = str(nav(pmtInfEl, 'CdtrAcct', 'Id', 'IBAN'))
+  const iban = textAt(pmtInfEl, 'CdtrAcct', 'Id', 'IBAN')
   if (!iban) return null
 
   // Try BICFI (modern) then fall back to BIC (legacy .02).
   const bic =
-    str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BICFI')) ??
-    str(nav(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BIC')) ??
+    textAt(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BICFI') ??
+    textAt(pmtInfEl, 'CdtrAgt', 'FinInstnId', 'BIC') ??
     undefined
 
   const address = extractPstlAdr(cdtrEl)
 
   // CdtrSchmeId/Id/PrvtId/Othr/Id
-  const creditorId = str(nav(pmtInfEl, 'CdtrSchmeId', 'Id', 'PrvtId', 'Othr', 'Id'))
+  const creditorId = textAt(pmtInfEl, 'CdtrSchmeId', 'Id', 'PrvtId', 'Othr', 'Id')
   if (!creditorId) return null
 
   return {
@@ -1114,6 +1137,17 @@ function parseByNamespace(parsed: unknown, ns: string, charset: SepaCharset): Pa
   }
 }
 
+/** The failure for an error thrown while a document is mapped to the model. */
+function caughtFailure(messageType: string, e: unknown): ParseFailure {
+  if (e instanceof UnreadableElementError) {
+    return { ok: false, error: e.message }
+  }
+  return {
+    ok: false,
+    error: `${messageType} parse error: ${e instanceof Error ? e.message : String(e)}`,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared GrpHdr extraction: common to both parsePain001 and parsePain008
 // ---------------------------------------------------------------------------
@@ -1138,17 +1172,17 @@ function extractGrpHdr(root: unknown): GrpHdrExtracted | ParseFailure {
     return { ok: false, error: 'Missing GrpHdr element' }
   }
 
-  const messageId = str(nav(grpHdr, 'MsgId'))
+  const messageId = textAt(grpHdr, 'MsgId')
   if (!messageId) {
     return { ok: false, error: 'Missing GrpHdr/MsgId' }
   }
 
-  const createdAt = str(nav(grpHdr, 'CreDtTm'))
+  const createdAt = textAt(grpHdr, 'CreDtTm')
   if (!createdAt) {
     return { ok: false, error: 'Missing GrpHdr/CreDtTm' }
   }
 
-  const initiatingParty = str(nav(grpHdr, 'InitgPty', 'Nm'))
+  const initiatingParty = textAt(grpHdr, 'InitgPty', 'Nm')
   if (!initiatingParty) {
     return { ok: false, error: 'Missing GrpHdr/InitgPty/Nm' }
   }
@@ -1202,10 +1236,7 @@ function parsePain001(parsed: unknown, version: string, charset: SepaCharset): P
 
     return { ok: true, type: 'pain.001', version, data: validation.data }
   } catch (e) {
-    return {
-      ok: false,
-      error: `pain.001 parse error: ${e instanceof Error ? e.message : String(e)}`,
-    }
+    return caughtFailure('pain.001', e)
   }
 }
 
@@ -1257,9 +1288,6 @@ function parsePain008(parsed: unknown, version: string, charset: SepaCharset): P
 
     return { ok: true, type: 'pain.008', version, data: validation.data }
   } catch (e) {
-    return {
-      ok: false,
-      error: `pain.008 parse error: ${e instanceof Error ? e.message : String(e)}`,
-    }
+    return caughtFailure('pain.008', e)
   }
 }

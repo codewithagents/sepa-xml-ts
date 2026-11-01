@@ -796,6 +796,184 @@ describe('decodeReferences: the entity decoder fast-xml-parser uses', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Element text: read as XML reads it, trimmed of XML whitespace only
+// ---------------------------------------------------------------------------
+
+const MINIMAL_CT_WITH_REMITTANCE: CreditTransferDocument = {
+  ...MINIMAL_CT,
+  batches: MINIMAL_CT.batches.map((batch) => ({
+    ...batch,
+    transfers: batch.transfers.map((transfer) => ({ ...transfer, remittanceInfo: 'Invoice 1' })),
+  })),
+}
+const USTRD = '<Ustrd>Invoice 1</Ustrd>'
+
+/** The minimal pain.001 with remittance information, its <Ustrd> element replaced by raw XML. */
+function withRemittanceXml(rawRemittanceXml: string): string {
+  return writeCreditTransfer(MINIMAL_CT_WITH_REMITTANCE).replace(USTRD, rawRemittanceXml)
+}
+
+function parsedTransfer(
+  xml: string
+): CreditTransferDocument['batches'][number]['transfers'][number] {
+  const result = parse(xml)
+  if (!result.ok) throw new Error('expected ok:true, got: ' + result.error)
+  if (result.type !== 'pain.001') throw new Error('expected type pain.001')
+  const transfer = result.data.batches[0]?.transfers[0]
+  if (transfer === undefined) throw new Error('transfer missing')
+  return transfer
+}
+
+/** The JS whitespace that String.prototype.trim removes but XML does not treat as whitespace. */
+const NON_XML_WHITESPACE = Array.from({ length: 0x10000 }, (_, code) => String.fromCharCode(code))
+  .filter((character) => character.trim() === '')
+  .filter((character) => !' \t\r\n'.includes(character))
+
+describe('parse() reads element text the way an XML parser reads it', () => {
+  it('should keep the space next to a CDATA section (review repro)', async () => {
+    const names: Array<[string, string]> = [
+      ['Maja <![CDATA[Stupica]]>', 'Maja Stupica'],
+      ['<![CDATA[Maja]]> Stupica', 'Maja Stupica'],
+      ['A <![CDATA[B]]> C', 'A B C'],
+      ['<![CDATA[ Maja ]]>', 'Maja'],
+    ]
+    for (const [raw, name] of names) {
+      const xml = withCreditorNameXml(raw)
+      expect(parsedCreditorName(xml), raw).toBe(name)
+      expect(libxml2Read(xml), raw).toEqual({
+        wellFormed: true,
+        creditorName: raw.startsWith('<![CDATA[ ') ? ' Maja ' : name,
+      })
+    }
+    expect(await validateXsd(withCreditorNameXml(names[0]?.[0] ?? ''))).toEqual({
+      valid: true,
+      errors: [],
+    })
+  })
+
+  it('should read the text around a processing instruction or a comment inside Ustrd (review repro)', async () => {
+    const remittances: Array<[string, string]> = [
+      ['<Ustrd>Invoice <?app note?>1</Ustrd>', 'Invoice 1'],
+      ['<Ustrd>Invoice 1<?xml-stylesheet href="a"?></Ustrd>', 'Invoice 1'],
+      ['<Ustrd><?app?>Invoice<!-- c --> 1</Ustrd>', 'Invoice 1'],
+    ]
+    for (const [raw, remittanceInfo] of remittances) {
+      expect(parsedTransfer(withRemittanceXml(raw)).remittanceInfo, raw).toBe(remittanceInfo)
+    }
+    expect(await validateXsd(withRemittanceXml(remittances[0]?.[0] ?? ''))).toEqual({
+      valid: true,
+      errors: [],
+    })
+  })
+
+  it('should trim only space, tab, CR and LF at the edges of a text value', () => {
+    expect(parsedCreditorName(withCreditorNameXml('\n\t Test  Creditor \r\n\t'))).toBe(
+      'Test  Creditor'
+    )
+    expect(parsedCreditorName(withCreditorNameXml('&#32;&#9;Test Creditor&#10;&#13;'))).toBe(
+      'Test Creditor'
+    )
+  })
+
+  it('should keep every other JS whitespace character at the edges, so the charset rejects it (review repro)', () => {
+    expect(NON_XML_WHITESPACE.map((character) => character.codePointAt(0))).toEqual([
+      0x0b, 0x0c, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
+      0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+    ])
+    const base = writeCreditTransfer(MINIMAL_CT)
+    for (const character of NON_XML_WHITESPACE.filter((c) => c !== '\v' && c !== '\f')) {
+      const label = `U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase()}`
+      for (const xml of [
+        base.replace(
+          '<EndToEndId>E2E-0001</EndToEndId>',
+          `<EndToEndId>E2E-0001${character}</EndToEndId>`
+        ),
+        withCreditorNameXml(`${character}Test Creditor`),
+        withCreditorNameXml(`Test Creditor${character}`),
+        base.replace(
+          '<InstdAmt Ccy="EUR">1.00</InstdAmt>',
+          `<InstdAmt Ccy="EUR">${character}1.00</InstdAmt>`
+        ),
+        base.replace('Ccy="EUR"', `Ccy="EUR${character}"`),
+      ]) {
+        expect(parse(xml).ok, label).toBe(false)
+      }
+    }
+  })
+
+  it('should keep reading ASCII whitespace around an amount and its currency as before', () => {
+    const xml = writeCreditTransfer(MINIMAL_CT).replace(
+      '<InstdAmt Ccy="EUR">1.00</InstdAmt>',
+      '<InstdAmt Ccy=" EUR\t">\n  1.00\n</InstdAmt>'
+    )
+    expect(parsedTransfer(xml).amount).toEqual(euros('1.00'))
+  })
+
+  it('should return ok:false for two Ustrd elements instead of dropping both (review repro)', async () => {
+    const xml = withRemittanceXml(`${USTRD}<Ustrd>Invoice 2</Ustrd>`)
+    expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
+    expect(parseError(xml)).toBe(
+      'Cannot read <Ustrd>: it occurs 2 times, but the model holds a single value'
+    )
+    const dd = writeDirectDebit({
+      ...MINIMAL_DD,
+      batches: MINIMAL_DD.batches.map((batch) => ({
+        ...batch,
+        collections: batch.collections.map((c) => ({ ...c, remittanceInfo: 'Invoice 1' })),
+      })),
+    }).replace(USTRD, `${USTRD}<Ustrd>Invoice 2</Ustrd>${USTRD}`)
+    expect(parseError(dd)).toBe(
+      'Cannot read <Ustrd>: it occurs 3 times, but the model holds a single value'
+    )
+  })
+
+  it('should return ok:false for any repeated element the model holds once', () => {
+    const base = writeCreditTransfer(MINIMAL_CT)
+    const cases: Array<[string, string]> = [
+      [
+        withRemittanceXml(
+          '<Strd><CdtrRefInf><Ref>A</Ref></CdtrRefInf></Strd><Strd><CdtrRefInf><Ref>B</Ref></CdtrRefInf></Strd>'
+        ),
+        'Strd',
+      ],
+      [base.replace('<Nm>Test Creditor</Nm>', '<Nm>Test Creditor</Nm><Nm>Other</Nm>'), 'Nm'],
+      [
+        base.replace('</CdtTrfTxInf>', '<RmtInf><Ustrd>A</Ustrd></RmtInf><RmtInf/></CdtTrfTxInf>'),
+        'RmtInf',
+      ],
+    ]
+    for (const [xml, element] of cases) {
+      expect(parseError(xml), element).toBe(
+        `Cannot read <${element}>: it occurs 2 times, but the model holds a single value`
+      )
+    }
+  })
+
+  it('should return ok:false for a text element that holds an element, instead of reading it as absent', () => {
+    expect(parseError(withCreditorNameXml('Test<x/>Creditor'))).toBe(
+      'Cannot read <Nm>: it contains the element <x>, but the model holds text'
+    )
+    expect(parseError(withRemittanceXml('<Ustrd>Invoice<x/> 1</Ustrd>'))).toBe(
+      'Cannot read <Ustrd>: it contains the element <x>, but the model holds text'
+    )
+  })
+
+  it('should read the text of an element that carries attributes, such as a namespace declaration', async () => {
+    const xml = withRemittanceXml('<Ustrd xmlns:x="urn:x">Invoice 1</Ustrd>')
+    expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
+    expect(parsedTransfer(xml).remittanceInfo).toBe('Invoice 1')
+  })
+
+  it('should not let indentation between elements reach the model', () => {
+    const minified = writeCreditTransfer(MINIMAL_CT_WITH_REMITTANCE).replace(/>\s+</g, '><')
+    const indented = minified.replace(/></g, '>\r\n\t  \n<')
+    expect(parsedTransfer(indented)).toEqual(parsedTransfer(minified))
+    const result = parse(indented)
+    expect(result.ok && result.data).toEqual(MINIMAL_CT_WITH_REMITTANCE)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Differential fuzz: parse against libxml2
 // ---------------------------------------------------------------------------
 
@@ -912,7 +1090,9 @@ function expectParseAgreesWithLibxml2(xml: string): void {
   if (!result.ok) return
   expect(libxml2.wellFormed).toBe(true)
   if (!libxml2.wellFormed || result.type !== 'pain.001') throw new Error('expected a pain.001')
-  expect(result.data.batches[0]?.transfers[0]?.creditor.name).toBe(libxml2.creditorName)
+  expect(result.data.batches[0]?.transfers[0]?.creditor.name).toBe(
+    libxml2.creditorName?.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '') ?? null
+  )
 }
 
 describe('parse() agrees with libxml2 on generated documents (differential fuzz)', () => {
