@@ -118,7 +118,7 @@ A value outside the set fails with a message that names each character and its c
 creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "Š" (U+0160).
 By default only the basic Latin set is allowed (a-z A-Z 0-9 space / - ? : ( ) . , ' +). If your
 bank accepts the EPC217-08 extended character set, pass { charset: 'extended' }
-(SepaCharset.Extended); otherwise convert the value with toSepaCharset(value).
+(SepaCharset.Extended). Otherwise convert the value with toSepaCharset(value).
 ```
 
 ```typescript

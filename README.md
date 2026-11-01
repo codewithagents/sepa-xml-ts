@@ -262,7 +262,7 @@ By default the writer and the validators accept only this set, so a name such as
 Invalid DirectDebitDocument: creditor.name: Value contains characters outside the SEPA charset
 (EPC217-08): "Š" (U+0160). By default only the basic Latin set is allowed (a-z A-Z 0-9 space / - ? : ( ) . , ' +). If your
 bank accepts the EPC217-08 extended character set, pass { charset: 'extended' }
-(SepaCharset.Extended); otherwise convert the value with toSepaCharset(value).
+(SepaCharset.Extended). Otherwise convert the value with toSepaCharset(value).
 ```
 
 **Opt in to the extended set** when your bank has agreed to receive it. EPC217-08 extends the
@@ -298,7 +298,8 @@ extended text therefore needs `{ charset: "extended" }` to be written again.
 
 The German DK variants (`pain.001.003.03`, `pain.008.003.02`) throw on `{ charset: "extended" }`:
 the DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does
-not ship. The legacy ISO `pain.001.001.03` accepts the extended set.
+not ship. Their charset errors therefore point only to `toSepaCharset`. The legacy ISO
+`pain.001.001.03` accepts the extended set.
 
 **Convert text** with `toSepaCharset`, which applies the official EPC217-08 conversion table:
 

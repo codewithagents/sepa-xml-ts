@@ -53,7 +53,8 @@ debtor's BIC is unknown. The writer handles this automatically.
 formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not
 ship, so it cannot prove that a DK bank accepts the EPC217-08 extended set. Write text fields in
 basic Latin (convert them with `toSepaCharset(value)`), or use `pain.001.001.09` for extended
-text. Reading is lenient: `parse()` accepts extended text in DK files.
+text. A charset error from a DK writer therefore points only to `toSepaCharset`. Reading is
+lenient: `parse()` accepts extended text in DK files.
 
 ### Parsing pain.001.003.03
 

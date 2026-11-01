@@ -15,7 +15,13 @@
  * Internal module: not exported from index.ts.
  */
 
-import { escapeXml, resolveSepaCharset, SepaCharset } from '../model/charset.js'
+import {
+  BASIC_ONLY,
+  escapeXml,
+  resolveSepaCharset,
+  SepaCharset,
+  type TextCharset,
+} from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
 import type {
   Money,
@@ -42,10 +48,11 @@ export function xe(value: string): string {
 }
 
 /**
- * Resolve the charset option of a writer. The German DK variants refuse 'extended':
- * their rulebook (DFU-Abkommen Anlage 3) defines its own character rules, which this
- * library does not ship, so writing EPC217-08 extended text there could produce a file
- * the bank rejects.
+ * Resolve the charset option of a writer to the rule for its text fields. The German DK
+ * variants refuse 'extended': their rulebook (DFU-Abkommen Anlage 3) defines its own
+ * character rules, which this library does not ship, so writing EPC217-08 extended text
+ * there could produce a file the bank rejects. They write the basic set as BASIC_ONLY,
+ * whose messages do not offer the extended opt-in.
  *
  * @throws Error on an unknown charset, or on 'extended' with the DK variant
  */
@@ -54,14 +61,17 @@ export function resolveWriterCharset(
   variant: string,
   dkVariant: string,
   modernVariant: string
-): SepaCharset {
+): TextCharset {
   const charset = resolveSepaCharset(value, SepaCharset.Basic)
-  if (charset === SepaCharset.Extended && variant === dkVariant) {
+  if (variant !== dkVariant) {
+    return charset
+  }
+  if (charset === SepaCharset.Extended) {
     throw new Error(
       `charset 'extended' is not supported for variant ${dkVariant}: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Use variant ${modernVariant}, or convert text fields with toSepaCharset(value).`
     )
   }
-  return charset
+  return BASIC_ONLY
 }
 
 /** Join profile or rule issues into one message: "path: message; path: message". */

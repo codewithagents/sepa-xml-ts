@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod'
-import { SepaCharset } from './charset.js'
+import { SepaCharset, type TextCharset } from './charset.js'
 import {
   MoneySchema,
   StructuredRemittanceSchema,
@@ -139,7 +139,7 @@ const MandateSetupReasonSchema = z.union([MandateReasonCodeSchema, MandateReason
 // sepaIdentifier). The exported schema below is the basic instance.
 // ---------------------------------------------------------------------------
 
-function buildDirectDebitSchemas(charset: SepaCharset) {
+function buildDirectDebitSchemas(charset: TextCharset) {
   const { PostalAddress, UltimateParty } = creditTransferSchemasFor(charset)
 
   /**
@@ -429,18 +429,21 @@ function buildDirectDebitSchemas(charset: SepaCharset) {
 type DirectDebitSchemas = ReturnType<typeof buildDirectDebitSchemas>
 
 const BASIC_DIRECT_DEBIT_SCHEMAS = buildDirectDebitSchemas(SepaCharset.Basic)
-let extendedDirectDebitSchemas: DirectDebitSchemas | undefined
+const directDebitSchemasByCharset = new Map<TextCharset, DirectDebitSchemas>([
+  [SepaCharset.Basic, BASIC_DIRECT_DEBIT_SCHEMAS],
+])
 
 /**
- * The text-bearing pain.008 schemas for a charset. The basic set is the exported
- * schema; the extended set is built on first use.
+ * The text-bearing pain.008 schemas for a text charset. The basic set is the exported
+ * schema; the others are built on first use.
  */
-export function directDebitSchemasFor(charset: SepaCharset): DirectDebitSchemas {
-  if (charset === SepaCharset.Basic) {
-    return BASIC_DIRECT_DEBIT_SCHEMAS
+export function directDebitSchemasFor(charset: TextCharset): DirectDebitSchemas {
+  let schemas = directDebitSchemasByCharset.get(charset)
+  if (schemas === undefined) {
+    schemas = buildDirectDebitSchemas(charset)
+    directDebitSchemasByCharset.set(charset, schemas)
   }
-  extendedDirectDebitSchemas ??= buildDirectDebitSchemas(SepaCharset.Extended)
-  return extendedDirectDebitSchemas
+  return schemas
 }
 
 export type Creditor = z.infer<typeof BASIC_DIRECT_DEBIT_SCHEMAS.Creditor>

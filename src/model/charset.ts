@@ -33,6 +33,20 @@ export const SepaCharset = {
 /** Literal union of the supported SEPA character sets ('basic' | 'extended'). */
 export type SepaCharset = (typeof SepaCharset)[keyof typeof SepaCharset]
 
+/**
+ * The text-field rule of the German DK variant writers: the basic set, with no
+ * extended opt-in to offer, so their messages point only to toSepaCharset.
+ */
+export const BASIC_ONLY = 'basic-only'
+
+/** The character rule a schema applies to text fields: a SepaCharset, or BASIC_ONLY. */
+export type TextCharset = SepaCharset | typeof BASIC_ONLY
+
+/** The SepaCharset a text-field rule checks values against. */
+export function charsetOfText(textCharset: TextCharset): SepaCharset {
+  return textCharset === BASIC_ONLY ? SepaCharset.Basic : textCharset
+}
+
 const SEPA_BASIC = /^[a-zA-Z0-9 /\-?:().,'+]*$/
 
 const SECTION_6_2_SENDER_FALLBACKS: ReadonlyMap<string, string> = new Map([
@@ -115,9 +129,15 @@ const BASIC_SET_DESCRIPTION = "a-z A-Z 0-9 space / - ? : ( ) . , ' +"
 const MAX_LISTED_CHARACTERS = 5
 const COMBINING_MARK = /\p{M}/u
 
+/**
+ * Characters a message names instead of quoting. The writers join issues with "; ",
+ * so no charset message may contain a semicolon.
+ */
+const NAMED_CHARACTERS: ReadonlyMap<string, string> = new Map([[';', 'the semicolon']])
+
 function describeCharacter(character: string): string {
   const hex = (character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')
-  return `"${character}" (U+${hex})`
+  return `${NAMED_CHARACTERS.get(character) ?? `"${character}"`} (U+${hex})`
 }
 
 function describeOffending(offending: string[]): string {
@@ -128,7 +148,7 @@ function describeOffending(offending: string[]): string {
 
 function combiningMarkHint(offending: string[]): string {
   return offending.some((character) => COMBINING_MARK.test(character))
-    ? " The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'); toSepaCharset does this for you."
+    ? " The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'), which toSepaCharset does for you."
     : ''
 }
 
@@ -136,15 +156,18 @@ function theseCharacters(count: number): string {
   return count === 1 ? 'this character is' : 'these characters are'
 }
 
-function textFieldAdvice(offending: string[], charset: SepaCharset): string {
-  if (charset === SepaCharset.Extended) {
+function textFieldAdvice(offending: string[], textCharset: TextCharset): string {
+  if (textCharset === BASIC_ONLY) {
+    return `This variant allows only the basic Latin set (${BASIC_SET_DESCRIPTION}). Convert the value with toSepaCharset(value).`
+  }
+  if (textCharset === SepaCharset.Extended) {
     return `${capitalize(theseCharacters(offending.length))} not in the EPC217-08 extended character set. Convert the value with toSepaCharset(value, { charset: 'extended' }) to keep local-language characters, or with toSepaCharset(value) for basic Latin.`
   }
   const outsideExtended = offending.filter(
     (character) => !isCharacterIn(character, SepaCharset.Extended)
   )
   if (outsideExtended.length === 0) {
-    return `By default only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}). If your bank accepts the EPC217-08 extended character set, pass { charset: 'extended' } (SepaCharset.Extended); otherwise convert the value with toSepaCharset(value).`
+    return `By default only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}). If your bank accepts the EPC217-08 extended character set, pass { charset: 'extended' } (SepaCharset.Extended). Otherwise convert the value with toSepaCharset(value).`
   }
   const notExtended =
     outsideExtended.length === offending.length
@@ -159,17 +182,19 @@ function capitalize(text: string): string {
 
 /**
  * The validation message for a human-readable text field (names, addresses, remittance
- * information) whose value has characters outside the charset in force.
+ * information) whose value has characters outside the charset in force. It never
+ * contains a semicolon.
  */
-export function textCharsetMessage(value: string, charset: SepaCharset): string {
-  const offending = offendingCharacters(value, charset)
+export function textCharsetMessage(value: string, textCharset: TextCharset): string {
+  const offending = offendingCharacters(value, charsetOfText(textCharset))
   const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
-  return `${head} ${textFieldAdvice(offending, charset)}${combiningMarkHint(offending)}`
+  return `${head} ${textFieldAdvice(offending, textCharset)}${combiningMarkHint(offending)}`
 }
 
 /**
  * The validation message for an identifier, reference or code field, which must use
- * the basic Latin set in every charset mode (EPC217-08 section 6.3).
+ * the basic Latin set in every charset mode (EPC217-08 section 6.3). It never contains
+ * a semicolon.
  */
 export function referenceCharsetMessage(value: string): string {
   const offending = offendingCharacters(value, SepaCharset.Basic)

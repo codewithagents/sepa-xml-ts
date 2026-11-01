@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 import { isValidIso11649Ref } from './iban.js'
-import { SepaCharset } from './charset.js'
+import { SepaCharset, type TextCharset } from './charset.js'
 import { IBANSchema, BICSchema, sepaText, sepaReference, sepaIdentifier } from './shared.js'
 
 // ---------------------------------------------------------------------------
@@ -536,7 +536,7 @@ export type StructuredRemittance = z.infer<typeof StructuredRemittanceSchema>
 // sepaIdentifier). The exported schemas below are the basic instances.
 // ---------------------------------------------------------------------------
 
-function buildCreditTransferSchemas(charset: SepaCharset) {
+function buildCreditTransferSchemas(charset: TextCharset) {
   const PostalAddress = z
     .object({
       /** Street name (StrtNm), max 70 chars, text charset. */
@@ -704,18 +704,21 @@ function buildCreditTransferSchemas(charset: SepaCharset) {
 type CreditTransferSchemas = ReturnType<typeof buildCreditTransferSchemas>
 
 const BASIC_CREDIT_TRANSFER_SCHEMAS = buildCreditTransferSchemas(SepaCharset.Basic)
-let extendedCreditTransferSchemas: CreditTransferSchemas | undefined
+const creditTransferSchemasByCharset = new Map<TextCharset, CreditTransferSchemas>([
+  [SepaCharset.Basic, BASIC_CREDIT_TRANSFER_SCHEMAS],
+])
 
 /**
- * The text-bearing pain.001 schemas for a charset. The basic set is the exported
- * schemas; the extended set is built on first use.
+ * The text-bearing pain.001 schemas for a text charset. The basic set is the exported
+ * schemas; the others are built on first use.
  */
-export function creditTransferSchemasFor(charset: SepaCharset): CreditTransferSchemas {
-  if (charset === SepaCharset.Basic) {
-    return BASIC_CREDIT_TRANSFER_SCHEMAS
+export function creditTransferSchemasFor(charset: TextCharset): CreditTransferSchemas {
+  let schemas = creditTransferSchemasByCharset.get(charset)
+  if (schemas === undefined) {
+    schemas = buildCreditTransferSchemas(charset)
+    creditTransferSchemasByCharset.set(charset, schemas)
   }
-  extendedCreditTransferSchemas ??= buildCreditTransferSchemas(SepaCharset.Extended)
-  return extendedCreditTransferSchemas
+  return schemas
 }
 
 /**

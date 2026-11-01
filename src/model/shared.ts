@@ -8,11 +8,12 @@
 import { z } from 'zod'
 import { isValidIban } from './iban.js'
 import {
+  charsetOfText,
   isInSepaCharset,
   isSepaBasic,
   textCharsetMessage,
   referenceCharsetMessage,
-  type SepaCharset,
+  type TextCharset,
 } from './charset.js'
 
 // ---------------------------------------------------------------------------
@@ -46,13 +47,14 @@ export const BICSchema = z
  * A human-readable text field (names, addresses, remittance information), max N chars.
  * Its character set follows the charset option (EPC217-08 section 6.3).
  */
-export function sepaText(maxLen: number, charset: SepaCharset) {
+export function sepaText(maxLen: number, textCharset: TextCharset) {
+  const charset = charsetOfText(textCharset)
   return z
     .string()
     .min(1)
     .max(maxLen)
     .refine((v) => isInSepaCharset(v, charset), {
-      error: (iss) => textCharsetMessage(String(iss.input), charset),
+      error: (iss) => textCharsetMessage(String(iss.input), textCharset),
     })
 }
 

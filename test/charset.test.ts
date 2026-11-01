@@ -15,6 +15,7 @@ import {
   resolveSepaCharset,
   textCharsetMessage,
   referenceCharsetMessage,
+  BASIC_ONLY,
 } from '../src/model/charset.js'
 import * as publicApi from '../src/index.js'
 
@@ -291,8 +292,34 @@ describe('charset validation messages', () => {
     const message = textCharsetMessage('S\u030Ctupica', 'basic')
     expect(message).toContain('"\u030C" (U+030C)')
     expect(message).toContain(
-      "The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'); toSepaCharset does this for you."
+      "The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'), which toSepaCharset does for you."
     )
     expect(textCharsetMessage('\u0160tupica', 'basic')).not.toContain('combining marks')
+  })
+
+  it('should name a semicolon instead of quoting it', () => {
+    expect(referenceCharsetMessage('REF;1')).toContain(': the semicolon (U+003B).')
+    expect(textCharsetMessage('A;B', 'basic')).toContain(': the semicolon (U+003B).')
+  })
+
+  it("property: no charset message contains a semicolon, the writers' issue separator (numRuns=300)", () => {
+    const arbValue = fc.oneof(
+      fc.string({
+        unit: fc.constantFrom(';', '\u0160', '\u030C', '\u{1F600}', '&', '\u20AC', 'a', ' '),
+      }),
+      fc.string({ unit: 'binary' })
+    )
+    fc.assert(
+      fc.property(arbValue, (value) => {
+        const messages = [
+          referenceCharsetMessage(value),
+          textCharsetMessage(value, 'basic'),
+          textCharsetMessage(value, 'extended'),
+          textCharsetMessage(value, BASIC_ONLY),
+        ]
+        for (const message of messages) expect(message).not.toContain(';')
+      }),
+      { numRuns: 300 }
+    )
   })
 })

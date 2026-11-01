@@ -704,6 +704,40 @@ describe('German DK variants refuse { charset: extended }', () => {
     }
   })
 
+  it('basic-mode messages point only to toSepaCharset, never to the extended opt-in', () => {
+    const variants: Array<[string, () => unknown]> = [
+      [
+        'pain.001.003.03',
+        () =>
+          writeCreditTransfer(withTransferText('Maja Štupica', 'Invoice 1'), {
+            variant: 'pain.001.003.03',
+          }),
+      ],
+      [
+        'pain.008.003.02',
+        () =>
+          writeDirectDebit(withCreditorName(MINIMAL_DD, 'Maja Štupica'), {
+            variant: 'pain.008.003.02',
+          }),
+      ],
+    ]
+    for (const [variant, write] of variants) {
+      let message = ''
+      try {
+        write()
+      } catch (e) {
+        message = e instanceof Error ? e.message : String(e)
+      }
+      expect(message, variant).toContain(
+        `creditor.name: ${CHARSET_PREFIX}"Š" (U+0160). This variant allows only the basic Latin set (a-z A-Z 0-9 space / - ? : ( ) . , ' +). Convert the value with toSepaCharset(value).`
+      )
+      expect(message, variant).not.toContain('{ charset')
+    }
+    expect(() => writeCreditTransfer(withTransferText('Maja Štupica', 'Invoice 1'))).toThrow(
+      OPT_IN_HINT
+    )
+  })
+
   it('the legacy ISO pain.001.001.03 accepts extended text', async () => {
     const doc = withTransferText('Maja Štupica', 'Plačilo')
     const xml = writeCreditTransfer(doc, { variant: 'pain.001.001.03', charset: 'extended' })
@@ -855,6 +889,25 @@ describe('the default charset of every entry point', () => {
     expect(toSepaCharset(name)).toBe('Maja Stupica')
     expect(toSepaCharset(name, {})).toBe('Maja Stupica')
     expect(toSepaCharset(name, EXTENDED)).toBe(name)
+  })
+})
+
+describe('writer error messages keep one issue per "; " separator', () => {
+  it('should split into exactly the failing fields, with a semicolon in a value', () => {
+    const doc = withTransferText('A;B', 'Plačilo; računa')
+    let message = ''
+    try {
+      writeCreditTransfer(doc)
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e)
+    }
+    const issues = message.replace('Invalid CreditTransferDocument: ', '').split('; ')
+    expect(issues.map((issue) => issue.slice(0, issue.indexOf(':')))).toEqual([
+      'batches.0.transfers.0.creditor.name',
+      'batches.0.transfers.0.remittanceInfo',
+    ])
+    expect(issues[0]).toContain('the semicolon (U+003B)')
+    expect(issues[1]).toContain('"č" (U+010D), the semicolon (U+003B)')
   })
 })
 
