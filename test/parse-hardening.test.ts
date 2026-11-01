@@ -15,6 +15,7 @@ import { XmlDocument, XmlParseError, ParseOption } from 'libxml2-wasm'
 import { parse, type ParseOptions } from '../src/parser/parser.js'
 import { decodeReferences } from '../src/xml-references.js'
 import { findWellFormednessProblem } from '../src/xml-wellformedness.js'
+import { detectSepaNamespace } from '../src/xmlns-detect.js'
 import { validateXsd } from '../src/xsd.js'
 import { writeCreditTransfer } from '../src/writer/writer.js'
 import { writeDirectDebit } from '../src/writer/direct-debit.js'
@@ -290,6 +291,43 @@ describe('xmlns detection anchored to <Document> root (Issue #13)', () => {
     expect(result.errors.length).toBeGreaterThan(0)
     // Must mention the actual (unknown) namespace, not the comment's namespace
     expect(result.errors[0]).toMatch(/unsupported|unknown|namespace/i)
+  })
+
+  it('a namespace inside a processing instruction before the root cannot steer detection', async () => {
+    const declaration = '<?xml version="1.0" encoding="UTF-8"?>'
+    const fake = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
+    const xml = writeCreditTransfer(MINIMAL_CT).replace(
+      declaration,
+      `${declaration}<?pi <Document xmlns="${fake}"?>`
+    )
+    const result = parse(xml)
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (result.ok) expect(result.version).toBe('pain.001.001.09')
+    expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
+  })
+
+  it('reads the default namespace of the root element only', () => {
+    const real = `<Document xmlns="${NS_PAIN001}"/>`
+    const cases: Array<[string, string | null]> = [
+      [real, NS_PAIN001],
+      [`\uFEFF<?xml version="1.0"?>\n<!-- c --><?pi x?>\n\t${real}`, NS_PAIN001],
+      [`<Document a="1" xmlns:x='u' xmlns='${NS_PAIN001}' b="<Document xmlns=">`, NS_PAIN001],
+      [`<Document\n  xmlns = "${NS_PAIN001}">`, NS_PAIN001],
+      [`<!-- <Document xmlns="${NS_UNKNOWN}"> --><?pi xmlns="${NS_UNKNOWN}"?>${real}`, NS_PAIN001],
+      [
+        `<Document xmlns="${NS_UNKNOWN}"><![CDATA[<Document xmlns="${NS_PAIN001}">]]></Document>`,
+        NS_UNKNOWN,
+      ],
+      [`<Wrapper><Document xmlns="${NS_PAIN001}"/></Wrapper>`, null],
+      [`<DocumentX xmlns="${NS_PAIN001}"/>`, null],
+      [`<Document xmlns=""/>`, null],
+      [`<Document/>`, null],
+      [`<!-- unterminated ${real}`, null],
+      [`text${real}`, null],
+    ]
+    for (const [xml, expected] of cases) {
+      expect(detectSepaNamespace(xml), xml).toBe(expected)
+    }
   })
 
   it('pain.008 XML with a comment containing a different namespace still parses as pain.008', () => {
@@ -871,5 +909,47 @@ describe('parse() agrees with libxml2 on generated documents (differential fuzz)
       }),
       { numRuns: 300 }
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Adversarial input runs in linear time
+// ---------------------------------------------------------------------------
+
+describe('namespace detection and parse run in linear time', () => {
+  const MEGABYTE = 1 << 20
+  const TIME_BOUND_MS = 1000
+  const base = writeCreditTransfer(MINIMAL_CT)
+  const inputs: Record<string, string> = {
+    'comment openers after the root start tag': base.slice(0, 200) + '<!--'.repeat(MEGABYTE / 4),
+    'comment openers in the prolog': '<!--'.repeat(MEGABYTE / 4),
+    'comment openers inside a CDATA section': base.replace(
+      '</GrpHdr>',
+      `<Unmodelled><![CDATA[${'<!--'.repeat(MEGABYTE / 4)}]]></Unmodelled></GrpHdr>`
+    ),
+    'Document tag openers': '<Document'.repeat(MEGABYTE / 9),
+    'processing instruction openers': '<?'.repeat(MEGABYTE / 2),
+    'attributes on the root': `<Document${' a="1"'.repeat(MEGABYTE / 6)}>`,
+    'an unterminated attribute value': `<Document xmlns="${'a'.repeat(MEGABYTE)}`,
+  }
+
+  it('should detect the namespace and parse 1 MB adversarial inputs within a second each', () => {
+    for (const [label, xml] of Object.entries(inputs)) {
+      const started = performance.now()
+      detectSepaNamespace(xml)
+      const result = parse(xml)
+      expect(performance.now() - started, label).toBeLessThan(TIME_BOUND_MS)
+      expect(result.ok, label).toBe(label === 'comment openers inside a CDATA section')
+    }
+  })
+
+  it('should select the schema for 1 MB of comment openers inside CDATA within a second', async () => {
+    const xml = inputs['comment openers inside a CDATA section'] ?? ''
+    await validateXsd(base)
+    const started = performance.now()
+    const result = await validateXsd(xml)
+    expect(performance.now() - started).toBeLessThan(TIME_BOUND_MS)
+    expect(result.valid).toBe(false)
+    expect(result.errors.join(' ')).toContain('Unmodelled')
   })
 })

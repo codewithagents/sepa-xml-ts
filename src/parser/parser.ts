@@ -1043,8 +1043,9 @@ export function parse(xml: string, options?: ParseOptions): ParseResult {
     return unsafe
   }
 
-  // Detect namespace anchored to the <Document> root element (strips comments first
-  // so a fake xmlns in a comment cannot steer detection). See src/xmlns-detect.ts.
+  // Read the namespace from the root <Document> start tag only (the prolog is skipped,
+  // so a fake xmlns in a comment or processing instruction cannot steer detection).
+  // See src/xmlns-detect.ts.
   const ns = detectSepaNamespace(xml)
 
   // Require an explicit xmlns declaration: no namespace means not a SEPA document

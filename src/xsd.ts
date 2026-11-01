@@ -58,8 +58,8 @@ let cachedValidator008_003_02: unknown = null
 /**
  * Detect the ISO 20022 namespace declared on the root Document element.
  * Delegates to the shared detectSepaNamespace helper (see src/xmlns-detect.ts),
- * which strips XML comments before matching and anchors the search to the
- * <Document> opening tag to prevent namespace-steering via crafted comments.
+ * which skips the prolog and reads the root <Document> start tag only, so a
+ * namespace in a comment or processing instruction cannot steer schema selection.
  */
 function detectNamespace(xml: string): string | null {
   return detectSepaNamespace(xml)
