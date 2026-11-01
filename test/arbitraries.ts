@@ -11,7 +11,7 @@
 
 import * as fc from 'fast-check'
 import { buildIban } from '../src/model/iban.js'
-import { sanitizeSepa } from '../src/model/charset.js'
+import { toSepaCharset } from '../src/model/charset.js'
 import type { PostalAddress } from '../src/model/schema.js'
 
 // ---------------------------------------------------------------------------
@@ -86,22 +86,23 @@ export function arbSepaIdentifier(minLen: number, maxLen: number): fc.Arbitrary<
 
 /**
  * Arbitrary for text that may contain unicode/extended chars but
- * gets sanitized through sanitizeSepa before use.
+ * gets converted to the basic set with toSepaCharset before use.
  *
  * Uses a wider character set including full Latin-1 Supplement, emoji, and
- * a small CJK sample to stress the drop-and-transliterate path.
+ * a small CJK sample to stress the transliterate and full-stop paths. The result
+ * is trimmed because the parser trims element text.
  */
 function arbSanitizedSepaText(minLen: number, maxLen: number): fc.Arbitrary<string> {
   const extendedLatin = 'äöüÄÖÜßàáâãåæèéêëìíîïðñòóôõøùúûýÿÀÁÂÃÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕØÙÚÛÝþÞçÇ'
-  const droppedSamples = '🎉🥳🌍你好مرحباПривет'
-  const mixedCharset = SEPA_CHARSET + extendedLatin + droppedSamples
+  const unconvertibleSamples = '🎉🥳🌍你好مرحباПривет'
+  const mixedCharset = SEPA_CHARSET + extendedLatin + unconvertibleSamples
   return fc
     .string({
       unit: fc.constantFrom(...[...mixedCharset]),
-      minLength: minLen + 5,
-      maxLength: maxLen + 20,
+      minLength: minLen,
+      maxLength: maxLen,
     })
-    .map((s) => sanitizeSepa(s))
+    .map((s) => toSepaCharset(s).trim())
     .filter((s) => s.length >= minLen && s.length <= maxLen)
 }
 

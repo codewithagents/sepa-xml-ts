@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 import { isValidIso11649Ref } from './iban.js'
-import { isSepaCharset } from './charset.js'
+import { isSepaBasic } from './charset.js'
 import { IBANSchema, BICSchema } from './shared.js'
 
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ function sepaText(maxLen: number) {
     .string()
     .min(1)
     .max(maxLen)
-    .refine((v) => isSepaCharset(v), {
+    .refine((v) => isSepaBasic(v), {
       message: `Value contains characters outside the SEPA charset (EPC217-08): allowed are a-z A-Z 0-9 space / - ? : ( ) . , ' +`,
     })
 }

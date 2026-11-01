@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod'
-import { isSepaCharset } from './charset.js'
+import { isSepaBasic } from './charset.js'
 import {
   MoneySchema,
   PostalAddressSchema,
@@ -33,7 +33,7 @@ function sepaText(maxLen: number) {
     .string()
     .min(1)
     .max(maxLen)
-    .refine((v) => isSepaCharset(v), {
+    .refine((v) => isSepaBasic(v), {
       message: `Value contains characters outside the SEPA charset (EPC217-08)`,
     })
 }

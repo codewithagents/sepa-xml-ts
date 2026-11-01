@@ -16,7 +16,7 @@ import { writeCreditTransfer } from '../src/writer/writer.js'
 import { writeDirectDebit } from '../src/writer/direct-debit.js'
 import { parse } from '../src/parser/parser.js'
 import { validateXsd } from '../src/xsd.js'
-import { sanitizeSepa } from '../src/model/charset.js'
+import { toSepaCharset } from '../src/model/charset.js'
 import { buildCreditorId, isValidCreditorId } from '../src/model/creditor-id.js'
 import { euros, formatMoney } from '../src/model/schema.js'
 import type {
@@ -897,17 +897,17 @@ describe('pain.001 sample model: write XSD validity and parse round-trip', () =>
     expect(parsed.data).toEqual(sampleDoc)
   })
 
-  it('sanitizes unicode names and still produces valid XSD output', async () => {
+  it('converts unicode names with toSepaCharset and still produces valid XSD output', async () => {
     const doc: CreditTransferDocument = {
       messageId: 'UNICODE-TEST-01',
       createdAt: '2024-06-01T09:00:00Z',
-      initiatingParty: sanitizeSepa('Müller und Söhne GmbH'),
+      initiatingParty: toSepaCharset('Müller & Söhne GmbH'),
       batches: [
         {
           id: 'PI-UNICODE-01',
           executionDate: '2024-07-01',
           debtor: {
-            name: sanitizeSepa('Schroeder Ueberweisungen AG'),
+            name: toSepaCharset('Schröder Überweisungen AG'),
             iban: 'DE89370400440532013000',
           },
           transfers: [
@@ -915,7 +915,7 @@ describe('pain.001 sample model: write XSD validity and parse round-trip', () =>
               endToEndId: 'E2E-UNICODE',
               amount: euros('50.00'),
               creditor: {
-                name: sanitizeSepa('Cafe Resume Nonyo'),
+                name: toSepaCharset('Café Résumé Ñoño'),
                 iban: 'DE65200400300234567000',
               },
             },
@@ -924,6 +924,9 @@ describe('pain.001 sample model: write XSD validity and parse round-trip', () =>
       ],
     }
 
+    expect(doc.initiatingParty).toBe('Muller + Sohne GmbH')
+    expect(doc.batches[0]?.debtor.name).toBe('Schroder Uberweisungen AG')
+    expect(doc.batches[0]?.transfers[0]?.creditor.name).toBe('Cafe Resume Nono')
     const xml = writeCreditTransfer(doc)
     const result = await validateXsd(xml)
     expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
