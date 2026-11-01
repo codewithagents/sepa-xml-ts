@@ -114,7 +114,9 @@ and it is enforced, not hoped for:
   valid models and asserts every serialized file validates against that XSD, and that every
   file parses back into the exact model it came from.
 - **The parse path is fuzz-hardened.** It never throws: malformed input, entity injections, and
-  DTD/DOCTYPE payloads all return a typed failure rather than raising an exception.
+  DTD/DOCTYPE payloads all return a typed failure rather than raising an exception. A
+  differential fuzz against libxml2 checks that every generated document `parse` accepts is
+  well-formed XML that libxml2 reads the same way.
 
 ## How it compares
 
@@ -240,9 +242,16 @@ the types are fully compatible.
 
 `parse` accepts the EPC217-08 extended character set in text fields by default, so a received
 file with `č š ž` in a name parses. Pass `parse(xml, { charset: "basic" })` to accept only basic
-Latin. See [Character set (EPC217-08)](#character-set-epc217-08). Numeric character references
-(`&#352;`, `&#x160;`) are decoded; a bare `&` or an undefined entity such as `&nbsp;` is not
-well-formed XML and returns `ok: false`.
+Latin. See [Character set (EPC217-08)](#character-set-epc217-08).
+
+`parse` accepts only well-formed XML 1.0 with namespaces and without a DTD. Numeric character
+references (`&#352;`, `&#x160;`) and the five predefined entities are decoded. Anything else
+returns `ok: false`: a bare `&`, an undefined entity such as `&nbsp;`, a reference to a code
+point that is not a legal XML character, an end tag that does not match its start tag, `<![`
+that does not start a CDATA section, `--` inside a comment, text or markup outside the root
+element, or an undeclared namespace prefix. A processing instruction with a quote that is still
+open at its `?>` is rejected as well, because the underlying XML parser would read past it. The
+namespace comes from the root `<Document>` element only.
 
 The round-trip is anchored on the model: for any valid model,
 `parse(write(model))` deep-equals the original. This is verified as a property test over thousands

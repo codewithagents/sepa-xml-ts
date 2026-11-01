@@ -150,8 +150,11 @@ would not survive a round trip.
 
 The writers return a string with an `encoding="UTF-8"` declaration and write extended characters
 as they are (only `& < > " '` are escaped). Save files as UTF-8, and decode received files as
-UTF-8 before calling `parse`. `parse` decodes numeric character references such as `&#352;`; a
-bare `&` or an undefined entity such as `&nbsp;` is not well-formed XML and returns `ok: false`.
+UTF-8 before calling `parse`. `parse` accepts only well-formed XML 1.0 with namespaces and
+without a DTD: it decodes numeric character references such as `&#352;` and the five predefined
+entities, and returns `ok: false` for a bare `&`, an undefined entity such as `&nbsp;`, a
+reference to an illegal character, a mismatched end tag, `<![` outside a CDATA section, content
+outside the root element, or a processing instruction with a quote still open at its `?>`.
 
 ## Layer 2: XSD validation (optional)
 
@@ -170,8 +173,8 @@ if (!xsdResult.valid) {
 }
 ```
 
-`validateXsd` auto-detects the message type and namespace from the XML and selects the correct
-XSD. It covers all seven schemas:
+`validateXsd` reads the message type and namespace from the root `<Document>` element and
+selects the correct XSD. It covers all seven schemas:
 
 - `pain.001.001.09`
 - `pain.001.003.03` (German DK)
