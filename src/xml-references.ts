@@ -23,9 +23,10 @@ const PREDEFINED_ENTITIES: ReadonlyMap<string, string> = new Map([
 const REFERENCE_TOKEN = /&([^\s&;<>"']+);/y
 
 const NUMERIC_REFERENCE_FORMATS = [
-  { pattern: /^#x0*([0-9A-Fa-f]+)$/, radix: 16, maxSignificantDigits: 6 },
-  { pattern: /^#0*([0-9]+)$/, radix: 10, maxSignificantDigits: 7 },
+  { prefix: '#x', digits: /^[0-9A-Fa-f]+$/, radix: 16, maxSignificantDigits: 6 },
+  { prefix: '#', digits: /^[0-9]+$/, radix: 10, maxSignificantDigits: 7 },
 ] as const
+const FIRST_SIGNIFICANT_DIGIT = /[^0]/
 
 const BEYOND_UNICODE = 0x110000
 const MAX_SHOWN_TOKEN_LENGTH = 40
@@ -33,7 +34,8 @@ const MAX_SHOWN_TOKEN_LENGTH = 40
 /** A reference read at a position: the text it stands for and where it ends, or why it is not well-formed. */
 export type ReferenceRead = { text: string; end: number } | { problem: string }
 
-function isXmlChar(codePoint: number): boolean {
+/** Whether a code point is a legal XML 1.0 Char. */
+export function isXmlChar(codePoint: number): boolean {
   return (
     codePoint === 0x9 ||
     codePoint === 0xa ||
@@ -51,13 +53,19 @@ function shown(token: string): string {
 }
 
 function codePointOf(token: string): number | null {
-  for (const { pattern, radix, maxSignificantDigits } of NUMERIC_REFERENCE_FORMATS) {
-    const digits = pattern.exec(token)?.[1]
-    if (digits !== undefined) {
-      return digits.length > maxSignificantDigits ? BEYOND_UNICODE : Number.parseInt(digits, radix)
-    }
+  const format = NUMERIC_REFERENCE_FORMATS.find(({ prefix }) => token.startsWith(prefix))
+  const written = format === undefined ? '' : token.slice(format.prefix.length)
+  if (format === undefined || !format.digits.test(written)) {
+    return null
   }
-  return null
+  const first = written.search(FIRST_SIGNIFICANT_DIGIT)
+  if (first === -1) {
+    return 0
+  }
+  const significant = written.slice(first)
+  return significant.length > format.maxSignificantDigits
+    ? BEYOND_UNICODE
+    : Number.parseInt(significant, format.radix)
 }
 
 function readNumericReference(token: string): { text: string } | { problem: string } {

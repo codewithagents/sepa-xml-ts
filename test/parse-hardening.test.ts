@@ -988,3 +988,74 @@ describe('namespace detection and parse run in linear time', () => {
     expect(result.errors.join(' ')).toContain('Unmodelled')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Very large documents: the scan never runs out of stack
+// ---------------------------------------------------------------------------
+
+describe('parse() reads very large documents without throwing', () => {
+  const SIXTEEN_MEGABYTES = 16 << 20
+  const LARGE_INPUT_TIME_BOUND_MS = 20_000
+  const base = writeCreditTransfer(MINIMAL_CT)
+
+  /** The minimal pain.001 with SplmtryData/Envlp holding an element of another namespace. */
+  function withSupplementaryData(attachment: string): string {
+    return base.replace(
+      '</CdtTrfTxInf>',
+      `<SplmtryData><Envlp>${attachment}</Envlp></SplmtryData></CdtTrfTxInf>`
+    )
+  }
+
+  function expectParsedWithinBound(xml: string, label: string): void {
+    const started = performance.now()
+    const result = parse(xml)
+    expect(performance.now() - started, label).toBeLessThan(LARGE_INPUT_TIME_BOUND_MS)
+    expect(result.ok, result.ok ? label : `${label}: ${result.error}`).toBe(true)
+    if (result.ok && result.type === 'pain.001') {
+      expect(result.data.batches[0]?.transfers[0]?.creditor.name, label).toBe('Test Creditor')
+    }
+  }
+
+  it('should parse an XSD-valid file with 8,388,600 base64 characters in SplmtryData (review repro)', async () => {
+    const xml = withSupplementaryData(
+      `<Att xmlns="urn:example:att">${'QUJD'.repeat(8_388_600 / 4)}</Att>`
+    )
+    expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
+    expectParsedWithinBound(xml, 'base64 attachment')
+  })
+
+  it('should parse 16 MB text runs of base64, of "]" and of astral characters', () => {
+    const runs: Record<string, string> = {
+      base64: 'QUJD'.repeat(SIXTEEN_MEGABYTES / 4),
+      'closing brackets': ']'.repeat(SIXTEEN_MEGABYTES),
+      'bracket pairs': ']]x'.repeat(SIXTEEN_MEGABYTES / 3),
+      'astral characters': '\u{1F600}'.repeat(SIXTEEN_MEGABYTES / 2),
+    }
+    for (const [label, text] of Object.entries(runs)) {
+      expectParsedWithinBound(
+        withSupplementaryData(`<Att xmlns="urn:example:att">${text}</Att>`),
+        label
+      )
+    }
+  })
+
+  it('should parse 16 MB element and attribute names of astral characters', () => {
+    const name = '\u{10000}'.repeat(SIXTEEN_MEGABYTES / 2)
+    expectParsedWithinBound(withSupplementaryData(`<${name} xmlns="urn:example:att"/>`), 'element')
+    expectParsedWithinBound(
+      withSupplementaryData(`<Att xmlns="urn:example:att" ${name}="1"/>`),
+      'attribute'
+    )
+  })
+
+  it('should reject numeric references with 16 MB of leading zeros and a stray letter in linear time', () => {
+    const zeros = '0'.repeat(SIXTEEN_MEGABYTES)
+    for (const reference of [`&#x${zeros}g;`, `&#${zeros}a;`]) {
+      const started = performance.now()
+      expect(parseError(withCreditorNameXml(reference))).toMatch(
+        /^XML parse error: malformed character reference "&#x?0{38,40}\.\.\.;"/
+      )
+      expect(performance.now() - started).toBeLessThan(LARGE_INPUT_TIME_BOUND_MS)
+    }
+  })
+})

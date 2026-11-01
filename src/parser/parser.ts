@@ -1029,13 +1029,25 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
  * Text fields accept the EPC217-08 extended character set by default (see
  * ParseOptions.charset); pass { charset: 'basic' } to accept only basic Latin.
  *
- * This function never throws. All failure modes return { ok: false, error }.
+ * This function never throws. All failure modes return { ok: false, error }, including
+ * an unexpected internal error ("Internal parse error: ...").
  *
  * @param xml the XML string to parse
  * @param options optional parse options (charset)
  * @returns ParseResult discriminated union
  */
 export function parse(xml: string, options?: ParseOptions): ParseResult {
+  try {
+    return parseDocument(xml, options)
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Internal parse error: ${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
+}
+
+function parseDocument(xml: string, options: ParseOptions | undefined): ParseResult {
   const charset = resolveParseCharset(options)
   if (typeof charset !== 'string') {
     return charset

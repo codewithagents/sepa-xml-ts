@@ -12,16 +12,34 @@
  * still open at its "?>".
  */
 
-import { readReferenceAt } from './xml-references.js'
+import { isXmlChar, readReferenceAt } from './xml-references.js'
 
-const NAME_START_CHARACTERS =
-  'A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C\\u200D' +
-  '\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}'
-const NAME_CHARACTERS = `${NAME_START_CHARACTERS}\\-.0-9\\u00B7\\u0300-\\u036F\\u203F\\u2040`
-const NCNAME = `[${NAME_START_CHARACTERS}][${NAME_CHARACTERS}]*`
-
-const NAME = new RegExp(`[:${NAME_START_CHARACTERS}][:${NAME_CHARACTERS}]*`, 'uy')
-const QNAME = new RegExp(`^${NCNAME}(?::${NCNAME})?$`, 'u')
+const COLON = 0x3a
+const NAME_START_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x41, 0x5a],
+  [0x5f, 0x5f],
+  [0x61, 0x7a],
+  [0xc0, 0xd6],
+  [0xd8, 0xf6],
+  [0xf8, 0x2ff],
+  [0x370, 0x37d],
+  [0x37f, 0x1fff],
+  [0x200c, 0x200d],
+  [0x2070, 0x218f],
+  [0x2c00, 0x2fef],
+  [0x3001, 0xd7ff],
+  [0xf900, 0xfdcf],
+  [0xfdf0, 0xfffd],
+  [0x10000, 0xeffff],
+]
+const NAME_RANGES: ReadonlyArray<readonly [number, number]> = [
+  ...NAME_START_RANGES,
+  [0x2d, 0x2e],
+  [0x30, 0x39],
+  [0xb7, 0xb7],
+  [0x300, 0x36f],
+  [0x203f, 0x2040],
+]
 
 const S = '[ \\t\\r\\n]'
 const OPTIONAL_WHITESPACE = new RegExp(`${S}*`, 'y')
@@ -33,8 +51,6 @@ const XML_DECLARATION = new RegExp(
   'y'
 )
 
-const ILLEGAL_CHARACTER = /[^\t\n\r -퟿-�\u{10000}-\u{10FFFF}]/u
-const CHARACTER_DATA = /(?:[^<&\]]|\](?!\]>))*/y
 const ATTRIBUTE_TEXT: Readonly<Record<string, RegExp>> = { '"': /[^"<&]*/y, "'": /[^'<&]*/y }
 
 const BYTE_ORDER_MARK = '﻿'
@@ -81,6 +97,28 @@ function prefixOf(qualifiedName: string): string | null {
   return colon === -1 ? null : qualifiedName.slice(0, colon)
 }
 
+function isInRanges(codePoint: number, ranges: ReadonlyArray<readonly [number, number]>): boolean {
+  return ranges.some(([low, high]) => codePoint >= low && codePoint <= high)
+}
+
+/** The position of the first character that XML 1.0 does not allow, or -1. */
+function firstIllegalCharacter(text: string): number {
+  for (let i = 0; i < text.length; i++) {
+    const codePoint = text.codePointAt(i) ?? 0
+    if (!isXmlChar(codePoint)) return i
+    if (codePoint > 0xffff) i += 1
+  }
+  return -1
+}
+
+/** Whether a Name (a match of readName) is also a QName: NCName, optionally prefixed. */
+function isQualifiedName(name: string): boolean {
+  const colon = name.indexOf(':')
+  if (colon === -1) return true
+  if (colon === 0 || name.indexOf(':', colon + 1) !== -1) return false
+  return isInRanges(name.codePointAt(colon + 1) ?? -1, NAME_START_RANGES)
+}
+
 class DocumentScan {
   private index = 0
   private readonly openElements: OpenElement[] = []
@@ -89,9 +127,11 @@ class DocumentScan {
   constructor(private readonly xml: string) {}
 
   run(): void {
-    const illegal = ILLEGAL_CHARACTER.exec(this.xml)
-    if (illegal !== null) {
-      this.fail(`the character ${describeCodePoint(illegal[0])} is not allowed in XML`)
+    const illegal = firstIllegalCharacter(this.xml)
+    if (illegal !== -1) {
+      this.fail(
+        `the character ${describeCodePoint(this.xml.charAt(illegal))} is not allowed in XML`
+      )
     }
     if (this.xml.startsWith(BYTE_ORDER_MARK)) this.index = 1
     this.readXmlDeclaration()
@@ -123,7 +163,15 @@ class DocumentScan {
   }
 
   private readName(at: number): string | null {
-    return matchAt(NAME, this.xml, at)
+    let end = at
+    for (;;) {
+      const codePoint = this.xml.codePointAt(end)
+      if (codePoint === undefined) break
+      const ranges = end === at ? NAME_START_RANGES : NAME_RANGES
+      if (codePoint !== COLON && !isInRanges(codePoint, ranges)) break
+      end += codePoint > 0xffff ? 2 : 1
+    }
+    return end === at ? null : this.xml.slice(at, end)
   }
 
   private readXmlDeclaration(): void {
@@ -142,8 +190,18 @@ class DocumentScan {
     }
   }
 
+  private skipCharacterData(): void {
+    let i = this.index
+    for (; i < this.xml.length; i++) {
+      const character = this.xml.charAt(i)
+      if (character === '<' || character === '&') break
+      if (character === ']' && this.xml.startsWith(']]>', i)) break
+    }
+    this.index = i
+  }
+
   private readContent(element: OpenElement): void {
-    this.index += (matchAt(CHARACTER_DATA, this.xml, this.index) ?? '').length
+    this.skipCharacterData()
     const character = this.xml.charAt(this.index)
     if (character === '') this.fail(`unterminated element <${element.name}>`)
     if (character === ']') this.fail('"]]>" is not allowed in text (write > as &gt;)')
@@ -290,7 +348,7 @@ class DocumentScan {
     const declared: string[] = []
     for (const { name, value } of attributes) {
       if (!name.startsWith(XMLNS_PREFIX)) continue
-      if (!QNAME.test(name)) this.fail(`malformed namespace declaration ${name}`)
+      if (!isQualifiedName(name)) this.fail(`malformed namespace declaration ${name}`)
       const prefix = name.slice(XMLNS_PREFIX.length)
       this.checkNamespaceDeclaration(prefix, value)
       if (prefix === 'xml') continue
@@ -332,7 +390,9 @@ class DocumentScan {
   }
 
   private resolve(qualifiedName: string): string | null {
-    if (!QNAME.test(qualifiedName)) this.fail(`"${qualifiedName}" is not a valid qualified name`)
+    if (!isQualifiedName(qualifiedName)) {
+      this.fail(`"${qualifiedName}" is not a valid qualified name`)
+    }
     const prefix = prefixOf(qualifiedName)
     if (prefix === null) return null
     const namespace = this.namespaceBindings.get(prefix)?.at(-1)
