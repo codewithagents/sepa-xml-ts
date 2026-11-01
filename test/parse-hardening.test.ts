@@ -320,6 +320,10 @@ describe('xmlns detection anchored to <Document> root (Issue #13)', () => {
       ],
       [`<Wrapper><Document xmlns="${NS_PAIN001}"/></Wrapper>`, null],
       [`<DocumentX xmlns="${NS_PAIN001}"/>`, null],
+      ...['s', ':x', '-x', '.x', '0', '\u00B7', '\u{10000}'].map((continuation): [string, null] => [
+        `<Document${continuation} xmlns="${NS_PAIN001}"/>`,
+        null,
+      ]),
       [`<Document xmlns=""/>`, null],
       [`<Document/>`, null],
       [`<!-- unterminated ${real}`, null],
@@ -737,6 +741,14 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
       [base.replace('</Cdtr>', '</Cdtr x>'), 'malformed end tag </Cdtr>'],
       [base.replace('<Cdtr>', '<Cdtr xsi:type="x">'), 'namespace prefix xsi is not declared'],
       [
+        base.replace('<Cdtr>', '<Cdtr><x xmlns:p="urn:p"></x><p:y/>'),
+        'namespace prefix p is not declared',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr><x xmlns:p="urn:p"><p:y/></x><z p:a="1"/>'),
+        'namespace prefix p is not declared',
+      ],
+      [
         base.replace('<Cdtr>', '<Cdtr xmlns:p="">'),
         'namespace prefix p cannot be bound to an empty namespace',
       ],
@@ -1026,6 +1038,19 @@ describe('parse() reads element text the way an XML parser reads it', () => {
         'Strd',
       ],
       [base.replace('<Nm>Test Creditor</Nm>', '<Nm>Test Creditor</Nm><Nm>Other</Nm>'), 'Nm'],
+      [
+        writeCreditTransfer({
+          ...MINIMAL_CT,
+          batches: MINIMAL_CT.batches.map((batch) => ({
+            ...batch,
+            transfers: batch.transfers.map((transfer) => ({
+              ...transfer,
+              ultimateDebtor: { name: 'Ultimate', id: { organisationId: { other: { id: 'A' } } } },
+            })),
+          })),
+        }).replace('</Othr>', '</Othr><Othr><Id>B</Id></Othr>'),
+        'Othr',
+      ],
       [
         base.replace('</CdtTrfTxInf>', '<RmtInf><Ustrd>A</Ustrd></RmtInf><RmtInf/></CdtTrfTxInf>'),
         'RmtInf',
