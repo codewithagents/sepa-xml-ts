@@ -1266,12 +1266,17 @@ function expectParseAgreesWithLibxml2(xml: string): void {
   }
   expect(libxml2.wellFormed).toBe(true)
   if (!libxml2.wellFormed || result.type !== 'pain.001') throw new Error('expected a pain.001')
+  expectFieldsAgree(libxml2.fields, result.data)
+}
+
+/** Each FUZZ_FIELDS value of the model equals libxml2's text, trimmed of XML whitespace. */
+function expectFieldsAgree(fields: Record<string, string[]>, doc: CreditTransferDocument): void {
   for (const { path, model, fromXml } of FUZZ_FIELDS) {
-    const texts = libxml2.fields[path] ?? []
+    const texts = fields[path] ?? []
     expect(texts.length, `${path}: libxml2 reads ${texts.length} values`).toBeLessThanOrEqual(1)
     const trimmed = texts[0]?.replace(XML_WHITESPACE_AT_EDGES, '')
     const text = trimmed === undefined || fromXml === undefined ? trimmed : fromXml(trimmed)
-    const value = model(result.data)
+    const value = model(doc)
     if (value === undefined) {
       expect(text ?? '', `${path}: present in libxml2's reading but absent in the model`).toBe('')
     } else {
