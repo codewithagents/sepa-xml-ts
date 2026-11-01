@@ -18,7 +18,8 @@
 
 import { XMLParser } from 'fast-xml-parser'
 import { detectSepaNamespace } from '../xmlns-detect.js'
-import { findInvalidReference } from '../xml-references.js'
+import { XML_REFERENCE_DECODER } from '../xml-references.js'
+import { findWellFormednessProblem } from '../xml-wellformedness.js'
 import type { MessageType } from '../message-types.js'
 import { resolveSepaCharset, SepaCharset } from '../model/charset.js'
 import {
@@ -104,7 +105,7 @@ const PARSER = new XMLParser({
   parseAttributeValue: false,
   parseTagValue: false,
   trimValues: true,
-  htmlEntities: true,
+  entityDecoder: XML_REFERENCE_DECODER,
 })
 
 // ---------------------------------------------------------------------------
@@ -999,9 +1000,9 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
     return { ok: false, error: 'DOCTYPE/DTD is not permitted in SEPA documents' }
   }
 
-  const invalidReference = findInvalidReference(xml)
-  if (invalidReference !== null) {
-    return { ok: false, error: `XML parse error: ${invalidReference}` }
+  const problem = findWellFormednessProblem(xml)
+  if (problem !== null) {
+    return { ok: false, error: `XML parse error: ${problem}` }
   }
 
   return null
@@ -1014,9 +1015,13 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
  * a regex. This is more reliable than trying to extract it from the XMLParser
  * output, which may not preserve xmlns as a regular attribute.
  *
- * Character references (&#352; and &#x160;) are decoded. A document with a bare "&", an
- * undefined entity such as &nbsp; (there is no DTD), or a reference to a code point that
- * is not a legal XML character is not well-formed and returns ok:false.
+ * Character references (&#352; and &#x160;) are decoded. A document that is not
+ * well-formed XML 1.0 with namespaces returns ok:false: for example a bare "&", an
+ * undefined entity such as &nbsp; (there is no DTD), a reference to a code point that is
+ * not a legal XML character, an end tag that does not match its start tag, "<![" outside
+ * a CDATA section, or content outside the root element (src/xml-wellformedness.ts). So
+ * does a processing instruction with a quote still open at its "?>", which
+ * fast-xml-parser would read past.
  *
  * Text fields accept the EPC217-08 extended character set by default (see
  * ParseOptions.charset); pass { charset: 'basic' } to accept only basic Latin.

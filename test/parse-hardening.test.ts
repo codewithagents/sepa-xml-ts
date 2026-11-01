@@ -11,7 +11,10 @@
 
 import { describe, it, expect } from 'vitest'
 import * as fc from 'fast-check'
+import { XmlDocument, XmlParseError, ParseOption } from 'libxml2-wasm'
 import { parse, type ParseOptions } from '../src/parser/parser.js'
+import { decodeReferences } from '../src/xml-references.js'
+import { findWellFormednessProblem } from '../src/xml-wellformedness.js'
 import { validateXsd } from '../src/xsd.js'
 import { writeCreditTransfer } from '../src/writer/writer.js'
 import { writeDirectDebit } from '../src/writer/direct-debit.js'
@@ -401,9 +404,9 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
     )
   })
 
-  it('should reject an ampersand at the very end of the document', () => {
+  it('should reject an ampersand after the root element as content outside it', () => {
     expect(parseError(writeCreditTransfer(MINIMAL_CT) + '&')).toBe(
-      'XML parse error: unescaped "&" (write it as &amp;)'
+      'XML parse error: content after the end of the root element'
     )
   })
 
@@ -457,12 +460,32 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
     }
   })
 
-  it('should reject numeric references with more digits than the decoder reads', () => {
-    expect(parseError(withCreditorNameXml('&#x000000053;'))).toBe(
-      'XML parse error: character reference "&#x000000053;" has more than 8 digits'
+  it('should decode references with any number of leading zeros (only significant digits count)', () => {
+    expect(parsedCreditorName(withCreditorNameXml('&#x000000053;tupica'))).toBe('Stupica')
+    expect(parsedCreditorName(withCreditorNameXml('&#00000000083;tupica'))).toBe('Stupica')
+    const zeros = '0'.repeat(40)
+    expect(parsedCreditorName(withCreditorNameXml(`&#x${zeros}53;&#${zeros}83;`))).toBe('SS')
+  })
+
+  it('should reject a reference with more significant digits than the largest code point', () => {
+    for (const reference of ['&#x1000000;', '&#x0001000000;', '&#11141120;', '&#0011141120;']) {
+      expect(parseError(withCreditorNameXml(`A${reference}B`))).toBe(
+        `XML parse error: character reference "${reference}" is not a legal XML character`
+      )
+    }
+  })
+
+  it('should decode references to code points above U+FFFF, up to U+10FFFF', () => {
+    expect(decodeReferences('&#x10000;&#65536;&#x10FFFF;&#1114111;')).toBe(
+      '\u{10000}\u{10000}\u{10FFFF}\u{10FFFF}'
     )
-    expect(parseError(withCreditorNameXml('&#00000000083;'))).toBe(
-      'XML parse error: character reference "&#00000000083;" has more than 10 digits'
+    const xml = writeCreditTransfer(MINIMAL_CT).replace(
+      '</GrpHdr>',
+      '<Unmodelled>&#x1F600;&#x10FFFF;</Unmodelled></GrpHdr>'
+    )
+    expect(parse(xml).ok).toBe(true)
+    expect(parseError(withCreditorNameXml('Maja &#x1F600;'))).toContain(
+      'creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "\u{1F600}" (U+1F600).'
     )
   })
 
@@ -543,6 +566,308 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
     fc.assert(
       fc.property(arbReference, (reference) => {
         expect(() => parse(withCreditorNameXml(reference))).not.toThrow()
+      }),
+      { numRuns: 300 }
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Structure: parse accepts only well-formed XML, read the way an XML parser reads it
+// ---------------------------------------------------------------------------
+
+const CREDITOR_BLOCK = /<Cdtr>[\s\S]*?<\/Cdtr>/
+
+/** Replace the creditor block of the minimal pain.001 document with raw XML. */
+function withCreditorXml(rawCreditorXml: string): string {
+  const xml = writeCreditTransfer(MINIMAL_CT)
+  if (!CREDITOR_BLOCK.test(xml)) throw new Error('the writer no longer emits a <Cdtr> block')
+  return xml.replace(CREDITOR_BLOCK, rawCreditorXml)
+}
+
+const PI_QUOTE_PROBLEM =
+  'XML parse error: processing instruction "<?pi" has a quote that is not closed before "?>"'
+
+describe('parse() rejects documents fast-xml-parser would read differently from an XML parser', () => {
+  it('should reject a processing instruction whose quote hides its end, in both charsets (review repro)', () => {
+    for (const name of [
+      'Maja &euro; Stupica',
+      'Maja&nbsp;Stupica',
+      'Maja & Stupica',
+      'Maja&#0;Stupica',
+    ]) {
+      const xml = withCreditorXml(`<Cdtr><?pi x="?><!--"?><Nm>${name}</Nm><!-- --></Cdtr>`)
+      expect(parseError(xml)).toBe(PI_QUOTE_PROBLEM)
+      expect(parseError(xml, { charset: 'basic' })).toBe(PI_QUOTE_PROBLEM)
+    }
+  })
+
+  it('should reject "<![" that does not start a CDATA section, in both charsets (review repro)', () => {
+    for (const name of ['Maja &euro; Stupica', 'Maja&#0;Stupica']) {
+      const xml = withCreditorXml(`<Cdtr><![X[ > <!-- ]]><Nm>${name}</Nm><!-- --></Cdtr>`)
+      const problem = 'XML parse error: "<![" must start a CDATA section (<![CDATA[)'
+      expect(parseError(xml)).toBe(problem)
+      expect(parseError(xml, { charset: 'basic' })).toBe(problem)
+    }
+  })
+
+  it('should not read a creditor name that an XML parser sees inside a comment (XSD-valid file)', async () => {
+    const xml = withCreditorXml('<Cdtr><?pi x="?><!--"?><Nm>Hidden Name</Nm>--></Cdtr>')
+    expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
+    expect(libxml2Read(xml)).toEqual({ wellFormed: true, creditorName: null })
+    expect(parseError(xml)).toBe(PI_QUOTE_PROBLEM)
+  })
+
+  it('should keep processing instructions whose quotes are balanced, and the XML declaration', () => {
+    const declaration = '<?xml version="1.0" encoding="UTF-8"?>'
+    const xml = writeCreditTransfer(MINIMAL_CT)
+      .replace(declaration, `${declaration}<?xml-stylesheet type="text/xsl" href="a?b.xsl"?>`)
+      .replace('<Cdtr>', `<Cdtr><?app note='it"s'?>`)
+    expect(xml.startsWith(declaration)).toBe(true)
+    expect(parsedCreditorName(xml)).toBe('Test Creditor')
+    for (const variant of [
+      "<?xml version='1.0'?>",
+      '<?xml version="1.0" encoding="utf-8" standalone="yes"?>',
+      '﻿<?xml version="1.0" encoding="UTF-8"?>',
+    ]) {
+      expect(
+        parsedCreditorName(writeCreditTransfer(MINIMAL_CT).replace(declaration, variant))
+      ).toBe('Test Creditor')
+    }
+  })
+
+  it('should reject constructs that are not well-formed XML, with a message naming the problem', () => {
+    const base = writeCreditTransfer(MINIMAL_CT)
+    const cases: Array<[string, string]> = [
+      [withCreditorNameXml('A</x>B'), 'end tag </x> does not match <Nm>'],
+      [withCreditorXml('<Cdtr><Nm>A</Nm><x></Cdtr>'), 'end tag </Cdtr> does not match <x>'],
+      [withCreditorNameXml('A]]>B'), '"]]>" is not allowed in text (write > as &gt;)'],
+      [withCreditorNameXml('A<!-- a -- b -->B'), '"--" is not allowed inside a comment'],
+      [withCreditorNameXml('A<![cdata[x]]>B'), '"<![" must start a CDATA section (<![CDATA[)'],
+      [withCreditorNameXml('A<!ELEMENT x>B'), 'unexpected "<!" (comments start with <!--)'],
+      [withCreditorNameXml('A<?>B'), 'processing instruction without a target name'],
+      [
+        withCreditorNameXml('A<?x"?>B'),
+        'processing instruction target "x" must be followed by whitespace',
+      ],
+      [
+        withCreditorNameXml('A<?xml version="1.0"?>B'),
+        'reserved processing instruction target "xml" (an XML declaration must come first)',
+      ],
+      [withCreditorNameXml('A<?p:x?>B'), 'processing instruction target "p:x" has a colon'],
+      [withCreditorNameXml('A < B'), 'unescaped "<" (write it as &lt;)'],
+      [withCreditorNameXml('A\u0001B'), 'the character U+0001 is not allowed in XML'],
+      [withCreditorNameXml('A￾B'), 'the character U+FFFE is not allowed in XML'],
+      [base.replace('<Cdtr>', '<Cdtr x="1" x="2">'), 'attribute x is repeated on <Cdtr>'],
+      [base.replace('<Cdtr>', '<Cdtr x="1"y="2">'), 'malformed start tag <Cdtr>'],
+      [base.replace('<Cdtr>', '<Cdtr x=1>'), 'attribute x of <Cdtr> needs a quoted value'],
+      [base.replace('<Cdtr>', '<Cdtr x>'), 'attribute x of <Cdtr> has no value'],
+      [base.replace('</Cdtr>', '</Cdtr x>'), 'malformed end tag </Cdtr>'],
+      [base.replace('<Cdtr>', '<Cdtr xsi:type="x">'), 'namespace prefix xsi is not declared'],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:p="">'),
+        'namespace prefix p cannot be bound to an empty namespace',
+      ],
+      [base.replace('<Cdtr>', '<p:a:Cdtr>'), '"p:a:Cdtr" is not a valid qualified name'],
+      [base + '<Extra/>', 'content after the end of the root element'],
+      [
+        base.replace('<?xml version="1.0" encoding="UTF-8"?>', '<?xml version="2.0"?>'),
+        'malformed XML declaration',
+      ],
+      [
+        base.replace('<?xml version="1.0" encoding="UTF-8"?>', ' <?xml version="1.0"?>'),
+        'reserved processing instruction target "xml" (an XML declaration must come first)',
+      ],
+      [`text${base}`, 'text before the root element'],
+      ['<!-- only a comment -->', 'the document has no root element'],
+      [base.replace('</Document>', '<Unclosed>'), 'unterminated element <Unclosed>'],
+    ]
+    for (const [xml, problem] of cases) {
+      expect(parseError(xml), problem).toBe(`XML parse error: ${problem}`)
+      expect(libxml2Read(xml).wellFormed, problem).toBe(false)
+    }
+  })
+
+  it('should accept well-formed namespace use and XML whitespace inside tags', () => {
+    const xml = writeCreditTransfer(MINIMAL_CT)
+      .replace(
+        /<Document xmlns="([^"]+)">/,
+        '<Document xmlns="$1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="$1 pain.001.001.09.xsd">'
+      )
+      .replace('<Cdtr>', '<Cdtr\n  xml:lang = "sl" >')
+      .replace('</Cdtr>', '</Cdtr\t>')
+    expect(libxml2Read(xml)).toEqual({ wellFormed: true, creditorName: 'Test Creditor' })
+    expect(parsedCreditorName(xml)).toBe('Test Creditor')
+  })
+})
+
+describe('decodeReferences: the entity decoder fast-xml-parser uses', () => {
+  it('should decode only the predefined entities and numeric references, in one pass', () => {
+    expect(decodeReferences('&lt;&gt;&amp;&quot;&apos;&#83;&#x160;')).toBe('<>&"\'SŠ')
+    expect(decodeReferences('&amp;nbsp; &#38;euro;')).toBe('&nbsp; &euro;')
+    expect(decodeReferences('no references')).toBe('no references')
+  })
+
+  it('should throw on HTML entities, a bare ampersand and illegal code points', () => {
+    expect(() => decodeReferences('&nbsp;')).toThrow('undefined entity reference "&nbsp;"')
+    expect(() => decodeReferences('&euro;')).toThrow('undefined entity reference "&euro;"')
+    expect(() => decodeReferences('R&D')).toThrow('unescaped "&" (write it as &amp;)')
+    expect(() => decodeReferences('&#0;')).toThrow('"&#0;" is not a legal XML character')
+  })
+
+  it('should shorten a very long reference in its message', () => {
+    expect(() => decodeReferences(`&${'a'.repeat(1000)};`)).toThrow(
+      `undefined entity reference "&${'a'.repeat(40)}...;"`
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Differential fuzz: parse against libxml2
+// ---------------------------------------------------------------------------
+
+type Libxml2Reading = { wellFormed: true; creditorName: string | null } | { wellFormed: false }
+
+/** What libxml2 reads: whether the document is well-formed, and the first creditor name. */
+function libxml2Read(xml: string): Libxml2Reading {
+  let doc: XmlDocument
+  try {
+    doc = XmlDocument.fromString(xml, { option: ParseOption.XML_PARSE_NO_XXE })
+  } catch (e) {
+    if (e instanceof XmlParseError) return { wellFormed: false }
+    throw e
+  }
+  try {
+    const name = doc.get("(//*[local-name()='Cdtr'])[1]/*[local-name()='Nm']")
+    return { wellFormed: true, creditorName: name === null ? null : name.content }
+  } finally {
+    doc[Symbol.dispose]()
+  }
+}
+
+const FUZZ_CHARACTERS = [...'<?![]>"\'-&#;x0123456789/=:A']
+const FUZZ_TOKENS = [
+  '<Nm>',
+  '</Nm>',
+  '<x>',
+  '</x>',
+  '<x/>',
+  '<x x="1">',
+  `<x x='"'/>`,
+  '<x x="&amp;"/>',
+  '<x x="<"/>',
+  '<!--',
+  '-->',
+  '<!---->',
+  '<?x',
+  '<?x ',
+  '?>',
+  '<?x?>',
+  '<?x "?>',
+  `<?x '"'?>`,
+  '<![CDATA[',
+  '<![x[',
+  ']]>',
+  '&amp;',
+  '&lt;',
+  '&#x41;',
+  '&#65;',
+  '&#32;',
+  '&#0;',
+  '&#x0000000041;',
+  '&#x1F600;',
+  '&nbsp;',
+  '&euro;',
+  '<p:x/>',
+  '<x xmlns:p="urn:p"><p:x/></x>',
+]
+const arbFuzzPiece = fc.oneof(fc.constantFrom(...FUZZ_CHARACTERS), fc.constantFrom(...FUZZ_TOKENS))
+const arbFuzzPart = fc.array(arbFuzzPiece, { maxLength: 8 }).map((pieces) => pieces.join(''))
+const arbCreditorDocument = fc
+  .tuple(arbFuzzPart, arbFuzzPart, arbFuzzPart)
+  .map(([before, name, after]) => withCreditorXml(`<Cdtr>${before}<Nm>${name}</Nm>${after}</Cdtr>`))
+const FUZZ_ANCHORS = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<GrpHdr>',
+  '</GrpHdr>',
+  '<Cdtr>',
+  '</Document>',
+]
+const arbAnywhereDocument = fc
+  .tuple(fc.constantFrom(...FUZZ_ANCHORS), fc.boolean(), arbFuzzPart)
+  .map(([anchor, before, part]) =>
+    writeCreditTransfer(MINIMAL_CT).replace(anchor, before ? part + anchor : anchor + part)
+  )
+
+const HIDDEN_NAME = '<Nm>Maja &#x160;tupica</Nm>'
+const HIDDEN_HTML_NAME = '<Nm>Maja &euro; Stupica</Nm>'
+
+/** Creditor content where fast-xml-parser and libxml2 used to disagree, as editable pieces. */
+const DIFFERENTIAL_SEEDS: ReadonlyArray<readonly string[]> = [
+  ['<?pi x=', '"', '?>', '<!--', '"', '?>', HIDDEN_NAME, '-->'],
+  ['<?pi x=', '"', '?>', '<!--', '"', '?>', HIDDEN_HTML_NAME, '<!-- -->'],
+  ['<?pi x=', "'", '?>', '<![CDATA[', "'", '?>', HIDDEN_NAME, ']]>'],
+  ['<?pi x=', '"', '?>', HIDDEN_NAME, '"', '?>'],
+  ['<![X[', ' > ', '<!--', ' ]]>', HIDDEN_NAME, '<!-- -->'],
+  ['<![X[', ' > ', '<!--', ' ]]>', HIDDEN_HTML_NAME, '<!-- -->'],
+  ['<!--', '"', '-->', HIDDEN_NAME],
+]
+const arbEdit = fc.record({
+  at: fc.nat(),
+  piece: arbFuzzPiece,
+  kind: fc.constantFrom('insert', 'replace', 'delete'),
+})
+const arbSeededDocument = fc
+  .tuple(fc.constantFrom(...DIFFERENTIAL_SEEDS), fc.array(arbEdit, { maxLength: 3 }))
+  .map(([seed, edits]) => {
+    const pieces = [...seed]
+    for (const { at, piece, kind } of edits) {
+      const index = at % (pieces.length + 1)
+      if (kind === 'insert') pieces.splice(index, 0, piece)
+      else pieces.splice(index, 1, ...(kind === 'replace' ? [piece] : []))
+    }
+    return withCreditorXml(`<Cdtr>${pieces.join('')}</Cdtr>`)
+  })
+
+function expectParseAgreesWithLibxml2(xml: string): void {
+  const libxml2 = libxml2Read(xml)
+  const problem = findWellFormednessProblem(xml)
+  if (problem === null || !problem.includes('has a quote that is not closed')) {
+    expect(problem === null, `scan: ${problem}`).toBe(libxml2.wellFormed)
+  }
+  const result = parse(xml)
+  if (!result.ok) return
+  expect(libxml2.wellFormed).toBe(true)
+  if (!libxml2.wellFormed || result.type !== 'pain.001') throw new Error('expected a pain.001')
+  expect(result.data.batches[0]?.transfers[0]?.creditor.name).toBe(libxml2.creditorName)
+}
+
+describe('parse() agrees with libxml2 on generated documents (differential fuzz)', () => {
+  it('property: markup around and inside the creditor name (numRuns=300)', () => {
+    let accepted = 0
+    fc.assert(
+      fc.property(arbCreditorDocument, (xml) => {
+        expectParseAgreesWithLibxml2(xml)
+        if (parse(xml).ok) accepted++
+      }),
+      { numRuns: 300 }
+    )
+    expect(accepted).toBeGreaterThan(0)
+  })
+
+  it('property: edits of the known differentials, PI quotes and pseudo CDATA (numRuns=300)', () => {
+    fc.assert(
+      fc.property(arbSeededDocument, (xml) => {
+        expectParseAgreesWithLibxml2(xml)
+      }),
+      { numRuns: 300 }
+    )
+  })
+
+  it('property: markup in the prolog, the epilog and between elements (numRuns=300)', () => {
+    fc.assert(
+      fc.property(arbAnywhereDocument, (xml) => {
+        expectParseAgreesWithLibxml2(xml)
       }),
       { numRuns: 300 }
     )

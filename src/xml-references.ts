@@ -1,36 +1,37 @@
 /**
- * Entity and character reference guard for SEPA XML input, run by parse()
- * (src/parser/parser.ts) before the XML reaches fast-xml-parser.
+ * Entity and character references in SEPA XML, read strictly.
  *
  * SEPA documents carry no DTD, so the only well-formed references are the five
  * predefined entities and numeric character references to a legal XML 1.0 Char.
- * The parser decodes exactly those. Anything else (a bare "&", an HTML entity such
- * as &nbsp;, &#0;) is not well-formed XML and is rejected here, so it can never
- * reach the decoder or survive as literal text in the model.
- *
- * The scan follows the XML structure: comments, CDATA sections and processing
- * instructions are skipped only where they start in content, and attribute values
- * are checked like content (references are expanded there too).
+ * readReferenceAt is the one rule for both readers of a document: the well-formedness
+ * scan (src/xml-wellformedness.ts) checks every reference with it, and fast-xml-parser
+ * decodes text and attribute values through XML_REFERENCE_DECODER, which uses it too.
+ * Anything else (a bare "&", an HTML entity such as &nbsp;, &#0;) is rejected, so it
+ * can never be decoded or survive as literal text in the model.
  */
 
-const PREDEFINED_ENTITIES = new Set(['amp', 'lt', 'gt', 'quot', 'apos'])
+import type { EntityDecoderOptions } from 'fast-xml-parser'
 
-const MAX_HEX_DIGITS = 8
-const MAX_DECIMAL_DIGITS = 10
-
-const SECTIONS_WITHOUT_REFERENCES = [
-  { open: '<!--', close: '-->', name: 'comment' },
-  { open: '<![CDATA[', close: ']]>', name: 'CDATA section' },
-  { open: '<?', close: '?>', name: 'processing instruction' },
-] as const
+const PREDEFINED_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ['amp', '&'],
+  ['lt', '<'],
+  ['gt', '>'],
+  ['quot', '"'],
+  ['apos', "'"],
+])
 
 const REFERENCE_TOKEN = /&([^\s&;<>"']+);/y
-const NEXT_MARKUP = /[&<]/g
 
-const HEX_REFERENCE = /^#x([0-9A-Fa-f]+)$/
-const DECIMAL_REFERENCE = /^#([0-9]+)$/
+const NUMERIC_REFERENCE_FORMATS = [
+  { pattern: /^#x0*([0-9A-Fa-f]+)$/, radix: 16, maxSignificantDigits: 6 },
+  { pattern: /^#0*([0-9]+)$/, radix: 10, maxSignificantDigits: 7 },
+] as const
 
-type ScanStep = { next: number } | { problem: string }
+const BEYOND_UNICODE = 0x110000
+const MAX_SHOWN_TOKEN_LENGTH = 40
+
+/** A reference read at a position: the text it stands for and where it ends, or why it is not well-formed. */
+export type ReferenceRead = { text: string; end: number } | { problem: string }
 
 function isXmlChar(codePoint: number): boolean {
   return (
@@ -43,107 +44,100 @@ function isXmlChar(codePoint: number): boolean {
   )
 }
 
-function checkNumericReference(token: string): string | null {
-  const reference = `&${token};`
-  const hex = HEX_REFERENCE.exec(token)
-  const decimal = DECIMAL_REFERENCE.exec(token)
-  const digits = hex?.[1] ?? decimal?.[1]
-  if (digits === undefined) {
-    return `malformed character reference "${reference}" (expected &#NNN; or &#xHHHH;)`
+function shown(token: string): string {
+  const visible =
+    token.length > MAX_SHOWN_TOKEN_LENGTH ? `${token.slice(0, MAX_SHOWN_TOKEN_LENGTH)}...` : token
+  return `&${visible};`
+}
+
+function codePointOf(token: string): number | null {
+  for (const { pattern, radix, maxSignificantDigits } of NUMERIC_REFERENCE_FORMATS) {
+    const digits = pattern.exec(token)?.[1]
+    if (digits !== undefined) {
+      return digits.length > maxSignificantDigits ? BEYOND_UNICODE : Number.parseInt(digits, radix)
+    }
   }
-  const maxDigits = hex !== null ? MAX_HEX_DIGITS : MAX_DECIMAL_DIGITS
-  if (digits.length > maxDigits) {
-    return `character reference "${reference}" has more than ${maxDigits} digits`
+  return null
+}
+
+function readNumericReference(token: string): { text: string } | { problem: string } {
+  const codePoint = codePointOf(token)
+  if (codePoint === null) {
+    return {
+      problem: `malformed character reference "${shown(token)}" (expected &#NNN; or &#xHHHH;)`,
+    }
   }
-  const codePoint = Number.parseInt(digits, hex !== null ? 16 : 10)
   if (!isXmlChar(codePoint)) {
-    return `character reference "${reference}" is not a legal XML character`
+    return { problem: `character reference "${shown(token)}" is not a legal XML character` }
   }
-  return null
+  return { text: String.fromCodePoint(codePoint) }
 }
 
-function checkReferenceAt(xml: string, index: number): string | null {
-  REFERENCE_TOKEN.lastIndex = index
-  const token = REFERENCE_TOKEN.exec(xml)?.[1]
-  if (token === undefined) {
-    return 'unescaped "&" (write it as &amp;)'
-  }
+function readToken(token: string): { text: string } | { problem: string } {
   if (token.startsWith('#')) {
-    return checkNumericReference(token)
+    return readNumericReference(token)
   }
-  if (PREDEFINED_ENTITIES.has(token)) {
-    return null
+  const text = PREDEFINED_ENTITIES.get(token)
+  if (text !== undefined) {
+    return { text }
   }
-  return `undefined entity reference "&${token};": without a DTD only &amp; &lt; &gt; &quot; &apos; and numeric character references are allowed`
-}
-
-function skipSection(xml: string, index: number): ScanStep | null {
-  for (const section of SECTIONS_WITHOUT_REFERENCES) {
-    if (xml.startsWith(section.open, index)) {
-      const end = xml.indexOf(section.close, index + section.open.length)
-      return end === -1
-        ? { problem: `unterminated ${section.name}` }
-        : { next: end + section.close.length }
-    }
+  return {
+    problem: `undefined entity reference "${shown(token)}": without a DTD only &amp; &lt; &gt; &quot; &apos; and numeric character references are allowed`,
   }
-  return null
-}
-
-function scanTagCharacter(xml: string, index: number, quote: string | null): string | null {
-  const character = xml.charAt(index)
-  if (character === '&') {
-    return checkReferenceAt(xml, index)
-  }
-  if (quote !== null && character === '<') {
-    return 'unescaped "<" in an attribute value (write it as &lt;)'
-  }
-  return null
-}
-
-function scanTag(xml: string, index: number): ScanStep {
-  let quote: string | null = null
-  for (let i = index + 1; i < xml.length; i++) {
-    const problem = scanTagCharacter(xml, i, quote)
-    if (problem !== null) return { problem }
-    const character = xml.charAt(i)
-    if (quote !== null) {
-      if (character === quote) quote = null
-    } else if (character === '"' || character === "'") {
-      quote = character
-    } else if (character === '>') {
-      return { next: i + 1 }
-    }
-  }
-  return { problem: 'unterminated tag' }
-}
-
-function scanMarkup(xml: string, index: number): ScanStep {
-  if (xml.charAt(index) === '&') {
-    const problem = checkReferenceAt(xml, index)
-    return problem === null ? { next: index + 1 } : { problem }
-  }
-  return skipSection(xml, index) ?? scanTag(xml, index)
 }
 
 /**
- * Find the first entity or character reference that is not well-formed in a
- * document without a DTD, in content and in attribute values. Comments, CDATA
- * sections and processing instructions are skipped, because XML does not expand
- * references inside them; an unterminated one is reported.
+ * Read the entity or character reference that starts with the "&" at `index`.
  *
- * @param xml the raw XML string
- * @returns a description of the first problem, or null if every reference is valid
+ * @param source the text that contains the reference
+ * @param index the position of the "&"
+ * @returns the decoded text and the position after the ";", or a description of the problem
  */
-export function findInvalidReference(xml: string): string | null {
-  NEXT_MARKUP.lastIndex = 0
-  let match = NEXT_MARKUP.exec(xml)
-  while (match !== null) {
-    const step = scanMarkup(xml, match.index)
-    if ('problem' in step) {
-      return step.problem
-    }
-    NEXT_MARKUP.lastIndex = step.next
-    match = NEXT_MARKUP.exec(xml)
+export function readReferenceAt(source: string, index: number): ReferenceRead {
+  REFERENCE_TOKEN.lastIndex = index
+  const token = REFERENCE_TOKEN.exec(source)?.[1]
+  if (token === undefined) {
+    return { problem: 'unescaped "&" (write it as &amp;)' }
   }
-  return null
+  const read = readToken(token)
+  return 'problem' in read ? read : { text: read.text, end: index + token.length + 2 }
+}
+
+/**
+ * Decode every reference in a text or attribute value, in a single pass.
+ *
+ * @throws Error naming the first reference that is not well-formed without a DTD
+ */
+export function decodeReferences(value: string): string {
+  let ampersand = value.indexOf('&')
+  if (ampersand === -1) {
+    return value
+  }
+  let decoded = ''
+  let copiedUpTo = 0
+  while (ampersand !== -1) {
+    const read = readReferenceAt(value, ampersand)
+    if ('problem' in read) {
+      throw new Error(read.problem)
+    }
+    decoded += value.slice(copiedUpTo, ampersand) + read.text
+    copiedUpTo = read.end
+    ampersand = value.indexOf('&', copiedUpTo)
+  }
+  return decoded + value.slice(copiedUpTo)
+}
+
+/**
+ * The entity decoder parse() hands to fast-xml-parser (its `entityDecoder` option), in
+ * place of the HTML-entity decoder. It decodes exactly what XML without a DTD defines
+ * and throws on anything else, so parse() returns ok:false. Entity declarations are
+ * never honoured (parse() rejects a DOCTYPE before fast-xml-parser runs), and every
+ * document is read with the XML 1.0 character rules.
+ */
+export const XML_REFERENCE_DECODER: EntityDecoderOptions = {
+  decode: decodeReferences,
+  reset: () => undefined,
+  setXmlVersion: () => undefined,
+  addInputEntities: () => undefined,
+  setExternalEntities: () => undefined,
 }
