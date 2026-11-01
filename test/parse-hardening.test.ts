@@ -901,6 +901,44 @@ describe('decodeReferences: the entity decoder fast-xml-parser uses', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Declared encodings: a JS string is already decoded, so both readers ignore the label
+// ---------------------------------------------------------------------------
+
+describe('parse() and validateXsd() read the string as given, whatever encoding is declared', () => {
+  const DECLARED_ENCODINGS = ['UTF-8', 'ISO-8859-1', 'UTF-16', 'UCS-4', 'X-UNKNOWN']
+
+  function declaring(encoding: string, xml: string): string {
+    return xml.replace('encoding="UTF-8"', `encoding="${encoding}"`)
+  }
+
+  it('should validate an XSD-valid file with "Müller Štupica" in every declared encoding (review repro)', async () => {
+    const xml = writeCreditTransfer(MINIMAL_CT).replace(
+      '<Nm>Test Initiator</Nm>',
+      '<Nm>Müller Štupica</Nm>'
+    )
+    for (const encoding of DECLARED_ENCODINGS) {
+      const declared = declaring(encoding, xml)
+      expect(declared, encoding).toContain(`encoding="${encoding}"`)
+      expect(await validateXsd(declared), encoding).toEqual({ valid: true, errors: [] })
+      const result = parse(declared)
+      expect(result.ok && result.data.initiatingParty, encoding).toBe('Müller Štupica')
+    }
+  })
+
+  it('should report the value the string holds, not a re-decoded one, in an XSD error', async () => {
+    const xml = writeCreditTransfer(MINIMAL_CT).replace(
+      '<IBAN>DE65200400300234567000</IBAN>',
+      '<IBAN>DE65Müller</IBAN>'
+    )
+    for (const encoding of DECLARED_ENCODINGS) {
+      const result = await validateXsd(declaring(encoding, xml))
+      expect(result.valid, encoding).toBe(false)
+      expect(result.errors.join(' '), encoding).toContain("The value 'DE65Müller' is not accepted")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Element text: read as XML reads it, trimmed of XML whitespace only
 // ---------------------------------------------------------------------------
 

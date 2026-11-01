@@ -167,7 +167,12 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
     // entities (both general and parameter entities). This is a defense-in-depth
     // measure alongside the DOCTYPE guard above. The ParseOption enum is
     // well-documented in the libxml2-wasm type declarations (document.d.mts).
-    xmlDoc = XmlDocument.fromString(xml, { option: ParseOption.XML_PARSE_NO_XXE })
+    // encoding: the string is already decoded; libxml2 reads the UTF-8 bytes it is
+    // given as UTF-8, whatever encoding the XML declaration names.
+    xmlDoc = XmlDocument.fromString(xml, {
+      option: ParseOption.XML_PARSE_NO_XXE,
+      encoding: 'utf-8',
+    })
     validator.validate(xmlDoc)
     return { valid: true, errors: [] }
   } catch (err) {
