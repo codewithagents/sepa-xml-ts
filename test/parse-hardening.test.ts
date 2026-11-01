@@ -484,6 +484,50 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
     expect(result.ok, result.ok ? '' : result.error).toBe(true)
   })
 
+  it('should check references in attribute values', () => {
+    const xml = writeCreditTransfer(MINIMAL_CT).replace('Ccy="EUR"', 'Ccy="&euro;"')
+    expect(parseError(xml)).toContain('undefined entity reference "&euro;"')
+  })
+
+  it('should not let markup-like text inside an attribute value hide a reference from the guard', () => {
+    const base = writeCreditTransfer(MINIMAL_CT)
+    const sections: Array<[string, string]> = [
+      ['<!--', '-->'],
+      ['<![CDATA[', ']]>'],
+      ['<?', '?>'],
+    ]
+    for (const [open, close] of sections) {
+      const xml = base
+        .replace('<Cdtr>', `<Cdtr x="${open}">`)
+        .replace('<Nm>Test Creditor</Nm>', '<Nm>A&nbsp;B</Nm>')
+        .replace('<CdtrAcct>', `<CdtrAcct z="${close}">`)
+      expect(parseError(xml)).toBe(
+        'XML parse error: unescaped "<" in an attribute value (write it as &lt;)'
+      )
+    }
+  })
+
+  it('should accept ">" and quotes of the other kind inside an attribute value', () => {
+    const xml = writeCreditTransfer(MINIMAL_CT).replace('<Cdtr>', `<Cdtr x="a>b'c" y='d"e>f'>`)
+    expect(parsedCreditorName(xml)).toBe('Test Creditor')
+  })
+
+  it('should report an unterminated comment, CDATA section, processing instruction or tag', () => {
+    const base = writeCreditTransfer(MINIMAL_CT)
+    expect(parseError(base.replace('</Document>', '<!-- open'))).toBe(
+      'XML parse error: unterminated comment'
+    )
+    expect(parseError(base.replace('</Document>', '<![CDATA[ open'))).toBe(
+      'XML parse error: unterminated CDATA section'
+    )
+    expect(parseError(base.replace('</Document>', '<?pi open'))).toBe(
+      'XML parse error: unterminated processing instruction'
+    )
+    expect(parseError(base.replace('</Document>', '</Document'))).toBe(
+      'XML parse error: unterminated tag'
+    )
+  })
+
   it('should keep text inside a CDATA section literal (no reference decoding)', () => {
     expect(parsedCreditorName(withCreditorNameXml('<![CDATA[&#83;tupica &amp; &nbsp;]]>'))).toBe(
       '&#83;tupica &amp; &nbsp;'
