@@ -727,6 +727,20 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
         base.replace('<Cdtr>', '<Cdtr xmlns:p="">'),
         'namespace prefix p cannot be bound to an empty namespace',
       ],
+      [base.replace('<Cdtr>', '<Cdtr xmlns:xmlns="urn:x">'), 'the xmlns prefix cannot be declared'],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:xml="urn:x">'),
+        'only the xml prefix is bound to http://www.w3.org/XML/1998/namespace',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:p="http://www.w3.org/XML/1998/namespace">'),
+        'only the xml prefix is bound to http://www.w3.org/XML/1998/namespace',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:a="urn:x" xmlns:b="urn:x" a:k="1" b:k="2">'),
+        'attribute {urn:x}k is repeated on <Cdtr>',
+      ],
+      [base.replace('<Cdtr>', '<Cdtr xmlns:="urn:x">'), 'malformed namespace declaration xmlns:'],
       [base.replace('<Cdtr>', '<p:a:Cdtr>'), '"p:a:Cdtr" is not a valid qualified name'],
       [base + '<Extra/>', 'content after the end of the root element'],
       [
