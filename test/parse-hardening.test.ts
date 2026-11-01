@@ -750,6 +750,34 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
         'only the xml prefix is bound to http://www.w3.org/XML/1998/namespace',
       ],
       [
+        base.replace('<Cdtr>', '<Cdtr xmlns:p="http://www.w3.org/XML/1998/&#110;amespace">'),
+        'only the xml prefix is bound to http://www.w3.org/XML/1998/namespace',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns="http://www.w3.org/XML/1998/namespace">'),
+        'only the xml prefix is bound to http://www.w3.org/XML/1998/namespace',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns="http://www.w3.org/XML/1998/&#x6E;amespace">'),
+        'only the xml prefix is bound to http://www.w3.org/XML/1998/namespace',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:p="http://www.w3.org/2000/xmlns/">'),
+        'the namespace http://www.w3.org/2000/xmlns/ cannot be declared',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:p="http://www.w3.org/2000/&#120;mlns/">'),
+        'the namespace http://www.w3.org/2000/xmlns/ cannot be declared',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns="http://www.w3.org/2000/xmlns/">'),
+        'the namespace http://www.w3.org/2000/xmlns/ cannot be declared',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr xmlns:xml="http://www.w3.org/2000/xmlns/">'),
+        'the namespace http://www.w3.org/2000/xmlns/ cannot be declared',
+      ],
+      [
         base.replace('<Cdtr>', '<Cdtr xmlns:a="urn:x" xmlns:b="urn:x" a:k="1" b:k="2">'),
         'attribute {urn:x}k is repeated on <Cdtr>',
       ],
@@ -816,6 +844,14 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
       expect(libxml2Read(xml).wellFormed).toBe(true)
       expect(parseError(xml)).toContain(`the name "X${character}Ccy" contains`)
     }
+  })
+
+  it('should accept the declarations the reserved-name rules allow: xml to its namespace, an empty default', () => {
+    const xml = writeCreditTransfer(MINIMAL_CT)
+      .replace('<Cdtr>', '<Cdtr xmlns:xml="http://www.w3.org/XML/1998/namespace">')
+      .replace('</GrpHdr>', '<Unmodelled xmlns=""><x xmlns="urn:x"/></Unmodelled></GrpHdr>')
+    expect(libxml2Read(xml)).toEqual({ wellFormed: true, creditorName: 'Test Creditor' })
+    expect(parsedCreditorName(xml)).toBe('Test Creditor')
   })
 
   it('should accept well-formed namespace use and XML whitespace inside tags', () => {

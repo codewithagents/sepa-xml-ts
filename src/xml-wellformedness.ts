@@ -56,6 +56,7 @@ const JS_WHITESPACE = /\s/
 
 const BYTE_ORDER_MARK = '﻿'
 const XML_NAMESPACE = 'http://www.w3.org/XML/1998/namespace'
+const XMLNS_NAMESPACE = 'http://www.w3.org/2000/xmlns/'
 const XMLNS = 'xmlns'
 const XMLNS_PREFIX = 'xmlns:'
 
@@ -364,6 +365,7 @@ class DocumentScan {
   private bindNamespaces(attributes: readonly Attribute[]): string[] {
     const declared: string[] = []
     for (const { name, value } of attributes) {
+      if (name === XMLNS) this.checkNamespaceDeclaration(null, value)
       if (!name.startsWith(XMLNS_PREFIX)) continue
       if (!isQualifiedName(name)) this.fail(`malformed namespace declaration ${name}`)
       const prefix = name.slice(XMLNS_PREFIX.length)
@@ -377,12 +379,23 @@ class DocumentScan {
     return declared
   }
 
-  private checkNamespaceDeclaration(prefix: string, uri: string): void {
+  /**
+   * The reserved names of Namespaces in XML 1.0 (section 3): the xml prefix and its
+   * namespace belong to each other only, the xmlns prefix and its namespace are never
+   * declared, and only the default namespace may be empty. The URI is the attribute value
+   * after reference decoding.
+   *
+   * @param prefix the declared prefix, or null for the default namespace (xmlns="...")
+   */
+  private checkNamespaceDeclaration(prefix: string | null, uri: string): void {
     if (prefix === XMLNS) this.fail('the xmlns prefix cannot be declared')
+    if (uri === XMLNS_NAMESPACE) this.fail(`the namespace ${XMLNS_NAMESPACE} cannot be declared`)
     if ((prefix === 'xml') !== (uri === XML_NAMESPACE)) {
       this.fail(`only the xml prefix is bound to ${XML_NAMESPACE}`)
     }
-    if (uri === '') this.fail(`namespace prefix ${prefix} cannot be bound to an empty namespace`)
+    if (uri === '' && prefix !== null) {
+      this.fail(`namespace prefix ${prefix} cannot be bound to an empty namespace`)
+    }
   }
 
   private unbindNamespaces(element: OpenElement): void {
