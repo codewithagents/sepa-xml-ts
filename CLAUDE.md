@@ -124,12 +124,14 @@ deep-equal.
   the only places the rule lives). parse defaults to extended, write and validate to basic. The DK
   variants throw on extended. A new string field must be classified in the kind table of
   test/extended-charset.test.ts, whose schema walker fails otherwise.
-- parse accepts only well-formed XML 1.0 with namespaces and no DTD (src/xml-wellformedness.ts),
-  plus the rule fast-xml-parser needs: no processing instruction with a quote open at its `?>`.
-  fast-xml-parser decodes through `entityDecoder: XML_REFERENCE_DECODER` (src/xml-references.ts):
-  the 5 predefined entities and numeric references to legal XML characters, nothing else. The
-  differential fuzz in test/parse-hardening.test.ts holds parse to libxml2's reading; never
-  re-enable `htmlEntities`.
+- parse never throws (a backstop returns ok:false) and accepts only well-formed XML 1.0 with
+  namespaces and no DTD (src/xml-wellformedness.ts, character loops, no backtracking regex), plus
+  two fast-xml-parser rules: no PI quote open at its `?>`, no element or attribute name with a JS
+  `\s` character. fast-xml-parser decodes through `XML_REFERENCE_DECODER` (src/xml-references.ts)
+  with `trimValues: false` and `ignorePiTags: true`; the parser's textOf trims XML whitespace only
+  and fails on a repeated or nested element the model holds once. The differential fuzz in
+  test/parse-hardening.test.ts compares the 15 modelled fields of its template with libxml2;
+  never re-enable `htmlEntities` or `trimValues`.
 - IBAN by mod-97 checksum. BIC by format when present.
 - SEPA Creditor Identifier: ISO 7064 MOD 97-10 with the business code (positions 5-7) EXCLUDED from the check (verified by test); German `DE` ids must be exactly 18 chars.
 - Dates not datetimes for execution date.
@@ -267,8 +269,8 @@ deep-equal.
   (default basic) and parse (default extended), `SepaCharset`, `toSepaCharset` from the vendored
   EPC conversion table, DK variants refuse extended, identifiers/references/codes basic in every
   mode. parse decodes numeric character references and accepts only well-formed XML.
-- ~900 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
-  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
+- ~960 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  per type at 200 runs) + 4 parse fuzz properties at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures + ultimate-parties + purpose-codes +
   mandate-amendment + structured-remittance suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate

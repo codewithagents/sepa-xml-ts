@@ -1047,7 +1047,12 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
  * not a legal XML character, an end tag that does not match its start tag, "<![" outside
  * a CDATA section, or content outside the root element (src/xml-wellformedness.ts). So
  * does a processing instruction with a quote still open at its "?>", which
- * fast-xml-parser would read past.
+ * fast-xml-parser would read past, and an element or attribute name that holds a
+ * character JS matches with \s (U+1680, U+FEFF), where fast-xml-parser would split it.
+ *
+ * Element text is read as XML reads it, trimmed of space, tab, CR and LF at both ends.
+ * An element the model holds once that occurs more than once, or a text element that
+ * contains an element, returns ok:false ("Cannot read <Ustrd>: ...").
  *
  * Text fields accept the EPC217-08 extended character set by default (see
  * ParseOptions.charset); pass { charset: 'basic' } to accept only basic Latin.

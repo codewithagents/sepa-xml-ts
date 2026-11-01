@@ -113,10 +113,12 @@ and it is enforced, not hoped for:
 - **The model is anchored on the official XSD.** The test suite generates thousands of random
   valid models and asserts every serialized file validates against that XSD, and that every
   file parses back into the exact model it came from.
-- **The parse path is fuzz-hardened.** It never throws: malformed input, entity injections, and
-  DTD/DOCTYPE payloads all return a typed failure rather than raising an exception. A
-  differential fuzz against libxml2 checks that every generated document `parse` accepts is
-  well-formed XML that libxml2 reads the same way.
+- **The parse path is fuzz-hardened.** It never throws: malformed input, entity injections,
+  DTD/DOCTYPE payloads and internal errors all return a typed failure. A differential fuzz
+  against libxml2 generates documents with markup, whitespace, CDATA, processing instructions
+  and repeated elements, and checks that `parse` accepts only what libxml2 finds well-formed and
+  that every modelled text field of an accepted document holds the text libxml2 reads. The rules
+  and the known limits are listed under [Parse](#parse).
 
 ## How it compares
 
@@ -244,14 +246,46 @@ the types are fully compatible.
 file with `č š ž` in a name parses. Pass `parse(xml, { charset: "basic" })` to accept only basic
 Latin. See [Character set (EPC217-08)](#character-set-epc217-08).
 
-`parse` accepts only well-formed XML 1.0 with namespaces and without a DTD. Numeric character
-references (`&#352;`, `&#x160;`) and the five predefined entities are decoded. Anything else
-returns `ok: false`: a bare `&`, an undefined entity such as `&nbsp;`, a reference to a code
-point that is not a legal XML character, an end tag that does not match its start tag, `<![`
-that does not start a CDATA section, `--` inside a comment, text or markup outside the root
-element, or an undeclared namespace prefix. A processing instruction with a quote that is still
-open at its `?>` is rejected as well, because the underlying XML parser would read past it. The
-namespace comes from the root `<Document>` element only.
+`parse` accepts only well-formed XML 1.0 with namespaces and without a DTD, and returns
+`ok: false` otherwise: for example a bare `&`, an undefined entity such as `&nbsp;`, a reference
+to a code point that is not a legal XML character, an end tag that does not match its start tag,
+`<![` that does not start a CDATA section, `--` inside a comment, text or markup outside the root
+element, an undeclared namespace prefix, or a reserved namespace name bound the wrong way
+(`xmlns="http://www.w3.org/XML/1998/namespace"`). It adds two rules of its own, for constructs
+the underlying XML parser would read differently: a processing instruction with a quote still
+open at its `?>`, and an element or attribute name that holds U+1680 or U+FEFF (XML name
+characters that JavaScript treats as whitespace). The namespace comes from the root `<Document>`
+element only.
+
+How `parse` reads the document:
+
+- Numeric character references (`&#352;`, `&#x160;`) and the five predefined entities are
+  decoded; nothing else is.
+- The text of an element is everything XML reads as its character data: CDATA sections and the
+  text around comments and processing instructions are joined as written. Space, tab, CR and LF
+  are trimmed at both ends, written raw or as a reference; every other character, including
+  U+00A0 and the other Unicode spaces, is kept and then checked against the charset.
+- An element the model holds once that occurs more than once (two `Ustrd` in one transaction),
+  or a text element that contains an element, returns `ok: false` with a message that names it,
+  instead of being read as absent. An empty optional element such as `<Ustrd/>` reads as absent.
+
+The test suite holds `parse` to libxml2, the parser `validateXsd` uses. The well-formedness
+rules are checked against libxml2 row by row in a table of malformed documents, and a
+differential fuzz (four fast-check properties, 300 runs each) checks on generated pain.001
+documents that the scan agrees with libxml2 and that each of the 15 modelled text fields of its
+template (message and batch ids, dates, names, IBANs, BICs, the end-to-end id, the amount and
+its currency, `Ustrd`) equals libxml2's text after the trimming above, with no field that
+libxml2 reads missing from the model. Known limits:
+
+- Elements are matched by the name they are written with, not by namespace: a modelled element
+  that redeclares the default namespace (`<Nm xmlns="urn:other">`) is still read, and a document
+  that writes the ISO namespace with a prefix (`<p:Document xmlns:p="...">`) is not recognized.
+- The encoding named in the XML declaration is not checked: `parse` and `validateXsd` read the
+  string they are given (see [Character set (EPC217-08)](#character-set-epc217-08)).
+- `validateXsd` throws, instead of returning `valid: false`, when libxml2 cannot read the
+  document at all (for example XML that is not well-formed, or a text node over 10 MB).
+- Content the model does not hold is not read, so it is not checked against libxml2 either:
+  unmodelled elements, and text written directly inside an element that holds elements.
 
 The round-trip is anchored on the model: for any valid model,
 `parse(write(model))` deep-equals the original. This is verified as a property test over thousands
@@ -348,8 +382,10 @@ const sepaName = toSepaCharset(german);
 ```
 
 The writer returns a string whose XML declaration says `encoding="UTF-8"` and writes extended
-characters as they are (only `& < > " '` are escaped). Save the file as UTF-8 (Node's default),
-and decode received files as UTF-8 before calling `parse`.
+characters as they are (only `& < > " '` are escaped). Save the file as UTF-8 (Node's default).
+`parse` and `validateXsd` take a string and ignore the encoding its XML declaration names, so
+decode a received file with the encoding it is actually written in: `readFileSync(path, "utf8")`
+for UTF-8, `readFileSync(path, "latin1")` for an ISO-8859-1 file.
 
 ## Direct debit (pain.008)
 

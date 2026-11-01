@@ -149,12 +149,35 @@ would not survive a round trip.
 </Aside>
 
 The writers return a string with an `encoding="UTF-8"` declaration and write extended characters
-as they are (only `& < > " '` are escaped). Save files as UTF-8, and decode received files as
-UTF-8 before calling `parse`. `parse` accepts only well-formed XML 1.0 with namespaces and
-without a DTD: it decodes numeric character references such as `&#352;` and the five predefined
-entities, and returns `ok: false` for a bare `&`, an undefined entity such as `&nbsp;`, a
-reference to an illegal character, a mismatched end tag, `<![` outside a CDATA section, content
-outside the root element, or a processing instruction with a quote still open at its `?>`.
+as they are (only `& < > " '` are escaped). Save files as UTF-8. `parse` and `validateXsd` take a
+string and ignore the encoding its XML declaration names, so decode a received file with the
+encoding it is actually written in: `readFileSync(path, 'utf8')` for UTF-8,
+`readFileSync(path, 'latin1')` for an ISO-8859-1 file.
+
+`parse` never throws. It accepts only well-formed XML 1.0 with namespaces and without a DTD: it
+decodes numeric character references such as `&#352;` and the five predefined entities, and
+returns `ok: false` for a bare `&`, an undefined entity such as `&nbsp;`, a reference to an
+illegal character, a mismatched end tag, `<![` outside a CDATA section, content outside the root
+element, an undeclared prefix or a reserved namespace name bound the wrong way. Two rules are its
+own, for constructs the underlying XML parser would read differently: a processing instruction
+with a quote still open at its `?>`, and an element or attribute name that holds U+1680 or
+U+FEFF.
+
+Element text is read as XML reads it: CDATA sections and the text around comments and
+processing instructions are joined as written, and only space, tab, CR and LF are trimmed at the
+ends (raw or as a reference); U+00A0 and the other Unicode spaces are kept, so the charset check
+sees them. An element the model holds once that occurs twice (two `Ustrd`), or a text element
+that contains an element, returns `ok: false` instead of being read as absent; an empty
+optional element such as `<Ustrd/>` reads as absent.
+
+A differential fuzz (four fast-check properties, 300 runs each) checks on generated pain.001
+documents that `parse` accepts only what libxml2 finds well-formed, and that each of the 15
+modelled text fields of its template equals libxml2's text after that trimming. Known limits:
+elements are matched by the name they are written with, not by namespace, so a modelled element
+that redeclares the default namespace is still read and a prefixed `<p:Document>` is not
+recognized; the declared encoding is not checked; content the model does not hold (unmodelled
+elements, text directly inside an element that holds elements) is not read; and `validateXsd`
+throws, instead of returning `valid: false`, when libxml2 cannot read the document at all.
 
 ## Layer 2: XSD validation (optional)
 

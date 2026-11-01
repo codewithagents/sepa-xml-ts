@@ -7,9 +7,10 @@
  * section and keeps text outside the root element. Where it splits a document
  * differently from an XML 1.0 parser such as libxml2, the model could receive text a
  * bank's parser never sees. This scan accepts only documents that are well-formed XML
- * 1.0 with namespaces and without a DTD, and rejects the one well-formed construct
+ * 1.0 with namespaces and without a DTD, and rejects the well-formed constructs
  * fast-xml-parser reads differently: a processing instruction with a quote that is
- * still open at its "?>".
+ * still open at its "?>", and an element or attribute name that holds a character JS
+ * matches with \s.
  */
 
 import { isXmlChar, readReferenceAt } from './xml-references.js'
