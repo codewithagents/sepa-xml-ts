@@ -1386,8 +1386,13 @@ function withFuzzCreditorXml(rawCreditorXml: string): string {
   return FUZZ_TEMPLATE.replace(CREDITOR_BLOCK, rawCreditorXml)
 }
 
+const arbOptionalFuzzPart = fc.oneof(fc.constant(''), arbFuzzPart)
+const arbCreditorName = fc.oneof(
+  arbFuzzPart,
+  fc.tuple(arbTextPart, arbTextPart).map(([edge, inner]) => `${edge}Maja${inner}Stupica${edge}`)
+)
 const arbCreditorDocument = fc
-  .tuple(arbFuzzPart, arbFuzzPart, arbFuzzPart)
+  .tuple(arbOptionalFuzzPart, arbCreditorName, arbOptionalFuzzPart)
   .map(([before, name, after]) =>
     withFuzzCreditorXml(`<Cdtr>${before}<Nm>${name}</Nm>${after}</Cdtr>`)
   )
