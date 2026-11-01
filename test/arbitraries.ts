@@ -11,8 +11,14 @@
 
 import * as fc from 'fast-check'
 import { buildIban } from '../src/model/iban.js'
-import { toSepaCharset } from '../src/model/charset.js'
-import type { PostalAddress } from '../src/model/schema.js'
+import { toSepaCharset, type SepaCharset } from '../src/model/charset.js'
+import { EPC217_08_EXTENDED_ONLY } from '../src/model/epc217-08-table.js'
+import type {
+  AccountParty,
+  CreditTransferDocument,
+  PaymentBatch,
+  PostalAddress,
+} from '../src/model/schema.js'
 
 // ---------------------------------------------------------------------------
 // IBAN helpers
@@ -68,6 +74,39 @@ export function arbSepaText(minLen: number, maxLen: number): fc.Arbitrary<string
     })
     .map((s) => s.trim())
     .filter((s) => s.length >= minLen)
+}
+
+/** The green EPC217-08 characters the extended set adds to the basic set. */
+const EXTENDED_ONLY_CHARACTERS = [...EPC217_08_EXTENDED_ONLY]
+
+/** Characters that stress XML escaping and the extended set; drawn more often. */
+const EXTENDED_STRESS_CHARACTERS = [...'&<>"\'ŠčЖЩ€\u00A0']
+
+/**
+ * Arbitrary for text in the EPC217-08 extended set: basic characters, every green
+ * table character, and a bias toward the XML-special and multi-byte ones.
+ * Trimmed with String.prototype.trim (which also removes U+00A0), because the parser
+ * trims element text.
+ */
+function arbExtendedText(minLen: number, maxLen: number): fc.Arbitrary<string> {
+  const unit = fc.oneof(
+    { weight: 4, arbitrary: fc.constantFrom(...SEPA_CHARSET.split('')) },
+    { weight: 3, arbitrary: fc.constantFrom(...EXTENDED_ONLY_CHARACTERS) },
+    { weight: 2, arbitrary: fc.constantFrom(...EXTENDED_STRESS_CHARACTERS) }
+  )
+  return fc
+    .string({ unit, minLength: minLen, maxLength: maxLen })
+    .map((s) => s.trim())
+    .filter((s) => s.length >= minLen)
+}
+
+/** Arbitrary for a text-kind field: basic Latin, or the extended set when charset is 'extended'. */
+export function arbTextFor(
+  charset: SepaCharset,
+  minLen: number,
+  maxLen: number
+): fc.Arbitrary<string> {
+  return charset === 'extended' ? arbExtendedText(minLen, maxLen) : arbSepaText(minLen, maxLen)
 }
 
 /**
@@ -144,8 +183,13 @@ export function arbDate(): fc.Arbitrary<string> {
 // Party helpers
 // ---------------------------------------------------------------------------
 
-export function arbPartyName(): fc.Arbitrary<string> {
+function arbPartyName(): fc.Arbitrary<string> {
   return fc.oneof(arbSepaText(1, 70), arbSanitizedSepaText(1, 70))
+}
+
+/** Arbitrary for a party name in the given charset (extended names mix in basic ones). */
+export function arbPartyNameFor(charset: SepaCharset): fc.Arbitrary<string> {
+  return charset === 'extended' ? fc.oneof(arbExtendedText(1, 70), arbPartyName()) : arbPartyName()
 }
 
 export function arbBic(): fc.Arbitrary<string> {
@@ -198,20 +242,21 @@ export function arbMoney(): fc.Arbitrary<{ currencyCode: 'EUR'; minorUnits: bigi
  * This covers PostalAddress24 (pain.001.001.09, pain.008.001.08) and PostalAddress6
  * (pain.001.001.03): both use the same full field set and element order.
  */
-export function arbPostalAddress(): fc.Arbitrary<PostalAddress> {
+export function arbPostalAddress(charset: SepaCharset = 'basic'): fc.Arbitrary<PostalAddress> {
   return fc
     .record({
-      streetName: fc.option(arbSepaText(1, 70), { nil: undefined }),
-      buildingNumber: fc.option(arbSepaText(1, 16), { nil: undefined }),
-      postCode: fc.option(arbSepaText(1, 16), { nil: undefined }),
-      townName: fc.option(arbSepaText(1, 35), { nil: undefined }),
-      countrySubDivision: fc.option(arbSepaText(1, 35), { nil: undefined }),
+      streetName: fc.option(arbTextFor(charset, 1, 70), { nil: undefined }),
+      buildingNumber: fc.option(arbTextFor(charset, 1, 16), { nil: undefined }),
+      postCode: fc.option(arbTextFor(charset, 1, 16), { nil: undefined }),
+      townName: fc.option(arbTextFor(charset, 1, 35), { nil: undefined }),
+      countrySubDivision: fc.option(arbTextFor(charset, 1, 35), { nil: undefined }),
       country: fc.option(fc.constantFrom('DE', 'FR', 'NL', 'ES', 'IT', 'BE', 'AT'), {
         nil: undefined,
       }),
-      addressLines: fc.option(fc.array(arbSepaText(1, 70), { minLength: 1, maxLength: 7 }), {
-        nil: undefined,
-      }),
+      addressLines: fc.option(
+        fc.array(arbTextFor(charset, 1, 70), { minLength: 1, maxLength: 7 }),
+        { nil: undefined }
+      ),
     })
     .map((a) => {
       // Strip undefined keys so the generated model matches what the parser returns.
@@ -231,4 +276,37 @@ export function withOptionalAddress<T extends object>(
 ): T {
   if (address === undefined) return party
   return { ...party, address }
+}
+
+// ---------------------------------------------------------------------------
+// pain.001 document helpers shared by the write-variant property suites
+// ---------------------------------------------------------------------------
+
+/** Arbitrary for an AccountParty (name, IBAN, optional BIC and address); absent keys are stripped. */
+export function arbAccountParty(charset: SepaCharset = 'basic'): fc.Arbitrary<AccountParty> {
+  return fc
+    .record({
+      name: arbPartyNameFor(charset),
+      iban: arbIban(),
+      bic: fc.option(arbBic(), { nil: undefined }),
+      address: fc.option(arbPostalAddress(charset), { nil: undefined }),
+    })
+    .map((p) => {
+      const { address, ...withBic } = p
+      const base = withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
+      return withOptionalAddress(base as AccountParty, address)
+    })
+}
+
+/** Arbitrary for a CreditTransferDocument with 1 to 3 batches drawn from the given batch arbitrary. */
+export function arbCreditTransferDocumentFrom(
+  charset: SepaCharset,
+  batch: fc.Arbitrary<PaymentBatch>
+): fc.Arbitrary<CreditTransferDocument> {
+  return fc.record({
+    messageId: arbSepaIdentifier(1, 35),
+    createdAt: arbCreatedAt(),
+    initiatingParty: arbPartyNameFor(charset),
+    batches: fc.array(batch, { minLength: 1, maxLength: 3 }),
+  })
 }

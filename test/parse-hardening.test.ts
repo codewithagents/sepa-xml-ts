@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import * as fc from 'fast-check'
-import { parse } from '../src/parser/parser.js'
+import { parse, type ParseOptions } from '../src/parser/parser.js'
 import { validateXsd } from '../src/xsd.js'
 import { writeCreditTransfer } from '../src/writer/writer.js'
 import { writeDirectDebit } from '../src/writer/direct-debit.js'
@@ -314,8 +314,8 @@ function withCreditorNameXml(rawNameXml: string): string {
   return writeCreditTransfer(MINIMAL_CT).replace('<Nm>Test Creditor</Nm>', `<Nm>${rawNameXml}</Nm>`)
 }
 
-function parsedCreditorName(xml: string): string {
-  const result = parse(xml)
+function parsedCreditorName(xml: string, options?: ParseOptions): string {
+  const result = parse(xml, options)
   if (!result.ok) throw new Error('expected ok:true, got: ' + result.error)
   if (result.type !== 'pain.001') throw new Error('expected type pain.001')
   const name = result.data.batches[0]?.transfers[0]?.creditor.name
@@ -323,8 +323,8 @@ function parsedCreditorName(xml: string): string {
   return name
 }
 
-function parseError(xml: string): string {
-  const result = parse(xml)
+function parseError(xml: string, options?: ParseOptions): string {
+  const result = parse(xml, options)
   if (result.ok) throw new Error('expected ok:false')
   return result.error
 }
@@ -340,20 +340,21 @@ describe('parse() character references', () => {
 
   it('should decode &#352;tupica and &#x160;tupica to the S-caron, not keep the reference text', () => {
     for (const reference of ['&#352;tupica', '&#x160;tupica']) {
-      const error = parseError(withCreditorNameXml(reference))
+      expect(parsedCreditorName(withCreditorNameXml(reference))).toBe('\u0160tupica')
+      const error = parseError(withCreditorNameXml(reference), { charset: 'basic' })
       expect(error).toMatch(/^Model validation failed after parse: /)
       expect(error).toContain(
-        'batches.0.transfers.0.creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "Š" (U+0160).'
+        'batches.0.transfers.0.creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "\u0160" (U+0160).'
       )
-      expect(error).not.toContain('"&"')
     }
   })
 
   it('should decode in a single pass, so an escaped ampersand never forms a new reference', () => {
-    const error = parseError(withCreditorNameXml('&amp;#83;tupica'))
-    expect(error).toMatch(/^Model validation failed after parse: /)
-    expect(() => parsedCreditorName(withCreditorNameXml('&#38;#83;tupica'))).toThrow(
-      /Model validation failed/
+    expect(parsedCreditorName(withCreditorNameXml('&amp;#83;tupica'))).toBe('&#83;tupica')
+    expect(parsedCreditorName(withCreditorNameXml('&#38;#83;tupica'))).toBe('&#83;tupica')
+    expect(parsedCreditorName(withCreditorNameXml('&amp;amp;'))).toBe('&amp;')
+    expect(parseError(withCreditorNameXml('&amp;#83;tupica'), { charset: 'basic' })).toMatch(
+      /^Model validation failed after parse: /
     )
   })
 
@@ -484,8 +485,9 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
   })
 
   it('should keep text inside a CDATA section literal (no reference decoding)', () => {
-    const error = parseError(withCreditorNameXml('<![CDATA[&#83;tupica]]>'))
-    expect(error).toMatch(/^Model validation failed after parse: /)
+    expect(parsedCreditorName(withCreditorNameXml('<![CDATA[&#83;tupica &amp; &nbsp;]]>'))).toBe(
+      '&#83;tupica &amp; &nbsp;'
+    )
   })
 
   it('should never throw for any reference-shaped input', () => {

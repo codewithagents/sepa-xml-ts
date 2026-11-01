@@ -121,6 +121,31 @@ function combiningMarkHint(offending: string[]): string {
     : ''
 }
 
+function theseCharacters(count: number): string {
+  return count === 1 ? 'this character is' : 'these characters are'
+}
+
+function textFieldAdvice(offending: string[], charset: SepaCharset): string {
+  if (charset === SepaCharset.Extended) {
+    return `${capitalize(theseCharacters(offending.length))} not in the EPC217-08 extended character set. Convert the value with toSepaCharset(value, { charset: 'extended' }) to keep local-language characters, or with toSepaCharset(value) for basic Latin.`
+  }
+  const outsideExtended = offending.filter(
+    (character) => !isCharacterIn(character, SepaCharset.Extended)
+  )
+  if (outsideExtended.length === 0) {
+    return `By default only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}). If your bank accepts the EPC217-08 extended character set, pass { charset: 'extended' } (SepaCharset.Extended); otherwise convert the value with toSepaCharset(value).`
+  }
+  const notExtended =
+    outsideExtended.length === offending.length
+      ? theseCharacters(offending.length)
+      : `${describeOffending(outsideExtended)} ${outsideExtended.length === 1 ? 'is' : 'are'}`
+  return `Only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}), and ${notExtended} not in the EPC217-08 extended set either. Convert the value with toSepaCharset(value).`
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 /**
  * The validation message for a human-readable text field (names, addresses, remittance
  * information) whose value has characters outside the charset in force.
@@ -128,7 +153,7 @@ function combiningMarkHint(offending: string[]): string {
 export function textCharsetMessage(value: string, charset: SepaCharset): string {
   const offending = offendingCharacters(value, charset)
   const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
-  return `${head} Only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}). Convert the value with toSepaCharset(value).${combiningMarkHint(offending)}`
+  return `${head} ${textFieldAdvice(offending, charset)}${combiningMarkHint(offending)}`
 }
 
 /**

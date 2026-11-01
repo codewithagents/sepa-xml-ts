@@ -15,6 +15,7 @@
  *
  * Shared:
  * - parse: auto-detects pain.001 or pain.008 and returns a discriminated union
+ *   (ParseOptions.charset: 'extended' by default)
  * - validateCreditTransfer: validate an unknown input against the pain.001 document schema
  * - validateDirectDebit: validate an unknown input against the pain.008 document schema
  *
@@ -23,7 +24,9 @@
  * - requireBic: reference profile that mandates a BIC on every agent
  *
  * Character set (EPC217-08):
- * - SepaCharset: the 'basic' and 'extended' character set constants
+ * - SepaCharset: the 'basic' and 'extended' character set constants, accepted as
+ *   { charset } by writeCreditTransfer, writeDirectDebit, validateCreditTransfer,
+ *   validateDirectDebit (default 'basic') and parse (default 'extended')
  * - toSepaCharset: convert text to a SEPA character set with the EPC conversion table
  *
  * Internal helpers (IBAN validation, charset predicates, XML escaping) are NOT re-exported.
@@ -115,6 +118,7 @@ export type {
   ParseSuccess001,
   ParseSuccess008,
   ParseFailure,
+  ParseOptions,
 } from './parser/parser.js'
 
 export { validateCreditTransfer, validateDirectDebit } from './model/validate.js'

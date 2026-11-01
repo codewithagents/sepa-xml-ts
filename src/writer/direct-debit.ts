@@ -9,7 +9,10 @@
  * Design invariants:
  * - Validates the model before writing (throws on invalid input)
  * - CtrlSum uses exact bigint arithmetic, never floating-point
- * - All string values are XML-escaped (SEPA charset enforced by the schema)
+ * - All string values are XML-escaped (& < > " ' always; the SEPA charset is enforced by the schema)
+ * - Text fields use the basic Latin set unless { charset: 'extended' } is passed;
+ *   identifiers, references and codes are basic Latin in every mode
+ * - pain.008.003.02 (DK) refuses { charset: 'extended' } before any validation
  * - ReqdColltnDt is a date (not datetime)
  * - pain.008.001.08: CdtrAgt emits empty FinInstnId when no BIC
  * - pain.008.001.08: DbtrAgt emits empty FinInstnId when no BIC
@@ -22,14 +25,17 @@
  */
 
 import {
-  DirectDebitDocumentSchema,
+  directDebitSchemasFor,
   type DirectDebitDocument,
   type Mandate,
   type MandateAmendment,
 } from '../model/pain008.js'
 import { sumMoney } from '../model/amount.js'
+import type { SepaCharset } from '../model/charset.js'
 import {
   xe,
+  describeIssues,
+  resolveWriterCharset,
   computeTotals,
   emitGrpHdr,
   emitGrpHdrNoCtrlSum,
@@ -70,6 +76,16 @@ export interface WriteDirectDebitOptions {
    * applied to every PmtInf block.
    */
   profile?: BankProfile
+  /**
+   * The character set for human-readable text fields (names, addresses, remittance
+   * information). Defaults to 'basic' (SepaCharset.Basic), the basic Latin set every
+   * SEPA bank accepts. Pass 'extended' (SepaCharset.Extended) to write the EPC217-08
+   * extended set (for example č š ž ä ß Ж € & @), but only if your bank has agreed to
+   * receive it. Identifiers, references and codes (including the mandate id) stay basic
+   * Latin in every mode (EPC217-08 section 6.3). The DK variant pain.008.003.02 throws
+   * on 'extended'.
+   */
+  charset?: SepaCharset
 }
 
 const XMLNS_08 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
@@ -93,16 +109,25 @@ const XMLNS = XMLNS_08
  * Profile options (e.g. batchBooking) are applied regardless of which variant is used.
  *
  * @param input the direct debit document model
- * @param options optional write options (variant, profile)
+ * @param options optional write options (variant, profile, charset)
  * @returns UTF-8 XML string
- * @throws Error if the model fails base validation or a profile check
+ * @throws Error if the model fails base validation or a profile check, if the charset is
+ *   unknown, or if charset 'extended' is combined with the DK variant
  */
 export function writeDirectDebit(
   input: DirectDebitDocument,
   options?: WriteDirectDebitOptions
 ): string {
+  const variant = options?.variant ?? 'pain.008.001.08'
+  const charset = resolveWriterCharset(
+    options?.charset,
+    variant,
+    'pain.008.003.02',
+    'pain.008.001.08'
+  )
+
   // Self-check: validate the model before writing
-  const parseResult = DirectDebitDocumentSchema.safeParse(input)
+  const parseResult = directDebitSchemasFor(charset).DirectDebitDocument.safeParse(input)
   if (!parseResult.success) {
     const messages = parseResult.error.issues
       .map((iss) => `${iss.path.join('.')}: ${iss.message}`)
@@ -115,10 +140,7 @@ export function writeDirectDebit(
   // Applies to both pain.008.001.08 and pain.008.003.02 since the shared entry point validates before dispatch.
   const ruleIssues = checkDirectDebitRules(doc)
   if (ruleIssues.length > 0) {
-    const detail = ruleIssues
-      .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
-      .join('; ')
-    throw new Error(`DirectDebitDocument violates SEPA rules: ${detail}`)
+    throw new Error(`DirectDebitDocument violates SEPA rules: ${describeIssues(ruleIssues)}`)
   }
 
   // Profile check: run after base validation so the doc is known-good
@@ -126,14 +148,9 @@ export function writeDirectDebit(
   if (profile?.checkDirectDebit !== undefined) {
     const issues = profile.checkDirectDebit(doc)
     if (issues.length > 0) {
-      const detail = issues
-        .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
-        .join('; ')
-      throw new Error(`Profile "${profile.id}" check failed: ${detail}`)
+      throw new Error(`Profile "${profile.id}" check failed: ${describeIssues(issues)}`)
     }
   }
-
-  const variant = options?.variant ?? 'pain.008.001.08'
 
   // Ultimate parties are only supported for pain.008.001.08. Fail loud rather than
   // silently drop ultimate-party data when the DK variant is selected.

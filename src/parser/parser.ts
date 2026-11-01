@@ -20,8 +20,9 @@ import { XMLParser } from 'fast-xml-parser'
 import { detectSepaNamespace } from '../xmlns-detect.js'
 import { findInvalidReference } from '../xml-references.js'
 import type { MessageType } from '../message-types.js'
+import { resolveSepaCharset, SepaCharset } from '../model/charset.js'
 import {
-  CreditTransferDocumentSchema,
+  creditTransferSchemasFor,
   type CreditTransferDocument,
   type AccountParty,
   type Transfer,
@@ -41,7 +42,7 @@ import {
   type CategoryPurpose,
 } from '../model/schema.js'
 import {
-  DirectDebitDocumentSchema,
+  directDebitSchemasFor,
   type DirectDebitDocument,
   type DirectDebitBatch,
   type Collection,
@@ -74,6 +75,20 @@ export type ParseSuccess008 = {
 }
 export type ParseFailure = { ok: false; error: string }
 export type ParseResult = ParseSuccess001 | ParseSuccess008 | ParseFailure
+
+/** Options accepted by parse. */
+export interface ParseOptions {
+  /**
+   * The character set accepted in human-readable text fields (names, addresses,
+   * remittance information). Defaults to 'extended' (SepaCharset.Extended): EPC217-08
+   * asks a receiver to process text as received and to reject only characters outside
+   * the conversion table, so a file with č š ž in a name parses. Pass 'basic'
+   * (SepaCharset.Basic) to accept only the basic Latin set. Identifiers, references and
+   * codes must be basic Latin in every mode (EPC217-08 section 6.3). A parsed document
+   * with extended text needs { charset: 'extended' } to be written again.
+   */
+  charset?: SepaCharset
+}
 
 // ---------------------------------------------------------------------------
 // XML parser configuration
@@ -1003,12 +1018,21 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
  * undefined entity such as &nbsp; (there is no DTD), or a reference to a code point that
  * is not a legal XML character is not well-formed and returns ok:false.
  *
+ * Text fields accept the EPC217-08 extended character set by default (see
+ * ParseOptions.charset); pass { charset: 'basic' } to accept only basic Latin.
+ *
  * This function never throws. All failure modes return { ok: false, error }.
  *
  * @param xml the XML string to parse
+ * @param options optional parse options (charset)
  * @returns ParseResult discriminated union
  */
-export function parse(xml: string): ParseResult {
+export function parse(xml: string, options?: ParseOptions): ParseResult {
+  const charset = resolveParseCharset(options)
+  if (typeof charset !== 'string') {
+    return charset
+  }
+
   const unsafe = rejectUnsafeInput(xml)
   if (unsafe !== null) {
     return unsafe
@@ -1033,20 +1057,28 @@ export function parse(xml: string): ParseResult {
     }
   }
 
-  return parseByNamespace(parsed, ns)
+  return parseByNamespace(parsed, ns, charset)
 }
 
-function parseByNamespace(parsed: unknown, ns: string): ParseResult {
+function resolveParseCharset(options: ParseOptions | undefined): SepaCharset | ParseFailure {
+  try {
+    return resolveSepaCharset(options?.charset, SepaCharset.Extended)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+function parseByNamespace(parsed: unknown, ns: string, charset: SepaCharset): ParseResult {
   // Extract a short version string from the namespace URI, e.g. "pain.001.001.09".
   const version = ns.split(':xsd:')[1] ?? ns
 
   try {
     if (PAIN008_NAMESPACES.has(ns)) {
-      return parsePain008(parsed, version)
+      return parsePain008(parsed, version, charset)
     }
 
     if (PAIN001_NAMESPACES.has(ns)) {
-      return parsePain001(parsed, version)
+      return parsePain001(parsed, version, charset)
     }
 
     return {
@@ -1112,7 +1144,7 @@ function extractGrpHdr(root: unknown): GrpHdrExtracted | ParseFailure {
 // pain.001 sub-parser (handles pain.001.001.09 and pain.001.001.03)
 // ---------------------------------------------------------------------------
 
-function parsePain001(parsed: unknown, version: string): ParseResult {
+function parsePain001(parsed: unknown, version: string, charset: SepaCharset): ParseResult {
   try {
     const root = nav(parsed, 'Document', 'CstmrCdtTrfInitn')
     if (!root) {
@@ -1139,7 +1171,7 @@ function parsePain001(parsed: unknown, version: string): ParseResult {
       batches,
     }
 
-    const validation = CreditTransferDocumentSchema.safeParse(rawDoc)
+    const validation = creditTransferSchemasFor(charset).CreditTransferDocument.safeParse(rawDoc)
     if (!validation.success) {
       const messages = validation.error.issues
         .map((iss) => `${iss.path.join('.')}: ${iss.message}`)
@@ -1160,7 +1192,7 @@ function parsePain001(parsed: unknown, version: string): ParseResult {
 // pain.008 sub-parser (handles pain.008.001.08 and pain.008.001.02)
 // ---------------------------------------------------------------------------
 
-function parsePain008(parsed: unknown, version: string): ParseResult {
+function parsePain008(parsed: unknown, version: string, charset: SepaCharset): ParseResult {
   try {
     const root = nav(parsed, 'Document', 'CstmrDrctDbtInitn')
     if (!root) {
@@ -1194,7 +1226,7 @@ function parsePain008(parsed: unknown, version: string): ParseResult {
       batches,
     }
 
-    const validation = DirectDebitDocumentSchema.safeParse(rawDoc)
+    const validation = directDebitSchemasFor(charset).DirectDebitDocument.safeParse(rawDoc)
     if (!validation.success) {
       const messages = validation.error.issues
         .map((iss) => `${iss.path.join('.')}: ${iss.message}`)

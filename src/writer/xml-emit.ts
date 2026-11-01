@@ -15,7 +15,7 @@
  * Internal module: not exported from index.ts.
  */
 
-import { escapeXml } from '../model/charset.js'
+import { escapeXml, resolveSepaCharset, SepaCharset } from '../model/charset.js'
 import { formatAmountForXml, sumMoney } from '../model/amount.js'
 import type {
   Money,
@@ -30,6 +30,7 @@ import type {
   Purpose,
   CategoryPurpose,
 } from '../model/schema.js'
+import type { ProfileIssue } from '../profile/profile.js'
 
 /**
  * Escape a value for use in XML text content.
@@ -38,6 +39,36 @@ import type {
  */
 export function xe(value: string): string {
   return escapeXml(value)
+}
+
+/**
+ * Resolve the charset option of a writer. The German DK variants refuse 'extended':
+ * their rulebook (DFU-Abkommen Anlage 3) defines its own character rules, which this
+ * library does not ship, so writing EPC217-08 extended text there could produce a file
+ * the bank rejects.
+ *
+ * @throws Error on an unknown charset, or on 'extended' with the DK variant
+ */
+export function resolveWriterCharset(
+  value: unknown,
+  variant: string,
+  dkVariant: string,
+  modernVariant: string
+): SepaCharset {
+  const charset = resolveSepaCharset(value, SepaCharset.Basic)
+  if (charset === SepaCharset.Extended && variant === dkVariant) {
+    throw new Error(
+      `charset 'extended' is not supported for variant ${dkVariant}: the German DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does not ship. Use variant ${modernVariant}, or convert text fields with toSepaCharset(value).`
+    )
+  }
+  return charset
+}
+
+/** Join profile or rule issues into one message: "path: message; path: message". */
+export function describeIssues(issues: readonly ProfileIssue[]): string {
+  return issues
+    .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
+    .join('; ')
 }
 
 /** Compute total transaction count and control sum from an array of Money values. */
