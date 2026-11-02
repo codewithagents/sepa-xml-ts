@@ -841,8 +841,9 @@ const xml = writeDirectDebit(doc, {
 });
 ```
 
-`{ charset: "extended" }` throws for this variant, for the same reason as `pain.001.003.03`. Use
-`pain.008.001.08` for extended text, or convert text fields with `toSepaCharset(value)`.
+`{ charset: "extended" }` throws for this variant, for the same reason as `pain.001.003.03`.
+Convert text fields with `toSepaCharset(value)` to write them in the basic set; `pain.008.001.08`
+supports extended text.
 
 ## Validate against the official XSD (optional)
 
