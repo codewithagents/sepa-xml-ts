@@ -130,7 +130,8 @@ deep-equal.
   quote open at its `?>`, no element or attribute name with a JS `\s` character. fast-xml-parser
   decodes through `XML_REFERENCE_DECODER` (src/xml-references.ts)
   with `trimValues: false` and `ignorePiTags: true`; the parser's textOf trims XML whitespace only
-  and fails on a repeated element, a nested element or an unread attribute. The differential
+  and fails on a repeated element, a nested element or an unread attribute (xsi:type,
+  xsi:schemaLocation and xsi:noNamespaceSchemaLocation are dropped first). The differential
   fuzz in test/parse-hardening.test.ts compares the 15 modelled fields of its template with
   libxml2; never re-enable `htmlEntities` or `trimValues`.
 - IBAN by mod-97 checksum. BIC by format when present.
@@ -270,7 +271,7 @@ deep-equal.
   (default basic) and parse (default extended), `SepaCharset`, `toSepaCharset` from the vendored
   EPC conversion table, DK variants refuse extended, identifiers/references/codes basic in every
   mode. parse decodes numeric character references and accepts only well-formed XML.
-- ~960 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+- ~970 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
   per type at 200 runs) + 4 parse fuzz properties at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures + ultimate-parties + purpose-codes +
   mandate-amendment + structured-remittance suites. Property arbitraries are constrained to
