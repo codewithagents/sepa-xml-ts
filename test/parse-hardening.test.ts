@@ -1072,6 +1072,24 @@ describe('parse() reads element text the way an XML parser reads it', () => {
     expect(parsedTransfer(xml).amount).toEqual(euros('1.00'))
   })
 
+  it('should read an empty Ustrd as absent remittance information, in pain.001 and pain.008', () => {
+    const directDebit = writeDirectDebit({
+      ...MINIMAL_DD,
+      batches: MINIMAL_DD.batches.map((batch) => ({
+        ...batch,
+        collections: batch.collections.map((c) => ({ ...c, remittanceInfo: 'Invoice 1' })),
+      })),
+    })
+    for (const empty of ['<Ustrd/>', '<Ustrd></Ustrd>']) {
+      const creditTransfer = parse(withRemittanceXml(empty))
+      expect(creditTransfer.ok ? creditTransfer.data : creditTransfer, empty).toStrictEqual(
+        MINIMAL_CT
+      )
+      const debit = parse(directDebit.replace(USTRD, empty))
+      expect(debit.ok ? debit.data : debit, empty).toStrictEqual(MINIMAL_DD)
+    }
+  })
+
   it('should return ok:false for two Ustrd elements instead of dropping both (review repro)', async () => {
     const xml = withRemittanceXml(`${USTRD}<Ustrd>Invoice 2</Ustrd>`)
     expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
