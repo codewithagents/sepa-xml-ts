@@ -125,9 +125,10 @@ deep-equal.
   variants throw on extended. A new string field must be classified in the kind table of
   test/extended-charset.test.ts, whose schema walker fails otherwise.
 - parse never throws (a backstop returns ok:false) and accepts only well-formed XML 1.0 with
-  namespaces and no DTD (src/xml-wellformedness.ts, character loops, no backtracking regex), plus
-  two fast-xml-parser rules: no PI quote open at its `?>`, no element or attribute name with a JS
-  `\s` character. fast-xml-parser decodes through `XML_REFERENCE_DECODER` (src/xml-references.ts)
+  namespaces and no DTD (src/xml-wellformedness.ts: linear-time scans that cannot overflow the
+  stack, character data and names scanned with loops), plus two fast-xml-parser rules: no PI
+  quote open at its `?>`, no element or attribute name with a JS `\s` character. fast-xml-parser
+  decodes through `XML_REFERENCE_DECODER` (src/xml-references.ts)
   with `trimValues: false` and `ignorePiTags: true`; the parser's textOf trims XML whitespace only
   and fails on a repeated element, a nested element or an unread attribute. The differential
   fuzz in test/parse-hardening.test.ts compares the 15 modelled fields of its template with
