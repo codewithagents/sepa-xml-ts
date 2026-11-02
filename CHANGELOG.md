@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v1.1.0...sepa-xml-ts-v1.2.0) (2026-11-02)
+
+
+### Features
+
+* opt-in EPC217-08 extended character set for text fields, with a charset option on write, validate and parse ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+* toSepaCharset converts text with the official EPC217-08 conversion table ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+
+
+### Bug Fixes
+
+* **deps:** update fast-xml-parser to 5.11, zod to 4.6 and libxml2-wasm to 0.7.2 ([88370b2](https://github.com/codewithagents/sepa-xml-ts/commit/88370b27c4dd86b8a7bf89a0494f4e56d85279d9))
+* **parser:** accept only well-formed XML and decode numeric character references, so undefined entities, a bare ampersand and mismatched tags return ok:false ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+* **parser:** never throw, and scan large text nodes in linear time ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+* **parser:** read element text as XML does, keeping whitespace next to CDATA, text around processing instructions and non-XML spaces at the edges ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+* **parser:** return ok:false for a repeated or unreadable element instead of dropping it silently ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+* **xsd:** read the input as UTF-8 whatever encoding its declaration names ([f46b335](https://github.com/codewithagents/sepa-xml-ts/commit/f46b3357e62422e8cf208da4942837cbbdb71856))
+
 ## [1.1.0](https://github.com/codewithagents/sepa-xml-ts/compare/sepa-xml-ts-v1.0.1...sepa-xml-ts-v1.1.0) (2026-06-05)
 
 
