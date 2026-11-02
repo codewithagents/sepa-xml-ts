@@ -133,9 +133,12 @@ toSepaCharset('Müller & Söhne') // 'Muller + Sohne'
 toSepaCharset('Maja Štupica 🎉', { charset: 'extended' }) // 'Maja Štupica .'
 ```
 
-`toSepaCharset` normalizes to NFC, applies the section 6.2 sender rules (`&` to `+`, `@` to
-`(at)`, `€` to `E`, `_` to `-`), then the table's basic conversion, and uses a full stop for
-anything without a conversion (emoji, other scripts, typographic quotes such as `’`). It never
+`toSepaCharset` normalizes to NFC and keeps every character already in the target set: basic
+Latin by default, the whole extended set with `{ charset: 'extended' }` (so `&`, `@` and `€`
+stay). Characters outside the target set get the same treatment for both targets: the section
+6.2 sender rules (`&` to `+`, `@` to `(at)`, `€` to `E`, `_` to `-`), then the table's basic
+conversion, and a full stop for anything without a conversion (emoji, other scripts,
+typographic quotes such as `’`). It never
 drops, trims or truncates, so the result can exceed a field's maximum length. It converts one to
 one (`ä` to `a`, `ß` to `s`); apply the German `ae`/`oe`/`ue`/`ss` convention yourself before
 calling it if you need it. The no-break space (U+00A0) becomes a plain space for both targets:

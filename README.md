@@ -367,6 +367,10 @@ toSepaCharset("Maja Štupica 🎉", { charset: "extended" }); // "Maja Štupica 
 
 - The value is normalized to NFC first, so decomposed text (`S` plus a combining caron) becomes
   `Š`.
+- A character already in the target set is kept. For the default basic target that is basic
+  Latin; for `{ charset: "extended" }` it is the whole extended set, so `Š`, `Ж`, `&`, `@`, `€`
+  and `_` stay as they are. The rules below convert only the characters outside the target set,
+  the same way for both targets (`Ŧ` becomes `T` in either).
 - EPC217-08 section 6.2 applies first: `&` becomes `+`, `@` becomes `(at)`, `€` becomes `E`,
   `_` becomes `-`.
 - Every other character uses the table's basic conversion, one to one where possible
