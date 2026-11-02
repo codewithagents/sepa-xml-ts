@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: fallow-rs/fallow@d052786ef2baf78fa5b196f06dbccd6f0d26798e # v3
+      - uses: fallow-rs/fallow@d052786ef2baf78fa5b196f06dbccd6f0d26798e # v3.38.1
         env:
           # fallow-rs/fallow nests JavaScript actions (cache, codeql-action) that may pin Node.js 20.
           # GitHub is moving action runners to Node.js 24, so opt in early to catch breakage.
