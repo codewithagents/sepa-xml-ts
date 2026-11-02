@@ -26,7 +26,7 @@
     "typescript"
   ],
   "type": "module",
-  "packageManager": "pnpm@10.34.9",
+  "packageManager": "pnpm@12.16.1",
   "sideEffects": false,
   "files": [
     "dist",
