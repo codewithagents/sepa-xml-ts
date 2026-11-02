@@ -14,7 +14,9 @@ model. It enforces all semantic constraints:
 
 - IBAN mod-97 checksum
 - BIC format (when provided)
-- SEPA charset EPC217-08 on all string fields
+- SEPA charset EPC217-08: basic Latin by default; the extended set in text fields only with
+  `{ charset: 'extended' }`; identifiers, references and codes basic Latin in every mode (see
+  [Character set](#character-set-epc217-08))
 - Amount constraints: max 2 decimal places, and the EPC AT-06 range of 0.01 to 999,999,999.99 EUR per transaction
 - Identifier slash rules: MsgId, PmtInfId, and EndToEndId must not start or end with `/` and must not contain `//`
 - Date format `YYYY-MM-DD` for execution and collection dates
@@ -28,7 +30,8 @@ third-party library.
 ### `validateCreditTransfer(input, options?)`
 
 Validates any unknown input as a `CreditTransferDocument`. Returns a typed result.
-Accepts an optional `{ profile }` option to run bank-profile checks on top of the base Zod rules.
+Accepts an optional `{ profile }` option to run bank-profile checks on top of the base Zod rules,
+and an optional `{ charset }` option (default `'basic'`).
 
 ```typescript
 import { validateCreditTransfer, requireBic } from 'sepa-xml-ts'
@@ -79,8 +82,109 @@ type ValidationResult<T> =
 ## Writers validate implicitly
 
 `writeCreditTransfer` and `writeDirectDebit` run the same validation internally. If the model
-fails, they throw a `ValidationError` with the same issue list. You do not have to call
-`validateCreditTransfer` separately before writing unless you want the typed result shape.
+fails, they throw an `Error` whose message lists the same issues as `path: message`. You do not
+have to call `validateCreditTransfer` separately before writing unless you want the typed result
+shape.
+
+## Character set (EPC217-08)
+
+SEPA defines a basic Latin set every bank accepts: `a-z A-Z 0-9 space / - ? : ( ) . , ' +`.
+EPC217-08 extends it with the local-language and special characters of its official conversion
+table (for example `č š ž ä ö ü ß`, Greek and Cyrillic letters, `€ & @`), which banks may accept
+by prior agreement.
+
+| Function                                        | Default `charset` |
+| ----------------------------------------------- | ----------------- |
+| `writeCreditTransfer`, `writeDirectDebit`       | `'basic'`         |
+| `validateCreditTransfer`, `validateDirectDebit` | `'basic'`         |
+| `parse`                                         | `'extended'`      |
+
+`parse` defaults to `'extended'` because EPC217-08 asks a receiver to process text as received
+and to reject only characters outside the conversion table. Use `parse(xml, { charset: 'basic' })`
+for the strict check. A parsed document with extended text needs `{ charset: 'extended' }` to be
+written again.
+
+The option applies to human-readable **text fields** only (EPC217-08 section 6.3):
+
+- **Text fields follow the option:** party names, postal address fields (except `country`), and
+  unstructured remittance information (`remittanceInfo`).
+- **Basic Latin in every mode:** `messageId`, batch `id`, `endToEndId`, the mandate id, purpose and
+  category-purpose codes (including `proprietary`), structured party identifications, and every
+  field of a structured remittance.
+
+A value outside the set fails with a message that names each character and its code point:
+
+```text
+creditor.name: Value contains characters outside the SEPA charset (EPC217-08): "Š" (U+0160).
+By default only the basic Latin set is allowed (a-z A-Z 0-9 space / - ? : ( ) . , ' +). If your
+bank accepts the EPC217-08 extended character set, pass { charset: 'extended' }
+(SepaCharset.Extended). Otherwise convert the value with toSepaCharset(value).
+```
+
+```typescript
+import { writeDirectDebit, toSepaCharset, SepaCharset } from 'sepa-xml-ts'
+
+// Your bank accepts the extended set:
+const xml = writeDirectDebit(doc, { charset: SepaCharset.Extended })
+
+// Otherwise convert text fields with the official EPC conversion table:
+toSepaCharset('Maja Štupica') // 'Maja Stupica'
+toSepaCharset('Müller & Söhne') // 'Muller + Sohne'
+toSepaCharset('Maja Štupica 🎉', { charset: 'extended' }) // 'Maja Štupica .'
+```
+
+`toSepaCharset` normalizes to NFC and keeps every character already in the target set: basic
+Latin by default, the whole extended set with `{ charset: 'extended' }` (so `&`, `@` and `€`
+stay). Characters outside the target set get the same treatment for both targets: the section
+6.2 sender rules (`&` to `+`, `@` to `(at)`, `€` to `E`, `_` to `-`), then the table's basic
+conversion, and a full stop for anything without a conversion (emoji, other scripts,
+typographic quotes such as `’`). It never
+drops, trims or truncates, so the result can exceed a field's maximum length. It converts one to
+one (`ä` to `a`, `ß` to `s`); apply the German `ae`/`oe`/`ue`/`ss` convention yourself before
+calling it if you need it. The no-break space (U+00A0) becomes a plain space for both targets:
+text fields do not accept it in either charset, because the table converts it to a space and it
+would not survive a round trip.
+
+<Aside type="caution">
+  The German DK variants (`pain.001.003.03`, `pain.008.003.02`) throw on `{ charset: 'extended' }`:
+  the DK formats define their own character rules (DFU-Abkommen Anlage 3), which this library does
+  not ship.
+</Aside>
+
+The writers return a string with an `encoding="UTF-8"` declaration and write extended characters
+as they are (only `& < > " '` are escaped). Save files as UTF-8. `parse` and `validateXsd` take a
+string and ignore the encoding its XML declaration names, so decode a received file with the
+encoding it is actually written in: `readFileSync(path, 'utf8')` for UTF-8,
+`readFileSync(path, 'latin1')` for an ISO-8859-1 file.
+
+`parse` never throws. It accepts only well-formed XML 1.0 with namespaces and without a DTD: it
+decodes numeric character references such as `&#352;` and the five predefined entities, and
+returns `ok: false` for a bare `&`, an undefined entity such as `&nbsp;`, a reference to an
+illegal character, a mismatched end tag, `<![` outside a CDATA section, content outside the root
+element, an undeclared prefix or a reserved namespace name bound the wrong way. Two rules are its
+own, for constructs the underlying XML parser would read differently: a processing instruction
+with a quote still open at its `?>`, and an element or attribute name that holds U+1680 or
+U+FEFF.
+
+Element text is read as XML reads it: CDATA sections and the text around comments and
+processing instructions are joined as written, and only space, tab, CR and LF are trimmed at the
+ends (raw or as a reference); U+00A0 and the other Unicode spaces are kept, so the charset check
+sees them. An element the model holds once that occurs twice (two `Ustrd`), a text element that
+contains an element, or a text element with an attribute the model does not hold (such as
+`xmlns="urn:other"` or `xsi:nil`) returns `ok: false`, so no value is dropped or misread.
+`xsi:type`, `xsi:schemaLocation` and `xsi:noNamespaceSchemaLocation` are allowed on any element,
+under any prefix bound to `http://www.w3.org/2001/XMLSchema-instance`: no type in these schemas
+derives from the type of an element, so `xsi:type` can only restate it. An empty optional
+element such as `<Ustrd/>` reads as absent.
+
+A differential fuzz (four fast-check properties, 300 runs each) checks on generated pain.001
+documents that `parse` accepts only what libxml2 finds well-formed, and that each of the 15
+modelled text fields of its template equals libxml2's text after that trimming. Known limits:
+elements are matched by the name they are written with, not by namespace, so a text element
+below a parent that redeclares the default namespace is still read and a prefixed
+`<p:Document>` is not recognized; the declared encoding is not checked; content the model does not hold (unmodelled
+elements, text directly inside an element that holds elements) is not read; and `validateXsd`
+throws, instead of returning `valid: false`, when libxml2 cannot read the document at all.
 
 ## Layer 2: XSD validation (optional)
 
@@ -99,8 +203,8 @@ if (!xsdResult.valid) {
 }
 ```
 
-`validateXsd` auto-detects the message type and namespace from the XML and selects the correct
-XSD. It covers all seven schemas:
+`validateXsd` reads the message type and namespace from the root `<Document>` element and
+selects the correct XSD. It covers all seven schemas:
 
 - `pain.001.001.09`
 - `pain.001.003.03` (German DK)

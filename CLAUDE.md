@@ -21,8 +21,11 @@ Three operations behind one type-safe model that abstracts the XML (does NOT mir
   (writeCreditTransfer/writeDirectDebit take `{ variant }`). `parse` auto-detects the message type.
 - Read-only coexistence: parse `pain.008.001.02` (write not supported); `validateXsd` covers all six schemas.
   Note `pain.001.001.03` is now a write target (see above), not read-only.
-- SEPA Creditor Identifier check digits validated (ISO 7064 MOD 97-10, strict). Full EPC 217-08
-  charset transliteration. SvcLvl/Cd=SEPA + ChrgBr=SLEV emitted on both message types.
+- SEPA Creditor Identifier check digits validated (ISO 7064 MOD 97-10, strict). SvcLvl/Cd=SEPA +
+  ChrgBr=SLEV emitted on both message types.
+- EPC217-08 character sets: basic Latin by default, the extended set as an opt-in for text fields
+  (`{ charset }`), and `toSepaCharset` built from the official conversion table. Source, sha256,
+  errata and decisions: test/fixtures/epc217-08/NOTICE.md.
 - DK variant `pain.001.003.03` ships with XSD oracle at schemas/dk/ (DFU-Abkommen Anlage 3 v2.7).
 - Out: bank connectivity / transmission (EBICS, FinTS, Peppol).
 
@@ -43,7 +46,10 @@ official XSD + golden samples. A wrong flavor is worse than none.
 - `package.json` has `sideEffects: false` and `files: [dist, schemas]` (the XSD ships and is
   loaded at runtime by `./xsd`, so it must be in the tarball).
 - Zod is the single source of truth: model = schemas, business rules = refinements, types = `z.infer`.
-- Curate the public surface by hand in `src/index.ts`. Keep IBAN/charset/escaper helpers internal.
+- Curate the public surface by hand in `src/index.ts`. Keep IBAN helpers, charset predicates and the
+  escaper internal; the only public charset surface is `SepaCharset` + `toSepaCharset`.
+- src/model/epc217-08-table.ts is generated from test/fixtures/epc217-08/conversion-table.json by
+  test/epc217-08-table.test.ts (`UPDATE_EPC217_08_TABLE=true`); never edit it by hand.
 
 ## The model (public contract) and how it maps to the XSD
 
@@ -111,7 +117,23 @@ deep-equal.
 - Amount format: exactly 2 decimals, dot separator, no grouping, `Ccy="EUR"`.
 - Amount range (EPC AT-06): 0.01 to 999,999,999.99 EUR per transaction, i.e. 1n to 99_999_999_999n minor units.
 - Identifier slash rules: MsgId, PmtInfId, EndToEndId must not start/end with `/` nor contain `//` (NOT applied to mandate id or party names, per the EPC scope).
-- SEPA charset EPC217-08 (a-z A-Z 0-9 space `/ - ? : ( ) . , ' +`), separate from XML escaping.
+- SEPA charset EPC217-08, separate from XML escaping: basic Latin (a-z A-Z 0-9 space
+  `/ - ? : ( ) . , ' +`) by default; the extended set only in text fields (names, addresses,
+  Ustrd) with `{ charset: 'extended' }`; identifiers, references and codes basic Latin in every
+  mode (EPC217-08 6.3; `sepaText` / `sepaReference` / `sepaIdentifier` in src/model/shared.ts are
+  the only places the rule lives). parse defaults to extended, write and validate to basic. The DK
+  variants throw on extended. A new string field must be classified in the kind table of
+  test/extended-charset.test.ts, whose schema walker fails otherwise.
+- parse never throws (a backstop returns ok:false) and accepts only well-formed XML 1.0 with
+  namespaces and no DTD (src/xml-wellformedness.ts: linear-time scans that cannot overflow the
+  stack, character data and names scanned with loops), plus two fast-xml-parser rules: no PI
+  quote open at its `?>`, no element or attribute name with a JS `\s` character. fast-xml-parser
+  decodes through `XML_REFERENCE_DECODER` (src/xml-references.ts)
+  with `trimValues: false` and `ignorePiTags: true`; the parser's textOf trims XML whitespace only
+  and fails on a repeated element, a nested element or an unread attribute (xsi:type,
+  xsi:schemaLocation and xsi:noNamespaceSchemaLocation are dropped first). The differential
+  fuzz in test/parse-hardening.test.ts compares the 15 modelled fields of its template with
+  libxml2; never re-enable `htmlEntities` or `trimValues`.
 - IBAN by mod-97 checksum. BIC by format when present.
 - SEPA Creditor Identifier: ISO 7064 MOD 97-10 with the business code (positions 5-7) EXCLUDED from the check (verified by test); German `DE` ids must be exactly 18 chars.
 - Dates not datetimes for execution date.
@@ -122,8 +144,10 @@ deep-equal.
 - XSD-as-oracle property test: any valid model -> write -> validates against the official XSD. numRuns >= 200.
 - Round-trip property test: any valid model -> write -> parse -> deep-equals original. Anchor on the
   MODEL (model->XML->model), never XML->model->XML (formatting noise causes false failures). numRuns >= 200.
-- fast-check arbitraries: mod-97-correct IBANs, nasty-unicode names that sanitize, boundary amounts
-  (`euros("0.01")`, large batches), with/without bic and remittanceInfo.
+- fast-check arbitraries: mod-97-correct IBANs, nasty-unicode names converted with toSepaCharset,
+  boundary amounts (`euros("0.01")`, large batches), with/without bic and remittanceInfo. Document
+  arbitraries take a charset; extended text-field suites (XSD oracle + round-trip, 200 runs) cover
+  pain.001.001.09, pain.008.001.08 and pain.001.001.03.
 - Official XSD lives at `schemas/iso20022/pain.001.001.09.xsd` (the ground truth; do not infer from samples).
 
 ## Dev workflow
@@ -156,7 +180,7 @@ deep-equal.
   strings like `"pain.001.001.09"` still type-check everywhere they did. Discriminator literals stay
   `'pain.001'` / `'pain.008'`.
 - The earlier coexistence work also ships: reading (.03/.02), SEPA rulebook elements on both types,
-  dual validate, fuzz-hardened parse, complete EPC transliteration, golden corpus, differential tests
+  dual validate, fuzz-hardened parse, golden corpus, differential tests
   vs sepa.js, bank-profile seam + requireBic, DK pain.001.003.03 write+read variant.
 - pain.008 sequence-type and mandate cross-field validation (R1/R2/R3/R4) ships and is enforced by
   both validateDirectDebit (returns ruleIssues) and writeDirectDebit (throws before emitting XML).
@@ -243,8 +267,12 @@ deep-equal.
   the parser extractor was decomposed (extractAmendmentScalarFields / extractOrgnlDbtrAgt /
   extractOrgnlCdtrSchmeId) to stay under the complexity thresholds. The SMNDA property arbitrary path
   is covered by unit tests, not the property suite, because R4 couples it to the batch sequenceType.
-- ~671 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
-  per type at 200 runs) + 3 parse fuzz suites at 300 runs + sequence-rules + iso003-variant +
+- Opt-in EPC217-08 extended charset for text fields ships (#45): `charset` on write/validate
+  (default basic) and parse (default extended), `SepaCharset`, `toSepaCharset` from the vendored
+  EPC conversion table, DK variants refuse extended, identifiers/references/codes basic in every
+  mode. parse decodes numeric character references and accepts only well-formed XML.
+- ~970 tests green: unit + golden + differential + the property suites (XSD-oracle and round-trip
+  per type at 200 runs) + 4 parse fuzz properties at 300 runs + sequence-rules + iso003-variant +
   validation-rules + creditor-id + external-fixtures + ultimate-parties + purpose-codes +
   mandate-amendment + structured-remittance suites. Property arbitraries are constrained to
   satisfy the new rules by construction (amount cap, slash-free identifiers, globally-unique mandate

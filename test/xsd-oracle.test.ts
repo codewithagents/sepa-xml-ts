@@ -16,12 +16,11 @@ import { writeCreditTransfer } from '../src/writer/writer.js'
 import { writeDirectDebit } from '../src/writer/direct-debit.js'
 import { parse } from '../src/parser/parser.js'
 import { validateXsd } from '../src/xsd.js'
-import { sanitizeSepa } from '../src/model/charset.js'
+import { toSepaCharset } from '../src/model/charset.js'
 import { buildCreditorId, isValidCreditorId } from '../src/model/creditor-id.js'
 import { euros, formatMoney } from '../src/model/schema.js'
 import type {
   CreditTransferDocument,
-  AccountParty,
   Transfer,
   PaymentBatch,
   UltimateParty,
@@ -45,12 +44,18 @@ import {
   arbSepaIdentifier,
   arbCreatedAt,
   arbDate,
-  arbPartyName,
+  arbPartyNameFor,
+  arbTextFor,
   arbBic,
   arbMoney,
   arbPostalAddress,
+  arbAccountParty,
+  arbCreditTransferDocumentFrom,
   withOptionalAddress,
 } from './arbitraries.js'
+import { isSepaBasic, type SepaCharset } from '../src/model/charset.js'
+import { validateCreditTransfer, validateDirectDebit } from '../src/model/validate.js'
+import { assertXsdOracle, assertRoundTrip, PROPERTY_RUNS } from './property-suites.js'
 
 /**
  * Arbitrary for a valid LEI (18 alphanumerics + 2 check digits). Format-valid only:
@@ -159,11 +164,11 @@ function arbPartyIdentification(): fc.Arbitrary<PartyIdentification> {
  * absent party ~50% of the time, and within a present party the id is itself
  * optional, so all of {no party, name only, name + id} are exercised.
  */
-function arbUltimateParty(): fc.Arbitrary<UltimateParty | undefined> {
+function arbUltimateParty(charset: SepaCharset = 'basic'): fc.Arbitrary<UltimateParty | undefined> {
   return fc.option(
     fc
       .record({
-        name: arbSepaText(1, 70),
+        name: arbTextFor(charset, 1, 70),
         id: fc.option(arbPartyIdentification(), { nil: undefined }),
       })
       .map(({ name, id }) => (id === undefined ? { name } : { name, id })),
@@ -335,10 +340,10 @@ function arbStructuredRemittanceValue(): fc.Arbitrary<StructuredRemittance> {
  * SEPA mutual-exclusion rule: at most ONE of remittanceInfo (Ustrd) or
  * structuredRemittance (Strd). Returns an object to spread onto the model.
  */
-function arbRemittance(): fc.Arbitrary<Record<string, unknown>> {
+function arbRemittance(charset: SepaCharset = 'basic'): fc.Arbitrary<Record<string, unknown>> {
   return fc.oneof(
     fc.constant<Record<string, unknown>>({}),
-    arbSepaText(1, 140).map((r) => ({ remittanceInfo: r })),
+    arbTextFor(charset, 1, 140).map((r) => ({ remittanceInfo: r })),
     arbStructuredRemittanceValue().map((sr) => ({ structuredRemittance: sr }))
   )
 }
@@ -383,18 +388,23 @@ const FREQUENCY_CODES = [
  * Each field is independently optional. SMNDA is intentionally excluded (see arbMandateAmendment),
  * so originalDebtorAgent (a real BIC) is always free of the SMNDA mutual-exclusion conflict.
  */
-function arbAmendmentExtraFields(): fc.Arbitrary<Partial<MandateAmendment>> {
+function arbAmendmentExtraFields(
+  charset: SepaCharset = 'basic'
+): fc.Arbitrary<Partial<MandateAmendment>> {
   return fc
     .record({
       originalCreditorSchemeId: fc.option(
         fc.record(
-          { name: fc.option(arbPartyName(), { nil: undefined }), creditorId: arbCreditorId() },
+          {
+            name: fc.option(arbPartyNameFor(charset), { nil: undefined }),
+            creditorId: arbCreditorId(),
+          },
           { requiredKeys: ['creditorId'] }
         ),
         { nil: undefined }
       ),
       originalDebtor: fc.option(
-        arbPartyName().map((name) => ({ name })),
+        arbPartyNameFor(charset).map((name) => ({ name })),
         { nil: undefined }
       ),
       originalDebtorAgent: fc.option(arbBic(), { nil: undefined }),
@@ -443,7 +453,9 @@ function arbAmendmentExtraFields(): fc.Arbitrary<Partial<MandateAmendment>> {
  * originalFrequency, originalReason). Because a base always sets at least one meaningful field,
  * the not-empty refinement always holds even when the extra fields happen to be empty.
  */
-function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
+function arbMandateAmendment(
+  charset: SepaCharset = 'basic'
+): fc.Arbitrary<MandateAmendment | undefined> {
   const arbBase: fc.Arbitrary<MandateAmendment> = fc.oneof(
     arbSepaText(1, 35).map((id): MandateAmendment => ({ originalMandateId: id })),
     arbIban().map((iban): MandateAmendment => ({ originalDebtorAccount: iban })),
@@ -457,7 +469,7 @@ function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
   return fc.oneof(
     fc.constant<MandateAmendment | undefined>(undefined),
     fc
-      .record({ base: arbBase, extra: arbAmendmentExtraFields() })
+      .record({ base: arbBase, extra: arbAmendmentExtraFields(charset) })
       .map(({ base, extra }): MandateAmendment => ({ ...base, ...extra }))
   )
 }
@@ -466,31 +478,16 @@ function arbMandateAmendment(): fc.Arbitrary<MandateAmendment | undefined> {
 // pain.001 arbitraries
 // ---------------------------------------------------------------------------
 
-function arbAccountParty(): fc.Arbitrary<AccountParty> {
-  return fc
-    .record({
-      name: arbPartyName(),
-      iban: arbIban(),
-      bic: fc.option(arbBic(), { nil: undefined }),
-      address: fc.option(arbPostalAddress(), { nil: undefined }),
-    })
-    .map((p) => {
-      const { address, ...withBic } = p
-      const base = withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
-      return withOptionalAddress(base as AccountParty, address)
-    })
-}
-
-function arbTransfer(): fc.Arbitrary<Transfer> {
+function arbTransfer(charset: SepaCharset = 'basic'): fc.Arbitrary<Transfer> {
   return fc
     .record({
       endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
-      ultimateDebtor: arbUltimateParty(),
-      creditor: arbAccountParty(),
-      ultimateCreditor: arbUltimateParty(),
+      ultimateDebtor: arbUltimateParty(charset),
+      creditor: arbAccountParty(charset),
+      ultimateCreditor: arbUltimateParty(charset),
       purpose: arbPurposeCode(),
-      remittance: arbRemittance(),
+      remittance: arbRemittance(charset),
     })
     .map((tx) => {
       // Strip undefined keys so the generated model matches what the parser returns
@@ -509,14 +506,14 @@ function arbTransfer(): fc.Arbitrary<Transfer> {
     })
 }
 
-function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
+function arbPaymentBatch(charset: SepaCharset = 'basic'): fc.Arbitrary<PaymentBatch> {
   return fc
     .record({
       id: arbSepaIdentifier(1, 35),
       executionDate: arbDate(),
-      debtor: arbAccountParty(),
+      debtor: arbAccountParty(charset),
       categoryPurpose: arbPurposeCode(),
-      transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
+      transfers: fc.array(arbTransfer(charset), { minLength: 1, maxLength: 5 }),
     })
     .map((batch) => {
       // Strip undefined categoryPurpose key so the generated model matches what the
@@ -532,13 +529,10 @@ function arbPaymentBatch(): fc.Arbitrary<PaymentBatch> {
     })
 }
 
-function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
-  return fc.record({
-    messageId: arbSepaIdentifier(1, 35),
-    createdAt: arbCreatedAt(),
-    initiatingParty: arbPartyName(),
-    batches: fc.array(arbPaymentBatch(), { minLength: 1, maxLength: 3 }),
-  })
+function arbCreditTransferDocument(
+  charset: SepaCharset = 'basic'
+): fc.Arbitrary<CreditTransferDocument> {
+  return arbCreditTransferDocumentFrom(charset, arbPaymentBatch(charset))
 }
 
 // ---------------------------------------------------------------------------
@@ -582,14 +576,14 @@ function arbLocalInstrument(): fc.Arbitrary<LocalInstrument> {
   return fc.constantFrom<LocalInstrument>('CORE', 'B2B')
 }
 
-function arbCreditor(): fc.Arbitrary<Creditor> {
+function arbCreditor(charset: SepaCharset = 'basic'): fc.Arbitrary<Creditor> {
   return fc
     .record({
-      name: arbPartyName(),
+      name: arbPartyNameFor(charset),
       iban: arbIban(),
       bic: fc.option(arbBic(), { nil: undefined }),
       creditorId: arbCreditorId(),
-      address: fc.option(arbPostalAddress(), { nil: undefined }),
+      address: fc.option(arbPostalAddress(charset), { nil: undefined }),
     })
     .map((c) => {
       const { address, ...withBic } = c
@@ -616,7 +610,10 @@ function arbCreditor(): fc.Arbitrary<Creditor> {
  * mandate id collisions astronomically unlikely, so R2 and R3 are always satisfied
  * without requiring stateful id tracking.
  */
-function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
+function arbCollection(
+  collectionDate: string,
+  charset: SepaCharset = 'basic'
+): fc.Arbitrary<Collection> {
   const parts = collectionDate.split('-')
   const cy = parseInt(parts[0]!, 10)
   const cm = parseInt(parts[1]!, 10)
@@ -647,28 +644,16 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
     .record({
       endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
-      ultimateCreditor: arbUltimateParty(),
-      debtor: fc
-        .record({
-          name: arbPartyName(),
-          iban: arbIban(),
-          bic: fc.option(arbBic(), { nil: undefined }),
-          address: fc.option(arbPostalAddress(), { nil: undefined }),
-        })
-        .map((d) => {
-          const { address, ...withBic } = d
-          const base =
-            withBic.bic === undefined ? (({ bic: _bic, ...rest }) => rest)(withBic) : withBic
-          return withOptionalAddress(base, address)
-        }),
-      ultimateDebtor: arbUltimateParty(),
+      ultimateCreditor: arbUltimateParty(charset),
+      debtor: arbAccountParty(charset),
+      ultimateDebtor: arbUltimateParty(charset),
       mandate: fc
         .record({
           // Minimum 10 chars reduces cross-document collision probability to < 1e-17 (R2/R3).
           // Mandate id is NOT subject to the slash rule (per the EPC rulebook).
           id: arbSepaText(10, 35),
           signatureDate: arbSignatureDate,
-          amendment: arbMandateAmendment(),
+          amendment: arbMandateAmendment(charset),
         })
         .map((m) => {
           // Strip undefined amendment key so absent amendment does not appear as a key
@@ -678,7 +663,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
           return out as { id: string; signatureDate: string; amendment?: MandateAmendment }
         }),
       purpose: arbPurposeCode(),
-      remittance: arbRemittance(),
+      remittance: arbRemittance(charset),
     })
     .map((col) => {
       // Strip undefined keys so the generated model matches what the parser returns
@@ -698,7 +683,7 @@ function arbCollection(collectionDate: string): fc.Arbitrary<Collection> {
     })
 }
 
-function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
+function arbDirectDebitBatch(charset: SepaCharset = 'basic'): fc.Arbitrary<DirectDebitBatch> {
   // Chain from collectionDate so that each Collection's signatureDate can be
   // constrained to be <= collectionDate (R1 requirement).
   return fc
@@ -714,7 +699,7 @@ function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
     })
     .chain((batchBase) =>
       fc
-        .array(arbCollection(batchBase.collectionDate), { minLength: 1, maxLength: 5 })
+        .array(arbCollection(batchBase.collectionDate, charset), { minLength: 1, maxLength: 5 })
         .map((collections) => {
           // Strip an absent categoryPurpose key so the generated model matches what
           // the parser returns (undefined keys would break deep-equal).
@@ -726,14 +711,14 @@ function arbDirectDebitBatch(): fc.Arbitrary<DirectDebitBatch> {
     )
 }
 
-function arbDirectDebitDocument(): fc.Arbitrary<DirectDebitDocument> {
+function arbDirectDebitDocument(charset: SepaCharset = 'basic'): fc.Arbitrary<DirectDebitDocument> {
   return fc
     .record({
       messageId: arbSepaIdentifier(1, 35),
       createdAt: arbCreatedAt(),
-      initiatingParty: arbPartyName(),
-      creditor: arbCreditor(),
-      batches: fc.array(arbDirectDebitBatch(), { minLength: 1, maxLength: 3 }),
+      initiatingParty: arbPartyNameFor(charset),
+      creditor: arbCreditor(charset),
+      batches: fc.array(arbDirectDebitBatch(charset), { minLength: 1, maxLength: 3 }),
     })
     .map((doc) => {
       // Rewrite every mandate id to a globally unique value so the document
@@ -897,17 +882,17 @@ describe('pain.001 sample model: write XSD validity and parse round-trip', () =>
     expect(parsed.data).toEqual(sampleDoc)
   })
 
-  it('sanitizes unicode names and still produces valid XSD output', async () => {
+  it('converts unicode names with toSepaCharset and still produces valid XSD output', async () => {
     const doc: CreditTransferDocument = {
       messageId: 'UNICODE-TEST-01',
       createdAt: '2024-06-01T09:00:00Z',
-      initiatingParty: sanitizeSepa('Müller und Söhne GmbH'),
+      initiatingParty: toSepaCharset('Müller & Söhne GmbH'),
       batches: [
         {
           id: 'PI-UNICODE-01',
           executionDate: '2024-07-01',
           debtor: {
-            name: sanitizeSepa('Schroeder Ueberweisungen AG'),
+            name: toSepaCharset('Schröder Überweisungen AG'),
             iban: 'DE89370400440532013000',
           },
           transfers: [
@@ -915,7 +900,7 @@ describe('pain.001 sample model: write XSD validity and parse round-trip', () =>
               endToEndId: 'E2E-UNICODE',
               amount: euros('50.00'),
               creditor: {
-                name: sanitizeSepa('Cafe Resume Nonyo'),
+                name: toSepaCharset('Café Résumé Ñoño'),
                 iban: 'DE65200400300234567000',
               },
             },
@@ -924,9 +909,11 @@ describe('pain.001 sample model: write XSD validity and parse round-trip', () =>
       ],
     }
 
-    const xml = writeCreditTransfer(doc)
-    const result = await validateXsd(xml)
-    expect(result.valid, `XSD errors: ${result.errors.join(', ')}`).toBe(true)
+    expect(doc.initiatingParty).toBe('Muller + Sohne GmbH')
+    expect(doc.batches[0]?.debtor.name).toBe('Schroder Uberweisungen AG')
+    expect(doc.batches[0]?.transfers[0]?.creditor.name).toBe('Cafe Resume Nono')
+    const { valid, errors } = await validateXsd(writeCreditTransfer(doc))
+    expect(valid, `XSD errors: ${errors.join(', ')}`).toBe(true)
   })
 })
 
@@ -1271,5 +1258,128 @@ describe('buildCreditorId: computes correct check digits and produces valid outp
     const checkDigits = id.slice(2, 4)
     expect(checkDigits).toHaveLength(2)
     expect(/^\d{2}$/.test(checkDigits)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EPC217-08 extended charset: XSD oracle, round-trip and consistency properties.
+// Text-kind fields draw from the extended set; every other field stays basic.
+// ---------------------------------------------------------------------------
+
+const EXTENDED = { charset: 'extended' } as const
+
+function stringsIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(stringsIn)
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(stringsIn)
+  return []
+}
+
+function isAllBasic(doc: unknown): boolean {
+  return stringsIn(doc).every((text) => isSepaBasic(text))
+}
+
+describe('XSD Oracle: pain.001.001.09 with extended text (numRuns=200)', () => {
+  it('property: forAll extended models, writeCreditTransfer(doc, { charset: extended }) is XSD-valid', async () => {
+    await assertXsdOracle(arbCreditTransferDocument('extended'), (doc) =>
+      writeCreditTransfer(doc, EXTENDED)
+    )
+  })
+})
+
+describe('Round-trip: pain.001.001.09 with extended text (numRuns=200)', () => {
+  it('property: forAll extended models, parse(write(model)) deep-equals the model', () => {
+    assertRoundTrip(
+      arbCreditTransferDocument('extended'),
+      (doc) => writeCreditTransfer(doc, EXTENDED),
+      'pain.001'
+    )
+  })
+})
+
+describe('XSD Oracle: pain.008.001.08 with extended text (numRuns=200)', () => {
+  it('property: forAll extended models, writeDirectDebit(doc, { charset: extended }) is XSD-valid', async () => {
+    await assertXsdOracle(arbDirectDebitDocument('extended'), (doc) =>
+      writeDirectDebit(doc, EXTENDED)
+    )
+  })
+})
+
+describe('Round-trip: pain.008.001.08 with extended text (numRuns=200)', () => {
+  it('property: forAll extended models, parse(write(model)) deep-equals the model', () => {
+    assertRoundTrip(
+      arbDirectDebitDocument('extended'),
+      (doc) => writeDirectDebit(doc, EXTENDED),
+      'pain.008'
+    )
+  })
+})
+
+describe('Charset consistency properties (numRuns=200)', () => {
+  const charsets: SepaCharset[] = ['basic', 'extended']
+
+  it('should generate extended text in most extended models, so the suites are not vacuous', () => {
+    const ctSamples = fc.sample(arbCreditTransferDocument('extended'), PROPERTY_RUNS)
+    const ddSamples = fc.sample(arbDirectDebitDocument('extended'), PROPERTY_RUNS)
+    const ctExtended = ctSamples.filter((doc) => !isAllBasic(doc)).length
+    const ddExtended = ddSamples.filter((doc) => !isAllBasic(doc)).length
+    expect(ctExtended).toBeGreaterThan(PROPERTY_RUNS * 0.8)
+    expect(ddExtended).toBeGreaterThan(PROPERTY_RUNS * 0.8)
+  })
+
+  it('monotonicity: a basic-valid document validates identically under extended', () => {
+    fc.assert(
+      fc.property(arbCreditTransferDocument(), arbDirectDebitDocument(), (ct, dd) => {
+        const ctBasic = validateCreditTransfer(ct)
+        const ctExtended = validateCreditTransfer(ct, EXTENDED)
+        const ddBasic = validateDirectDebit(dd)
+        const ddExtended = validateDirectDebit(dd, EXTENDED)
+        expect(ctBasic.ok && ctExtended.ok && ddBasic.ok && ddExtended.ok).toBe(true)
+        if (ctBasic.ok && ctExtended.ok) expect(ctExtended.data).toEqual(ctBasic.data)
+        if (ddBasic.ok && ddExtended.ok) expect(ddExtended.data).toEqual(ddBasic.data)
+      }),
+      { numRuns: PROPERTY_RUNS }
+    )
+  })
+
+  it('parse/validate agreement: parse(xml, { charset }).ok implies validate(data, { charset }).ok with equal data', () => {
+    fc.assert(
+      fc.property(
+        arbCreditTransferDocument('extended'),
+        arbDirectDebitDocument('extended'),
+        fc.constantFrom(...charsets),
+        (ct, dd, charset) => {
+          const ctParsed = parse(writeCreditTransfer(ct, EXTENDED), { charset })
+          if (ctParsed.ok && ctParsed.type === 'pain.001') {
+            const validated = validateCreditTransfer(ctParsed.data, { charset })
+            expect(validated.ok).toBe(true)
+            if (validated.ok) expect(validated.data).toEqual(ctParsed.data)
+          }
+          const ddParsed = parse(writeDirectDebit(dd, EXTENDED), { charset })
+          if (ddParsed.ok && ddParsed.type === 'pain.008') {
+            const validated = validateDirectDebit(ddParsed.data, { charset })
+            expect(validated.ok).toBe(true)
+            if (validated.ok) expect(validated.data).toEqual(ddParsed.data)
+          }
+        }
+      ),
+      { numRuns: PROPERTY_RUNS }
+    )
+  })
+
+  it('strict parse: parse(write(doc, extended), { charset: basic }) fails iff a text field is not basic Latin', () => {
+    fc.assert(
+      fc.property(
+        arbCreditTransferDocument('extended'),
+        arbDirectDebitDocument('extended'),
+        (ct, dd) => {
+          const ctParsed = parse(writeCreditTransfer(ct, EXTENDED), { charset: 'basic' })
+          const ddParsed = parse(writeDirectDebit(dd, EXTENDED), { charset: 'basic' })
+          expect(ctParsed.ok).toBe(isAllBasic(ct))
+          expect(ddParsed.ok).toBe(isAllBasic(dd))
+        }
+      ),
+      { numRuns: PROPERTY_RUNS }
+    )
   })
 })

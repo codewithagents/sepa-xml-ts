@@ -58,8 +58,8 @@ let cachedValidator008_003_02: unknown = null
 /**
  * Detect the ISO 20022 namespace declared on the root Document element.
  * Delegates to the shared detectSepaNamespace helper (see src/xmlns-detect.ts),
- * which strips XML comments before matching and anchors the search to the
- * <Document> opening tag to prevent namespace-steering via crafted comments.
+ * which skips the prolog and reads the root <Document> start tag only, so a
+ * namespace in a comment or processing instruction cannot steer schema selection.
  */
 function detectNamespace(xml: string): string | null {
   return detectSepaNamespace(xml)
@@ -167,7 +167,11 @@ export async function validateXsd(xml: string): Promise<XsdResult> {
     // entities (both general and parameter entities). This is a defense-in-depth
     // measure alongside the DOCTYPE guard above. The ParseOption enum is
     // well-documented in the libxml2-wasm type declarations (document.d.mts).
-    xmlDoc = XmlDocument.fromString(xml, { option: ParseOption.XML_PARSE_NO_XXE })
+    // encoding 'utf-8': the string is already decoded, whatever its declaration names.
+    xmlDoc = XmlDocument.fromString(xml, {
+      option: ParseOption.XML_PARSE_NO_XXE,
+      encoding: 'utf-8',
+    })
     validator.validate(xmlDoc)
     return { valid: true, errors: [] }
   } catch (err) {

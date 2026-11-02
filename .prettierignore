@@ -4,3 +4,4 @@ coverage/**
 schemas/**
 pnpm-lock.yaml
 **/*.md
+test/fixtures/epc217-08/conversion-table.json

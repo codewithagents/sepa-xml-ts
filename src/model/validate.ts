@@ -4,8 +4,9 @@
  */
 
 import { z } from 'zod'
-import { CreditTransferDocumentSchema, type CreditTransferDocument } from './schema.js'
-import { DirectDebitDocumentSchema, type DirectDebitDocument } from './pain008.js'
+import { creditTransferSchemasFor, type CreditTransferDocument } from './schema.js'
+import { directDebitSchemasFor, type DirectDebitDocument } from './pain008.js'
+import { resolveSepaCharset, SepaCharset } from './charset.js'
 import type { BankProfile, ProfileIssue } from '../profile/profile.js'
 import { checkDirectDebitRules } from './dd-rules.js'
 
@@ -31,6 +32,15 @@ export interface ValidateOptions {
    * Profile issues are merged into the result; ok is true only if both pass.
    */
   profile?: BankProfile
+  /**
+   * The character set for human-readable text fields (names, addresses, remittance
+   * information). Defaults to 'basic' (SepaCharset.Basic), the basic Latin set every
+   * SEPA bank accepts. Pass 'extended' (SepaCharset.Extended) to also accept the
+   * EPC217-08 extended set (for example č š ž ä ß Ж € & @), but only if your bank has
+   * agreed to receive it. Identifiers, references and codes stay basic Latin in every
+   * mode (EPC217-08 section 6.3).
+   */
+  charset?: SepaCharset
 }
 
 /**
@@ -39,14 +49,16 @@ export interface ValidateOptions {
  * if both the schema and the profile pass.
  *
  * @param input unknown input to validate
- * @param options optional validation options (profile)
+ * @param options optional validation options (profile, charset)
  * @returns ValidationResult with either the parsed data or the errors
+ * @throws Error if options.charset is not 'basic' or 'extended'
  */
 export function validateCreditTransfer(
   input: unknown,
   options?: ValidateOptions
 ): ValidationResult {
-  const result = CreditTransferDocumentSchema.safeParse(input)
+  const charset = resolveSepaCharset(options?.charset, SepaCharset.Basic)
+  const result = creditTransferSchemasFor(charset).CreditTransferDocument.safeParse(input)
   if (!result.success) {
     return { ok: false, errors: result.error.issues }
   }
@@ -69,14 +81,16 @@ export function validateCreditTransfer(
  * if both the schema and the profile pass.
  *
  * @param input unknown input to validate
- * @param options optional validation options (profile)
+ * @param options optional validation options (profile, charset)
  * @returns DirectDebitValidationResult with either the parsed data or the errors
+ * @throws Error if options.charset is not 'basic' or 'extended'
  */
 export function validateDirectDebit(
   input: unknown,
   options?: ValidateOptions
 ): DirectDebitValidationResult {
-  const result = DirectDebitDocumentSchema.safeParse(input)
+  const charset = resolveSepaCharset(options?.charset, SepaCharset.Basic)
+  const result = directDebitSchemasFor(charset).DirectDebitDocument.safeParse(input)
   if (!result.success) {
     return { ok: false, errors: result.error.issues }
   }

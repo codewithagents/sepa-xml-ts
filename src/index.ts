@@ -15,6 +15,7 @@
  *
  * Shared:
  * - parse: auto-detects pain.001 or pain.008 and returns a discriminated union
+ *   (ParseOptions.charset: 'extended' by default)
  * - validateCreditTransfer: validate an unknown input against the pain.001 document schema
  * - validateDirectDebit: validate an unknown input against the pain.008 document schema
  *
@@ -22,7 +23,13 @@
  * - BankProfile, ProfileIssue: types for authoring overlay profiles
  * - requireBic: reference profile that mandates a BIC on every agent
  *
- * Internal helpers (IBAN validation, SEPA charset, XML escaping) are NOT re-exported.
+ * Character set (EPC217-08):
+ * - SepaCharset: the 'basic' and 'extended' character set constants, accepted as
+ *   { charset } by writeCreditTransfer, writeDirectDebit, validateCreditTransfer,
+ *   validateDirectDebit (default 'basic') and parse (default 'extended')
+ * - toSepaCharset: convert text to a SEPA character set with the EPC conversion table
+ *
+ * Internal helpers (IBAN validation, charset predicates, XML escaping) are NOT re-exported.
  * Import from "sepa-xml-ts/xsd" for XSD schema validation.
  */
 
@@ -111,6 +118,7 @@ export type {
   ParseSuccess001,
   ParseSuccess008,
   ParseFailure,
+  ParseOptions,
 } from './parser/parser.js'
 
 export { validateCreditTransfer, validateDirectDebit } from './model/validate.js'
@@ -139,3 +147,10 @@ export { requireBic, ibanBicCountryMatch } from './profile/profiles.js'
 
 // Exporting the const values also exposes the type aliases (same name, declaration merging).
 export { MessageType, CreditTransferVariant, DirectDebitVariant } from './message-types.js'
+
+// ---------------------------------------------------------------------------
+// Character set (EPC217-08)
+// ---------------------------------------------------------------------------
+
+// Exporting the const value also exposes the type alias (same name, declaration merging).
+export { SepaCharset, toSepaCharset } from './model/charset.js'

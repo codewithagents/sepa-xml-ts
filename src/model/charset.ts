@@ -1,136 +1,265 @@
 /**
- * SEPA character set as defined by EPC217-08.
- * Allowed characters: a-z A-Z 0-9, space, and / - ? : ( ) . , ' +
- * Extended Latin characters should be transliterated or removed.
+ * SEPA character sets as defined by EPC217-08, and the conversion between them.
+ *
+ * Basic Latin set (EPC Implementation Guidelines): a-z A-Z 0-9 space / - ? : ( ) . , ' +
+ * Extended set: the basic set plus the green entries of the EPC217-08 SEPA conversion
+ * table (src/model/epc217-08-table.ts, generated from test/fixtures/epc217-08/).
  */
 
-const SEPA_ALLOWED = /^[a-zA-Z0-9 /\-?:().,'+]*$/
+import { EPC217_08_EXTENDED_ONLY, EPC217_08_TO_BASIC } from './epc217-08-table.js'
 
 /**
- * Returns true if the string contains only SEPA-allowed characters.
+ * The SEPA character sets a text field can use (EPC217-08).
+ *
+ * Pass one of these (or the equivalent raw string) as `{ charset }`.
+ */
+export const SepaCharset = {
+  /**
+   * The basic Latin set every SEPA bank accepts:
+   * a-z A-Z 0-9, space and / - ? : ( ) . , ' +
+   * The default for writing and validating.
+   */
+  Basic: 'basic',
+  /**
+   * The EPC217-08 extended set: the basic set plus the local-language and special
+   * characters of the official SEPA conversion table (for example č š ž ä ß Ж € & @).
+   * Use it only for text fields (names, addresses, remittance information) and only
+   * when your bank has agreed to receive it. Identifiers, references and codes stay
+   * basic Latin. The default for parsing.
+   */
+  Extended: 'extended',
+} as const
+
+/** Literal union of the supported SEPA character sets ('basic' | 'extended'). */
+export type SepaCharset = (typeof SepaCharset)[keyof typeof SepaCharset]
+
+/**
+ * The text-field rule of the German DK variant writers: the basic set, with no
+ * extended opt-in to offer, so their messages point only to toSepaCharset.
+ */
+export const BASIC_ONLY = 'basic-only'
+
+/** The character rule a schema applies to text fields: a SepaCharset, or BASIC_ONLY. */
+export type TextCharset = SepaCharset | typeof BASIC_ONLY
+
+/** The SepaCharset a text-field rule checks values against. */
+export function charsetOfText(textCharset: TextCharset): SepaCharset {
+  return textCharset === BASIC_ONLY ? SepaCharset.Basic : textCharset
+}
+
+const SEPA_BASIC = /^[a-zA-Z0-9 /\-?:().,'+]*$/
+
+const SECTION_6_2_SENDER_FALLBACKS: ReadonlyMap<string, string> = new Map([
+  ['&', '+'],
+  ['@', '(at)'],
+  ['€', 'E'],
+  ['_', '-'],
+])
+
+const FULL_STOP = '.'
+
+/**
+ * Resolve a charset option, throwing on a value that is not a SepaCharset.
+ *
+ * @param value the option value as passed by the caller (may come from untyped JS)
+ * @param defaultCharset the charset to use when the option is absent
+ */
+export function resolveSepaCharset(value: unknown, defaultCharset: SepaCharset): SepaCharset {
+  if (value === undefined) {
+    return defaultCharset
+  }
+  if (value === SepaCharset.Basic || value === SepaCharset.Extended) {
+    return value
+  }
+  throw new Error(
+    `Unknown charset "${String(value)}": expected 'basic' or 'extended' (SepaCharset.Basic, SepaCharset.Extended)`
+  )
+}
+
+function isCharacterIn(character: string, charset: SepaCharset): boolean {
+  return (
+    SEPA_BASIC.test(character) ||
+    (charset === SepaCharset.Extended && EPC217_08_EXTENDED_ONLY.has(character))
+  )
+}
+
+/**
+ * Returns true if the string contains only basic Latin SEPA characters.
  * An empty string is allowed (callers enforce min-length separately).
  */
-export function isSepaCharset(value: string): boolean {
-  return SEPA_ALLOWED.test(value)
+export function isSepaBasic(value: string): boolean {
+  return SEPA_BASIC.test(value)
 }
 
 /**
- * Transliteration table for extended Latin characters to the SEPA basic character set.
- *
- * Mapping source: EPC217-08 "Guidance on the Use of the SEPA Basic Character Set"
- * and the de-facto best practices followed by major European banks.
- *
- * Conventions applied:
- * - German umlauts: ae/oe/ue (Ä -> Ae, Ö -> Oe, Ü -> Ue; lowercase ae/oe/ue)
- * - German sharp-s: ss (ß -> ss)
- * - All other accented/modified Latin letters: map to the unaccented base letter
- * - Ligatures: ae (Æ/æ -> AE/ae)
- * - Nordic eth (Ð/ð) -> D/d; thorn (Þ/þ) -> TH/th
- * - Characters with no mapping are silently dropped by sanitizeSepa
- *
- * Complete coverage of Latin-1 Supplement (U+00C0-U+00FF) except × and ÷ (operators).
+ * The distinct characters of a value that are outside a charset, in order of
+ * first occurrence. Iterates by code point, so an emoji or a lone surrogate is one entry.
  */
-const TRANSLITERATION_MAP: Record<string, string> = {
-  // German umlauts and sharp-s (ae/oe/ue convention per EPC217-08 guidance)
-  ä: 'ae',
-  ö: 'oe',
-  ü: 'ue',
-  Ä: 'Ae',
-  Ö: 'Oe',
-  Ü: 'Ue',
-  ß: 'ss',
-  // Accented A (grave, acute, circumflex, tilde, ring) -> base letter
-  à: 'a',
-  á: 'a',
-  â: 'a',
-  ã: 'a',
-  å: 'a',
-  À: 'A',
-  Á: 'A',
-  Â: 'A',
-  Ã: 'A',
-  Å: 'A',
-  // AE ligature
-  æ: 'ae',
-  Æ: 'AE',
-  // C-cedilla
-  ç: 'c',
-  Ç: 'C',
-  // Accented E (grave, acute, circumflex, diaeresis) -> base letter
-  è: 'e',
-  é: 'e',
-  ê: 'e',
-  ë: 'e',
-  È: 'E',
-  É: 'E',
-  Ê: 'E',
-  Ë: 'E',
-  // Accented I (grave, acute, circumflex, diaeresis) -> base letter
-  ì: 'i',
-  í: 'i',
-  î: 'i',
-  ï: 'i',
-  Ì: 'I',
-  Í: 'I',
-  Î: 'I',
-  Ï: 'I',
-  // Eth (Icelandic/Old English) -> D/d
-  ð: 'd',
-  Ð: 'D',
-  // N-tilde -> base letter
-  ñ: 'n',
-  Ñ: 'N',
-  // Accented O (grave, acute, circumflex, tilde, stroke) -> base letter
-  ò: 'o',
-  ó: 'o',
-  ô: 'o',
-  õ: 'o',
-  ø: 'o',
-  Ò: 'O',
-  Ó: 'O',
-  Ô: 'O',
-  Õ: 'O',
-  Ø: 'O',
-  // Accented U (grave, acute, circumflex) -> base letter; U-umlaut uses ue convention above
-  ù: 'u',
-  ú: 'u',
-  û: 'u',
-  Ù: 'U',
-  Ú: 'U',
-  Û: 'U',
-  // Accented Y -> base letter
-  ý: 'y',
-  ÿ: 'y',
-  Ý: 'Y',
-  // Thorn (Old English/Icelandic) -> TH/th
-  þ: 'th',
-  Þ: 'TH',
-}
-
-/**
- * Sanitize a string to SEPA charset.
- * Transliterates known extended Latin characters; removes anything else outside the allowed set.
- * Collapses multiple spaces and trims leading/trailing spaces.
- */
-export function sanitizeSepa(value: string): string {
-  let result = ''
-  for (const ch of value) {
-    if (SEPA_ALLOWED.test(ch)) {
-      result += ch
-    } else {
-      const mapped = TRANSLITERATION_MAP[ch]
-      if (mapped !== undefined) {
-        result += mapped
-      }
-      // else: silently drop the character
+export function offendingCharacters(value: string, charset: SepaCharset): string[] {
+  const offending = new Set<string>()
+  for (const character of value) {
+    if (!isCharacterIn(character, charset)) {
+      offending.add(character)
     }
   }
-  // Collapse multiple spaces, trim
-  return result.replace(/ {2,}/g, ' ').trim()
+  return [...offending]
 }
 
 /**
- * XML character escaping on top of SEPA charset.
+ * Returns true if every character of the value is in the charset.
+ * An empty string is allowed (callers enforce min-length separately).
+ */
+export function isInSepaCharset(value: string, charset: SepaCharset): boolean {
+  if (SEPA_BASIC.test(value)) {
+    return true
+  }
+  if (charset === SepaCharset.Basic) {
+    return false
+  }
+  for (const character of value) {
+    if (!isCharacterIn(character, charset)) {
+      return false
+    }
+  }
+  return true
+}
+
+const CHARSET_MESSAGE_PREFIX = 'Value contains characters outside the SEPA charset (EPC217-08)'
+const BASIC_SET_DESCRIPTION = "a-z A-Z 0-9 space / - ? : ( ) . , ' +"
+const MAX_LISTED_CHARACTERS = 5
+const NO_BREAK_SPACE = '\u00A0'
+const COMBINING_MARK = /\p{M}/u
+
+/**
+ * Characters a message names instead of quoting. The writers join issues with "; ",
+ * so no charset message may contain a semicolon.
+ */
+const NAMED_CHARACTERS: ReadonlyMap<string, string> = new Map([
+  [';', 'the semicolon'],
+  [NO_BREAK_SPACE, 'the no-break space'],
+])
+
+function describeCharacter(character: string): string {
+  const hex = (character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')
+  return `${NAMED_CHARACTERS.get(character) ?? `"${character}"`} (U+${hex})`
+}
+
+function describeOffending(offending: string[]): string {
+  const listed = offending.slice(0, MAX_LISTED_CHARACTERS).map(describeCharacter).join(', ')
+  const more = offending.length - MAX_LISTED_CHARACTERS
+  return more > 0 ? `${listed}, and ${more} more` : listed
+}
+
+function combiningMarkHint(offending: string[]): string {
+  return offending.some((character) => COMBINING_MARK.test(character))
+    ? " The value contains combining marks (decomposed text): normalize it with value.normalize('NFC'), which toSepaCharset does for you."
+    : ''
+}
+
+function noBreakSpaceHint(offending: string[]): string {
+  return offending.includes(NO_BREAK_SPACE)
+    ? ' The no-break space is green in the EPC217-08 table, but the table converts it to a plain space, so only the space is accepted: toSepaCharset converts it.'
+    : ''
+}
+
+function theseCharacters(count: number): string {
+  return count === 1 ? 'this character is' : 'these characters are'
+}
+
+function textFieldAdvice(offending: string[], textCharset: TextCharset): string {
+  if (textCharset === BASIC_ONLY) {
+    return `This variant allows only the basic Latin set (${BASIC_SET_DESCRIPTION}). Convert the value with toSepaCharset(value).`
+  }
+  if (textCharset === SepaCharset.Extended) {
+    return `${capitalize(theseCharacters(offending.length))} not in the EPC217-08 extended character set. Convert the value with toSepaCharset(value, { charset: 'extended' }) to keep local-language characters, or with toSepaCharset(value) for basic Latin.`
+  }
+  const outsideExtended = offending.filter(
+    (character) => !isCharacterIn(character, SepaCharset.Extended)
+  )
+  if (outsideExtended.length === 0) {
+    return `By default only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}). If your bank accepts the EPC217-08 extended character set, pass { charset: 'extended' } (SepaCharset.Extended). Otherwise convert the value with toSepaCharset(value).`
+  }
+  const notExtended =
+    outsideExtended.length === offending.length
+      ? theseCharacters(offending.length)
+      : `${describeOffending(outsideExtended)} ${outsideExtended.length === 1 ? 'is' : 'are'}`
+  return `Only the basic Latin set is allowed (${BASIC_SET_DESCRIPTION}), and ${notExtended} not in the EPC217-08 extended set either. Convert the value with toSepaCharset(value).`
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/**
+ * The validation message for a human-readable text field (names, addresses, remittance
+ * information) whose value has characters outside the charset in force. It never
+ * contains a semicolon.
+ */
+export function textCharsetMessage(value: string, textCharset: TextCharset): string {
+  const offending = offendingCharacters(value, charsetOfText(textCharset))
+  const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
+  const hints = `${combiningMarkHint(offending)}${noBreakSpaceHint(offending)}`
+  return `${head} ${textFieldAdvice(offending, textCharset)}${hints}`
+}
+
+/**
+ * The validation message for an identifier, reference or code field, which must use
+ * the basic Latin set in every charset mode (EPC217-08 section 6.3). It never contains
+ * a semicolon.
+ */
+export function referenceCharsetMessage(value: string): string {
+  const offending = offendingCharacters(value, SepaCharset.Basic)
+  const head = `${CHARSET_MESSAGE_PREFIX}: ${describeOffending(offending)}.`
+  return `${head} Identifiers, references and codes must use the basic Latin set (${BASIC_SET_DESCRIPTION}) in every charset mode (EPC217-08 section 6.3). Convert the value with toSepaCharset(value).${combiningMarkHint(offending)}`
+}
+
+function convertCharacter(character: string, charset: SepaCharset): string {
+  if (isCharacterIn(character, charset)) {
+    return character
+  }
+  return (
+    SECTION_6_2_SENDER_FALLBACKS.get(character) ?? EPC217_08_TO_BASIC.get(character) ?? FULL_STOP
+  )
+}
+
+/**
+ * Convert text to a SEPA character set using the official EPC217-08 conversion table.
+ *
+ * - The value is first normalized to NFC, so decomposed letters (S + combining caron)
+ *   become one character (Š).
+ * - Characters already in the target set are kept.
+ * - The EPC217-08 section 6.2 sender rules apply first: & becomes +, @ becomes (at),
+ *   € becomes E, _ becomes -.
+ * - Other characters use the table's basic conversion (Š to S, ß to s, Ж to ZH, Щ to SHT).
+ * - Anything the table cannot convert becomes a full stop (.), as EPC217-08 prescribes.
+ *
+ * Nothing is dropped, trimmed or truncated. The result can be longer than the input
+ * (Щ becomes SHT), so a field can exceed its maximum length after conversion; the
+ * validation error then says so.
+ *
+ * @param value the text to convert
+ * @param options `charset`: the target set, 'basic' (default) or 'extended'. The
+ *   extended target keeps local-language characters and only replaces characters
+ *   outside the EPC217-08 extended set.
+ * @returns the converted text, containing only characters of the target set
+ * @throws Error if `charset` is not 'basic' or 'extended'
+ *
+ * @example
+ * toSepaCharset('Maja Štupica') // 'Maja Stupica'
+ * toSepaCharset('Müller & Söhne') // 'Muller + Sohne'
+ * toSepaCharset('Maja Štupica 🎉', { charset: 'extended' }) // 'Maja Štupica .'
+ */
+export function toSepaCharset(value: string, options?: { charset?: SepaCharset }): string {
+  const charset = resolveSepaCharset(options?.charset, SepaCharset.Basic)
+  let result = ''
+  for (const character of value.normalize('NFC')) {
+    result += convertCharacter(character, charset)
+  }
+  return result
+}
+
+/**
+ * XML character escaping, applied by the writer to every string value.
  * Escapes & < > " '
  */
 export function escapeXml(value: string): string {

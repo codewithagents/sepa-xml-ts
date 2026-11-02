@@ -9,7 +9,10 @@
  * Design invariants:
  * - Validates the model before writing (throws on invalid input)
  * - CtrlSum uses exact bigint arithmetic, never floating-point
- * - All string values are XML-escaped (SEPA charset enforced by the schema)
+ * - All string values are XML-escaped (& < > " ' always; the SEPA charset is enforced by the schema)
+ * - Text fields use the basic Latin set unless { charset: 'extended' } is passed;
+ *   identifiers, references and codes are basic Latin in every mode
+ * - pain.001.003.03 (DK) refuses { charset: 'extended' } before any validation
  * - pain.001.001.09: ReqdExctnDt is emitted as Dt (date only), never DtTm
  * - pain.001.001.03: ReqdExctnDt is a plain ISODate (no Dt wrapper, per .03 XSD)
  * - pain.001.001.03: FinInstnId uses BIC element (not BICFI, per FinancialInstitutionIdentification7)
@@ -23,10 +26,13 @@
  * - RmtInf/Ustrd is emitted when remittanceInfo is present on a Transfer
  */
 
-import { CreditTransferDocumentSchema, type CreditTransferDocument } from '../model/schema.js'
+import { creditTransferSchemasFor, type CreditTransferDocument } from '../model/schema.js'
+import type { SepaCharset } from '../model/charset.js'
 import { sumMoney } from '../model/amount.js'
 import {
   xe,
+  describeIssues,
+  resolveWriterCharset,
   computeTotals,
   emitGrpHdr,
   emitPmtInfHeader,
@@ -69,6 +75,15 @@ export interface WriteCreditTransferOptions {
    * applied to every PmtInf block.
    */
   profile?: BankProfile
+  /**
+   * The character set for human-readable text fields (names, addresses, remittance
+   * information). Defaults to 'basic' (SepaCharset.Basic), the basic Latin set every
+   * SEPA bank accepts. Pass 'extended' (SepaCharset.Extended) to write the EPC217-08
+   * extended set (for example č š ž ä ß Ж € & @), but only if your bank has agreed to
+   * receive it. Identifiers, references and codes stay basic Latin in every mode
+   * (EPC217-08 section 6.3). The DK variant pain.001.003.03 throws on 'extended'.
+   */
+  charset?: SepaCharset
 }
 
 const XMLNS_09 = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
@@ -93,16 +108,25 @@ const XMLNS = XMLNS_09
  * Profile options (e.g. batchBooking) are applied regardless of which variant is used.
  *
  * @param input the credit transfer document model
- * @param options optional write options (variant, profile)
+ * @param options optional write options (variant, profile, charset)
  * @returns UTF-8 XML string
- * @throws Error if the model fails base validation or a profile check
+ * @throws Error if the model fails base validation or a profile check, if the charset is
+ *   unknown, or if charset 'extended' is combined with the DK variant
  */
 export function writeCreditTransfer(
   input: CreditTransferDocument,
   options?: WriteCreditTransferOptions
 ): string {
+  const variant = options?.variant ?? 'pain.001.001.09'
+  const charset = resolveWriterCharset(
+    options?.charset,
+    variant,
+    'pain.001.003.03',
+    'pain.001.001.09'
+  )
+
   // Self-check: validate the model before writing
-  const parseResult = CreditTransferDocumentSchema.safeParse(input)
+  const parseResult = creditTransferSchemasFor(charset).CreditTransferDocument.safeParse(input)
   if (!parseResult.success) {
     const messages = parseResult.error.issues
       .map((iss) => `${iss.path.join('.')}: ${iss.message}`)
@@ -116,14 +140,9 @@ export function writeCreditTransfer(
   if (profile?.checkCreditTransfer !== undefined) {
     const issues = profile.checkCreditTransfer(doc)
     if (issues.length > 0) {
-      const detail = issues
-        .map((iss) => (iss.path !== undefined ? `${iss.path}: ${iss.message}` : iss.message))
-        .join('; ')
-      throw new Error(`Profile "${profile.id}" check failed: ${detail}`)
+      throw new Error(`Profile "${profile.id}" check failed: ${describeIssues(issues)}`)
     }
   }
-
-  const variant = options?.variant ?? 'pain.001.001.09'
 
   // Ultimate parties are only supported for pain.001.001.09. Fail loud rather than
   // silently drop ultimate-party data when a legacy or DK variant is selected.

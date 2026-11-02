@@ -29,18 +29,17 @@ import { parse } from '../src/parser/parser.js'
 import { validateXsd } from '../src/xsd.js'
 import { writeCreditTransfer } from '../src/writer/writer.js'
 import { euros } from '../src/model/schema.js'
-import type { CreditTransferDocument } from '../src/model/schema.js'
+import type { CreditTransferDocument, PaymentBatch } from '../src/model/schema.js'
 import {
-  arbIban,
-  arbSepaText,
   arbSepaIdentifier,
-  arbCreatedAt,
   arbDate,
-  arbPartyName,
-  arbBic,
+  arbTextFor,
   arbMoney,
-  arbPostalAddress,
+  arbAccountParty,
+  arbCreditTransferDocumentFrom,
 } from './arbitraries.js'
+import type { SepaCharset } from '../src/model/charset.js'
+import { assertXsdOracle, assertRoundTrip } from './property-suites.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -369,35 +368,19 @@ describe('pain.001.001.03 golden snapshot', () => {
 // parties, or structured remittance, so those fields are excluded here to
 // keep generated models valid for the .003.03 variant.
 //
-// Primitive helpers (arbIban, arbSepaText, arbSepaIdentifier, arbSanitizedSepaText,
-// arbCreatedAt, arbDate, arbPartyName, arbBic, arbMoney, arbPostalAddress) are
-// imported from ./arbitraries.js (the single canonical source).
+// Primitive helpers (arbIban, arbSepaIdentifier, arbDate, arbTextFor, arbMoney,
+// arbAccountParty, arbCreditTransferDocumentFrom) are imported from
+// ./arbitraries.js (the single canonical source). The charset parameter selects
+// basic or EPC217-08 extended text for the text-kind fields only.
 // ---------------------------------------------------------------------------
 
-function arbAccountParty() {
-  return fc
-    .record({
-      name: arbPartyName(),
-      iban: arbIban(),
-      bic: fc.option(arbBic(), { nil: undefined }),
-      address: fc.option(arbPostalAddress(), { nil: undefined }),
-    })
-    .map((p) => {
-      const { address, ...rest } = p
-      const base: Record<string, unknown> = { ...rest }
-      if (base['bic'] === undefined) delete base['bic']
-      if (address !== undefined) base['address'] = address
-      return base
-    })
-}
-
-function arbTransfer() {
+function arbTransfer(charset: SepaCharset) {
   return fc
     .record({
       endToEndId: arbSepaIdentifier(1, 35),
       amount: arbMoney(),
-      creditor: arbAccountParty(),
-      remittanceInfo: fc.option(arbSepaText(1, 140), { nil: undefined }),
+      creditor: arbAccountParty(charset),
+      remittanceInfo: fc.option(arbTextFor(charset, 1, 140), { nil: undefined }),
     })
     .map((tx) => {
       if (tx.remittanceInfo === undefined) {
@@ -408,22 +391,22 @@ function arbTransfer() {
     })
 }
 
-function arbPaymentBatch() {
+function arbPaymentBatch(charset: SepaCharset) {
   return fc.record({
     id: arbSepaIdentifier(1, 35),
     executionDate: arbDate(),
-    debtor: arbAccountParty(),
-    transfers: fc.array(arbTransfer(), { minLength: 1, maxLength: 5 }),
+    debtor: arbAccountParty(charset),
+    transfers: fc.array(arbTransfer(charset), { minLength: 1, maxLength: 5 }),
   })
 }
 
-function arbCreditTransferDocument(): fc.Arbitrary<CreditTransferDocument> {
-  return fc.record({
-    messageId: arbSepaIdentifier(1, 35),
-    createdAt: arbCreatedAt(),
-    initiatingParty: arbPartyName(),
-    batches: fc.array(arbPaymentBatch(), { minLength: 1, maxLength: 3 }),
-  })
+function arbCreditTransferDocument(
+  charset: SepaCharset = 'basic'
+): fc.Arbitrary<CreditTransferDocument> {
+  return arbCreditTransferDocumentFrom(
+    charset,
+    arbPaymentBatch(charset) as fc.Arbitrary<PaymentBatch>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -505,5 +488,30 @@ describe('Round-trip: pain.001.001.03 model -> write -> parse -> deep-equal (num
     )
 
     expect(runCount).toBeGreaterThanOrEqual(200)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EPC217-08 extended charset: the legacy ISO XSD has no text patterns, so
+// pain.001.001.03 accepts extended text (unlike the DK variant, which refuses it).
+// ---------------------------------------------------------------------------
+
+const ISO03_EXTENDED = { variant: 'pain.001.001.03', charset: 'extended' } as const
+
+describe('XSD Oracle: pain.001.001.03 with extended text (numRuns=200)', () => {
+  it('property: forAll extended models, writeCreditTransfer(doc, { variant: .03, charset: extended }) is XSD-valid', async () => {
+    await assertXsdOracle(arbCreditTransferDocument('extended'), (doc) =>
+      writeCreditTransfer(doc, ISO03_EXTENDED)
+    )
+  })
+})
+
+describe('Round-trip: pain.001.001.03 with extended text (numRuns=200)', () => {
+  it('property: forAll extended models, parse(write(model)) deep-equals the model', () => {
+    assertRoundTrip(
+      arbCreditTransferDocument('extended'),
+      (doc) => writeCreditTransfer(doc, ISO03_EXTENDED),
+      'pain.001'
+    )
   })
 })
