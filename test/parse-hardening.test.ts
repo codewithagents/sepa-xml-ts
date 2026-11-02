@@ -22,6 +22,7 @@ import { writeDirectDebit } from '../src/writer/direct-debit.js'
 import { euros } from '../src/model/schema.js'
 import type { CreditTransferDocument } from '../src/model/schema.js'
 import type { DirectDebitDocument } from '../src/model/pain008.js'
+import { expectNoInternalParseError } from './internal-parse-error.js'
 
 // ---------------------------------------------------------------------------
 // Minimal valid fixtures
@@ -103,6 +104,7 @@ describe('parse() DOCTYPE rejection (Issue #12)', () => {
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/DOCTYPE|DTD/i)
   })
 
@@ -115,6 +117,7 @@ describe('parse() DOCTYPE rejection (Issue #12)', () => {
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/DOCTYPE|DTD/i)
   })
 
@@ -125,6 +128,7 @@ describe('parse() DOCTYPE rejection (Issue #12)', () => {
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/DOCTYPE|DTD/i)
   })
 })
@@ -272,6 +276,7 @@ describe('xmlns detection anchored to <Document> root (Issue #13)', () => {
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/xmlns|namespace/i)
   })
 
@@ -371,6 +376,7 @@ function parsedCreditorName(xml: string, options?: ParseOptions): string {
 function parseError(xml: string, options?: ParseOptions): string {
   const result = parse(xml, options)
   if (result.ok) throw new Error('expected ok:false')
+  expectNoInternalParseError(result)
   return result.error
 }
 
@@ -632,7 +638,9 @@ describe('parse() rejects references that are not well-formed without a DTD', ()
     )
     fc.assert(
       fc.property(arbReference, (reference) => {
-        expect(() => parse(withCreditorNameXml(reference))).not.toThrow()
+        const xml = withCreditorNameXml(reference)
+        expect(() => parse(xml)).not.toThrow()
+        expectNoInternalParseError(parse(xml))
       }),
       { numRuns: 300 }
     )
@@ -739,6 +747,7 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
       [base.replace('<Cdtr>', '<Cdtr x=1>'), 'attribute x of <Cdtr> needs a quoted value'],
       [base.replace('<Cdtr>', '<Cdtr x>'), 'attribute x of <Cdtr> has no value'],
       [base.replace('</Cdtr>', '</Cdtr x>'), 'malformed end tag </Cdtr>'],
+      [base.replace('</Cdtr>', '</ Cdtr>'), 'malformed end tag'],
       [base.replace('<Cdtr>', '<Cdtr xsi:type="x">'), 'namespace prefix xsi is not declared'],
       [
         base.replace('<Cdtr>', '<Cdtr><x xmlns:p="urn:p"></x><p:y/>'),
@@ -831,7 +840,9 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
         '<Nm>Test Creditor</Nm>',
         `<Nm${character}>Hidden</Nm${character}><Nm>Test Creditor</Nm>`
       )
-      expect(parse(xml).ok, label).toBe(false)
+      const result = parse(xml)
+      expect(result.ok, label).toBe(false)
+      expectNoInternalParseError(result)
       expect(libxml2Read(xml).wellFormed, label).toBe(xmlNameCharacters.includes(character))
     }
     for (const character of xmlNameCharacters) {
@@ -854,7 +865,9 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
         '<InstdAmt Ccy="EUR">',
         `<InstdAmt Ccy="USD" X${character}Ccy="EUR">`
       )
-      expect(parse(xml).ok, label).toBe(false)
+      const result = parse(xml)
+      expect(result.ok, label).toBe(false)
+      expectNoInternalParseError(result)
     }
     for (const character of ['\u1680', '\uFEFF']) {
       const xml = base.replace(
@@ -1043,7 +1056,9 @@ describe('parse() reads element text the way an XML parser reads it', () => {
         ),
         base.replace('Ccy="EUR"', `Ccy="EUR${character}"`),
       ]) {
-        expect(parse(xml).ok, label).toBe(false)
+        const result = parse(xml)
+        expect(result.ok, label).toBe(false)
+        expectNoInternalParseError(result)
       }
     }
   })
@@ -1290,6 +1305,7 @@ function expectParseAgreesWithLibxml2(xml: string): void {
   }
   const result = parse(xml)
   if (!result.ok) {
+    expectNoInternalParseError(result)
     expectUnreadableClaimHolds(xml, result.error)
     return
   }
@@ -1543,6 +1559,7 @@ describe('namespace detection and parse run in linear time', () => {
       const result = parse(xml)
       expect(performance.now() - started, label).toBeLessThan(TIME_BOUND_MS)
       expect(result.ok, label).toBe(label === 'comment openers inside a CDATA section')
+      expectNoInternalParseError(result)
     }
   })
 

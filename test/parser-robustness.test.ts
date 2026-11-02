@@ -17,6 +17,7 @@ import { parse } from '../src/parser/parser.js'
 import { writeCreditTransfer } from '../src/writer/writer.js'
 import { writeDirectDebit } from '../src/writer/direct-debit.js'
 import { euros } from '../src/model/schema.js'
+import { expectNoInternalParseError } from './internal-parse-error.js'
 import type { CreditTransferDocument } from '../src/model/schema.js'
 import type { DirectDebitDocument } from '../src/model/pain008.js'
 
@@ -128,6 +129,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse('')
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toBeTruthy()
     expect(result.error.length).toBeGreaterThan(0)
   })
@@ -136,6 +138,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse('   \t\n  ')
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toBeTruthy()
     expect(result.error).toMatch(/empty|whitespace/i)
   })
@@ -144,6 +147,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse('this is just plain text, not XML')
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -151,6 +155,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse('<CstmrCdtTrfInitn xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09')
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -158,6 +163,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(`<?xml version="1.0"?><root xmlns="${NS_PAIN001}"><child/></root>`)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -167,6 +173,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     )
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/xmlns|namespace/i)
   })
 
@@ -176,6 +183,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     )
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/unknown|namespace/i)
   })
 
@@ -183,6 +191,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(minimalPain001Xml({ missingGrpHdr: true }))
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/GrpHdr/i)
   })
 
@@ -200,6 +209,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/PmtInf/i)
   })
 
@@ -213,6 +223,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(malformedXml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -225,6 +236,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(malformedXml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -237,6 +249,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(malformedXml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -247,6 +260,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(malformedXml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error.length).toBeGreaterThan(0)
   })
 
@@ -255,6 +269,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(xml)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/CstmrDrctDbtInitn/i)
   })
 
@@ -263,6 +278,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(42 as any)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/string/i)
   })
 
@@ -270,6 +286,7 @@ describe('parse() explicit negative cases: must return ok:false, never throw', (
     const result = parse(null as any)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected ok:false')
+    expectNoInternalParseError(result)
     expect(result.error).toMatch(/string/i)
   })
 })
@@ -290,6 +307,7 @@ describe('parse() fuzz: arbitrary random strings never throw (numRuns >= 300)', 
         // The result must have an ok field
         const result = parse(input)
         expect(typeof result.ok).toBe('boolean')
+        expectNoInternalParseError(result)
         // If ok:false, must have a non-empty error message
         if (!result.ok) {
           expect(result.error.length).toBeGreaterThan(0)
@@ -314,6 +332,7 @@ describe('parse() fuzz: arbitrary random strings never throw (numRuns >= 300)', 
         expect(() => parse(input)).not.toThrow()
         const result = parse(input)
         expect(typeof result.ok).toBe('boolean')
+        expectNoInternalParseError(result)
         return true
       }),
       {
@@ -342,6 +361,7 @@ describe('parse() fuzz: mutated valid XML never throws (numRuns >= 300)', () => 
         expect(() => parse(mutated)).not.toThrow()
         const result = parse(mutated)
         expect(typeof result.ok).toBe('boolean')
+        expectNoInternalParseError(result)
         return true
       }),
       {
@@ -368,6 +388,8 @@ describe('parse() fuzz: mutated valid XML never throws (numRuns >= 300)', () => 
           expect(() => parse(mutated)).not.toThrow()
           const result = parse(mutated)
           expect(typeof result.ok).toBe('boolean')
+          expectNoInternalParseError(result)
+          expectNoInternalParseError(result)
           return true
         }
       ),
@@ -391,6 +413,7 @@ describe('parse() fuzz: mutated valid XML never throws (numRuns >= 300)', () => 
         expect(() => parse(mutated)).not.toThrow()
         const result = parse(mutated)
         expect(typeof result.ok).toBe('boolean')
+        expectNoInternalParseError(result)
         return true
       }),
       {

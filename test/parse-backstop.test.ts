@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { parse } from '../src/parser/parser.js'
+import { INTERNAL_PARSE_ERROR_PREFIX } from './internal-parse-error.js'
 
 const failure = vi.hoisted(() => ({ thrown: undefined as unknown }))
 
@@ -22,12 +23,12 @@ describe('parse() backstop', () => {
     failure.thrown = new RangeError('Maximum call stack size exceeded')
     expect(parse(XML)).toEqual({
       ok: false,
-      error: 'Internal parse error: Maximum call stack size exceeded',
+      error: `${INTERNAL_PARSE_ERROR_PREFIX}: Maximum call stack size exceeded`,
     })
   })
 
   it('should return ok:false when the scan throws a value that is not an Error', () => {
     failure.thrown = 'scan failed'
-    expect(parse(XML)).toEqual({ ok: false, error: 'Internal parse error: scan failed' })
+    expect(parse(XML)).toEqual({ ok: false, error: `${INTERNAL_PARSE_ERROR_PREFIX}: scan failed` })
   })
 })
