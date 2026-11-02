@@ -749,6 +749,14 @@ describe('parse() rejects documents fast-xml-parser would read differently from 
         'namespace prefix p is not declared',
       ],
       [
+        base.replace('<Cdtr>', '<Cdtr><x xmlns:p="urn:p"/><p:y/>'),
+        'namespace prefix p is not declared',
+      ],
+      [
+        base.replace('<Cdtr>', '<Cdtr><x xmlns:p="urn:p"/><z p:a="1"/>'),
+        'namespace prefix p is not declared',
+      ],
+      [
         base.replace('<Cdtr>', '<Cdtr xmlns:p="">'),
         'namespace prefix p cannot be bound to an empty namespace',
       ],
