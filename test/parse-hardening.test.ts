@@ -1872,3 +1872,88 @@ describe('parse() reads very large documents without throwing', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Known limits: each test pins one limit README.md and the validation guide state
+// ---------------------------------------------------------------------------
+
+const README = readFileSync(new URL('../README.md', import.meta.url), 'utf-8')
+const VALIDATION_GUIDE = readFileSync(
+  new URL('../docs/src/content/docs/guides/validation.mdx', import.meta.url),
+  'utf-8'
+)
+
+/** The text with every run of whitespace as one space, so a sentence matches however it wraps. */
+const flowed = (text: string): string => text.replace(/\s+/g, ' ')
+
+/**
+ * Assert that the "Known limits" of README.md and of docs/src/content/docs/guides/validation.mdx
+ * still state a limit, in these words. A change that lifts the limit fails the test that pins
+ * it, and the test names the sentences to update.
+ */
+function expectStatedLimit(inReadme: string, inValidationGuide: string): void {
+  expect(flowed(README), 'README.md, Known limits').toContain(inReadme)
+  expect(flowed(VALIDATION_GUIDE), 'guides/validation.mdx, Known limits').toContain(
+    inValidationGuide
+  )
+}
+
+/** libxml2's XML_MAX_TEXT_LENGTH: the longest text node it reads without XML_PARSE_HUGE. */
+const LIBXML2_MAX_TEXT_LENGTH = 10_000_000
+
+describe('known limits of parse and validateXsd, as README.md and the validation guide state them', () => {
+  it('should still read a text element below a parent that redeclares the default namespace', async () => {
+    expectStatedLimit(
+      'a text element below a parent that redeclares the default namespace (`<Cdtr xmlns="urn:other"><Nm>`) is still read',
+      'a text element below a parent that redeclares the default namespace is still read'
+    )
+    const xml = writeCreditTransfer(MINIMAL_CT).replace('<Cdtr>', '<Cdtr xmlns="urn:other">')
+    expect((await validateXsd(xml)).valid).toBe(false)
+    expect(parsedCreditorName(xml)).toBe('Test Creditor')
+  })
+
+  it('should not recognize a document that writes the ISO namespace with a prefix', async () => {
+    expectStatedLimit(
+      'a document that writes the ISO namespace with a prefix (`<p:Document xmlns:p="...">`) is not recognized',
+      'a prefixed `<p:Document>` is not recognized'
+    )
+    const xml = writeCreditTransfer(MINIMAL_CT)
+      .replace(/<(\/?)(?=[A-Za-z])/g, '<$1p:')
+      .replace(`xmlns="${NS_PAIN001}"`, `xmlns:p="${NS_PAIN001}"`)
+    expect(xml).toContain(`<p:Document xmlns:p="${NS_PAIN001}">`)
+    expect(xml).toContain('<p:Nm>Test Creditor</p:Nm>')
+    expect(libxml2Read(xml)).toEqual({ wellFormed: true, creditorName: 'Test Creditor' })
+    expect(parseError(xml)).toBe('Missing xmlns attribute: not a recognized SEPA document')
+  })
+
+  it('should throw from validateXsd for XML that is not well-formed and for a text node over 10 MB', async () => {
+    expectStatedLimit(
+      '`validateXsd` throws, instead of returning `valid: false`, when libxml2 cannot read the document at all (for example XML that is not well-formed, or a text node over 10 MB)',
+      '`validateXsd` throws, instead of returning `valid: false`, when libxml2 cannot read the document at all'
+    )
+    const base = writeCreditTransfer(MINIMAL_CT)
+    await expect(validateXsd(base.replace('</Cdtr>', '<x></Cdtr>'))).rejects.toThrow(XmlParseError)
+    const withText = (length: number) =>
+      base.replace(
+        '</CdtTrfTxInf>',
+        `<SplmtryData><Envlp><Att xmlns="urn:example:att">${'A'.repeat(length)}</Att></Envlp></SplmtryData></CdtTrfTxInf>`
+      )
+    expect(await validateXsd(withText(LIBXML2_MAX_TEXT_LENGTH))).toEqual({
+      valid: true,
+      errors: [],
+    })
+    await expect(validateXsd(withText(LIBXML2_MAX_TEXT_LENGTH + 1))).rejects.toThrow(
+      'Text node too long'
+    )
+  })
+
+  it('should ignore text written directly inside an element that holds elements', async () => {
+    expectStatedLimit(
+      'text written directly inside an element that holds elements',
+      'text directly inside an element that holds elements'
+    )
+    const xml = writeCreditTransfer(MINIMAL_CT).replace('<Cdtr>', '<Cdtr>Stray text')
+    expect((await validateXsd(xml)).valid).toBe(false)
+    expect(parsedData(xml)).toStrictEqual(MINIMAL_CT)
+  })
+})
