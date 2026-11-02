@@ -267,10 +267,13 @@ How `parse` reads the document:
   U+00A0 and the other Unicode spaces, is kept and then checked against the charset.
 - An element the model holds once that occurs more than once (two `Ustrd` in one transaction),
   a text element that contains an element, or a text element with an attribute the model does
-  not hold (such as `xmlns="urn:other"`), returns `ok: false` with a message that names it,
-  instead of being read as absent. Namespace declarations that keep the element in the
-  document's namespace are allowed. An empty optional element such as `<Ustrd/>` reads as
-  absent.
+  not hold (such as `xmlns="urn:other"` or `xsi:nil`), returns `ok: false` with a message that
+  names it, so no value is dropped or misread. Allowed on any element: namespace declarations
+  that keep it in the document's namespace, and the XML Schema instance attributes `xsi:type`,
+  `xsi:schemaLocation` and `xsi:noNamespaceSchemaLocation` under any prefix bound to
+  `http://www.w3.org/2001/XMLSchema-instance` (no type in these schemas derives from the type of
+  an element, so `xsi:type` can only restate it). An empty optional element such as `<Ustrd/>`
+  reads as absent.
 
 The test suite holds `parse` to libxml2, the parser `validateXsd` uses. The well-formedness
 rules are checked against libxml2 row by row in a table of malformed documents, and a

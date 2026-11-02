@@ -1062,7 +1062,9 @@ function rejectUnsafeInput(xml: unknown): ParseFailure | null {
  * Element text is read as XML reads it, trimmed of space, tab, CR and LF at both ends.
  * An element the model holds once that occurs more than once, a text element that
  * contains an element, or a text element with an attribute the model does not hold
- * (xmlns="urn:other" included) returns ok:false ("Cannot read <Ustrd>: ...").
+ * (xmlns="urn:other" and xsi:nil included) returns ok:false ("Cannot read <Ustrd>: ...").
+ * xsi:type, xsi:schemaLocation and xsi:noNamespaceSchemaLocation, in the namespace
+ * http://www.w3.org/2001/XMLSchema-instance under any prefix, are ignored.
  *
  * Text fields accept the EPC217-08 extended character set by default (see
  * ParseOptions.charset); pass { charset: 'basic' } to accept only basic Latin.
@@ -1116,28 +1118,85 @@ function parseDocument(xml: string, options: ParseOptions | undefined): ParseRes
     }
   }
 
-  dropNamespaceDeclarationsThatKeepTheNamespace(parsed, ns)
+  dropAttributesThatKeepTheMeaning(parsed, ns, NO_PREFIX_BINDINGS)
   return parseByNamespace(parsed, ns, charset)
 }
 
 const DEFAULT_NAMESPACE_ATTRIBUTE = `${ATTRIBUTE_PREFIX}xmlns`
 const PREFIX_DECLARATION_PREFIX = `${ATTRIBUTE_PREFIX}xmlns:`
+const XML_SCHEMA_INSTANCE_NAMESPACE = 'http://www.w3.org/2001/XMLSchema-instance'
 
 /**
- * Remove the namespace declarations that cannot change which element the model reads:
- * every prefix declaration (xmlns:p, already checked by the scan) and every default
- * declaration that repeats the document namespace. A default declaration of another
- * namespace stays, so a text element that carries one fails in textOf.
+ * The XML Schema instance attributes that cannot change a value the model reads:
+ * schemaLocation and noNamespaceSchemaLocation only point at a schema, and type can only
+ * restate the declared type, because no type in the vendored schemas derives from the
+ * type of an element (test/parse-hardening.test.ts pins this). nil is not one of them:
+ * no element of these schemas is nillable, and xsi:nil="true" would empty an element.
  */
-function dropNamespaceDeclarationsThatKeepTheNamespace(node: unknown, namespace: string): void {
+const IGNORED_SCHEMA_INSTANCE_ATTRIBUTES: ReadonlySet<string> = new Set([
+  'type',
+  'schemaLocation',
+  'noNamespaceSchemaLocation',
+])
+
+/** The namespace each prefix is bound to at an element. */
+type PrefixBindings = ReadonlyMap<string, string>
+const NO_PREFIX_BINDINGS: PrefixBindings = new Map()
+
+/** The prefix bindings in scope at a parsed element: its parent's and its own xmlns:p. */
+function prefixBindingsAt(
+  fields: Record<string, unknown>,
+  inherited: PrefixBindings
+): PrefixBindings {
+  const declarations = Object.keys(fields).filter((key) =>
+    key.startsWith(PREFIX_DECLARATION_PREFIX)
+  )
+  if (declarations.length === 0) return inherited
+  const bindings = new Map(inherited)
+  for (const key of declarations) {
+    const namespace = fields[key]
+    if (typeof namespace === 'string') {
+      bindings.set(key.slice(PREFIX_DECLARATION_PREFIX.length), namespace)
+    }
+  }
+  return bindings
+}
+
+/** Whether a parsed key is an attribute in IGNORED_SCHEMA_INSTANCE_ATTRIBUTES, by namespace. */
+function isIgnoredSchemaInstanceAttribute(key: string, bindings: PrefixBindings): boolean {
+  if (!key.startsWith(ATTRIBUTE_PREFIX)) return false
+  const name = key.slice(ATTRIBUTE_PREFIX.length)
+  const colon = name.indexOf(':')
+  return (
+    colon !== -1 &&
+    bindings.get(name.slice(0, colon)) === XML_SCHEMA_INSTANCE_NAMESPACE &&
+    IGNORED_SCHEMA_INSTANCE_ATTRIBUTES.has(name.slice(colon + 1))
+  )
+}
+
+/**
+ * Remove the attributes that cannot change what the model reads: every prefix declaration
+ * (xmlns:p, already checked by the scan), every default declaration that repeats the
+ * document namespace, and the XML Schema instance attributes in
+ * IGNORED_SCHEMA_INSTANCE_ATTRIBUTES under whatever prefix binds that namespace. Any other
+ * attribute stays, so a text element that carries one (xmlns="urn:other", xsi:nil) fails
+ * in textOf.
+ */
+function dropAttributesThatKeepTheMeaning(
+  node: unknown,
+  namespace: string,
+  inherited: PrefixBindings
+): void {
   if (node === null || typeof node !== 'object') return
   const fields = node as Record<string, unknown>
+  const bindings = prefixBindingsAt(fields, inherited)
   for (const key of Object.keys(fields)) {
-    const keepsNamespace =
+    const keepsMeaning =
       key.startsWith(PREFIX_DECLARATION_PREFIX) ||
-      (key === DEFAULT_NAMESPACE_ATTRIBUTE && fields[key] === namespace)
-    if (keepsNamespace) delete fields[key]
-    else dropNamespaceDeclarationsThatKeepTheNamespace(fields[key], namespace)
+      (key === DEFAULT_NAMESPACE_ATTRIBUTE && fields[key] === namespace) ||
+      isIgnoredSchemaInstanceAttribute(key, bindings)
+    if (keepsMeaning) delete fields[key]
+    else dropAttributesThatKeepTheMeaning(fields[key], namespace, bindings)
   }
 }
 

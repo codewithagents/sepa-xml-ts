@@ -9,6 +9,7 @@
  *   namespace detection.
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import * as fc from 'fast-check'
 import { XmlDocument, XmlParseError, ParseOption } from 'libxml2-wasm'
@@ -1166,6 +1167,215 @@ describe('parse() reads element text the way an XML parser reads it', () => {
     expect(parsedTransfer(indented)).toEqual(parsedTransfer(minified))
     const result = parse(indented)
     expect(result.ok && result.data).toEqual(MINIMAL_CT_WITH_REMITTANCE)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// XML Schema instance attributes: the ones that cannot change a value are ignored
+// ---------------------------------------------------------------------------
+
+const NS_PAIN008 = 'urn:iso:std:iso:20022:tech:xsd:pain.008.001.08'
+const XSI_NAMESPACE = 'http://www.w3.org/2001/XMLSchema-instance'
+const XSI = `xmlns:xsi="${XSI_NAMESPACE}"`
+
+/** The minimal pain.001 with every text element the xsi cases below annotate. */
+const XSI_CT: CreditTransferDocument = {
+  ...MINIMAL_CT,
+  batches: MINIMAL_CT.batches.map((batch) => ({
+    ...batch,
+    transfers: batch.transfers.map((transfer) => ({
+      ...transfer,
+      amount: euros('123.45'),
+      creditor: {
+        name: 'Test Creditor',
+        iban: 'DE65200400300234567000',
+        bic: 'DEUTDEFFXXX',
+        address: { streetName: 'Main St', townName: 'Berlin', country: 'DE' },
+      },
+      ultimateCreditor: { name: 'Ultimate Creditor' },
+      purpose: 'GDDS',
+      remittanceInfo: 'Invoice 1',
+    })),
+  })),
+}
+
+/** The minimal pain.008 with remittance information. */
+const XSI_DD: DirectDebitDocument = {
+  ...MINIMAL_DD,
+  batches: MINIMAL_DD.batches.map((batch) => ({
+    ...batch,
+    collections: batch.collections.map((c) => ({
+      ...c,
+      amount: euros('50.00'),
+      remittanceInfo: 'Invoice 8',
+    })),
+  })),
+}
+
+type XmlEdits = ReadonlyArray<readonly [from: string, to: string]>
+
+/** Apply text replacements to a written document; each `from` must occur in it. */
+function edited(xml: string, edits: XmlEdits): string {
+  return edits.reduce((text, [from, to]) => {
+    if (!text.includes(from)) throw new Error(`the written document has no ${from}`)
+    return text.replace(from, to)
+  }, xml)
+}
+
+function parsedData(xml: string): CreditTransferDocument | DirectDebitDocument {
+  const result = parse(xml)
+  if (!result.ok) throw new Error('expected ok:true, got: ' + result.error)
+  return result.data
+}
+
+const VENDORED_SCHEMAS = ['iso20022', 'dk'].flatMap((folder) => {
+  const directory = new URL(`../schemas/${folder}/`, import.meta.url)
+  return readdirSync(directory).map((file) => new URL(file, directory))
+})
+
+describe('parse() ignores the XML Schema instance attributes that cannot change a value', () => {
+  it('should read text elements that carry xsi:type, xsi:schemaLocation or xsi:noNamespaceSchemaLocation (review repro)', async () => {
+    const p = `xmlns:p="${NS_PAIN001}"`
+    const ustrd = '<Ustrd>Invoice 1</Ustrd>'
+    const cases: XmlEdits[] = [
+      [[ustrd, `<Ustrd ${XSI} ${p} xsi:type="p:Max140Text">Invoice 1</Ustrd>`]],
+      [
+        [
+          '<Nm>Ultimate Creditor</Nm>',
+          `<Nm ${XSI} ${p} xsi:type="p:Max140Text">Ultimate Creditor</Nm>`,
+        ],
+      ],
+      [['<Cd>GDDS</Cd>', `<Cd ${XSI} ${p} xsi:type="p:ExternalPurpose1Code">GDDS</Cd>`]],
+      [['<StrtNm>Main St</StrtNm>', `<StrtNm ${XSI} ${p} xsi:type="p:Max70Text">Main St</StrtNm>`]],
+      [
+        [
+          '<BICFI>DEUTDEFFXXX</BICFI>',
+          `<BICFI ${XSI} ${p} xsi:type="p:BICFIDec2014Identifier">DEUTDEFFXXX</BICFI>`,
+        ],
+      ],
+      [
+        [
+          '<InstdAmt Ccy="EUR">123.45</InstdAmt>',
+          `<InstdAmt ${XSI} ${p} xsi:type="p:ActiveOrHistoricCurrencyAndAmount" Ccy="EUR">123.45</InstdAmt>`,
+        ],
+      ],
+      [[ustrd, `<Ustrd ${XSI} xsi:schemaLocation="${NS_PAIN001} a.xsd">Invoice 1</Ustrd>`]],
+      [[ustrd, `<Ustrd ${XSI} xsi:noNamespaceSchemaLocation="a.xsd">Invoice 1</Ustrd>`]],
+      [
+        [`<Document xmlns="${NS_PAIN001}">`, `<Document xmlns="${NS_PAIN001}" ${XSI} ${p}>`],
+        [ustrd, '<Ustrd xsi:type="p:Max140Text">Invoice 1</Ustrd>'],
+      ],
+      [
+        [
+          ustrd,
+          `<Ustrd xmlns:foo="${XSI_NAMESPACE}" ${p} foo:type="p:Max140Text">Invoice 1</Ustrd>`,
+        ],
+      ],
+      [
+        [
+          ustrd,
+          `<Ustrd xmlns:foo="http://www.w3.org/2001/XMLSchema&#45;instance" foo:schemaLocation="${NS_PAIN001} a.xsd">Invoice 1</Ustrd>`,
+        ],
+      ],
+    ]
+    const template = writeCreditTransfer(XSI_CT)
+    expect(parsedData(template)).toStrictEqual(XSI_CT)
+    for (const edits of cases) {
+      const xml = edited(template, edits)
+      const label = edits.map(([, to]) => to).join(' ')
+      expect(await validateXsd(xml), label).toEqual({ valid: true, errors: [] })
+      expect(parsedData(xml), label).toStrictEqual(XSI_CT)
+    }
+    const p8 = `xmlns:p="${NS_PAIN008}"`
+    const directDebit = writeDirectDebit(XSI_DD)
+    for (const edits of [
+      [
+        [
+          '<Ustrd>Invoice 8</Ustrd>',
+          `<Ustrd ${XSI} ${p8} xsi:type="p:Max140Text">Invoice 8</Ustrd>`,
+        ],
+      ],
+      [
+        [
+          '<InstdAmt Ccy="EUR">50.00</InstdAmt>',
+          `<InstdAmt ${XSI} ${p8} xsi:type="p:ActiveOrHistoricCurrencyAndAmount" Ccy="EUR">50.00</InstdAmt>`,
+        ],
+      ],
+    ] satisfies XmlEdits[]) {
+      const xml = edited(directDebit, edits)
+      expect(await validateXsd(xml)).toEqual({ valid: true, errors: [] })
+      expect(parsedData(xml)).toStrictEqual(XSI_DD)
+    }
+  })
+
+  it('should return ok:false for any other xsi attribute and for a type attribute in another namespace', async () => {
+    const ustrd = '<Ustrd>Invoice 1</Ustrd>'
+    const unread = (element: string, attribute: string) =>
+      `Cannot read <${element}>: it carries the attribute ${attribute}, which the model does not hold`
+    const cases: Array<[XmlEdits, string]> = [
+      [[[ustrd, `<Ustrd ${XSI} xsi:nil="false">Invoice 1</Ustrd>`]], unread('Ustrd', 'xsi:nil')],
+      [[[ustrd, `<Ustrd ${XSI} xsi:nil="true"/>`]], unread('Ustrd', 'xsi:nil')],
+      [
+        [
+          [
+            '<InstdAmt Ccy="EUR">123.45</InstdAmt>',
+            `<InstdAmt ${XSI} xsi:nil="false" Ccy="EUR">123.45</InstdAmt>`,
+          ],
+        ],
+        unread('InstdAmt', 'xsi:nil'),
+      ],
+      [[[ustrd, `<Ustrd ${XSI} xsi:type2="x">Invoice 1</Ustrd>`]], unread('Ustrd', 'xsi:type2')],
+      [
+        [[ustrd, '<Ustrd xmlns:xsi="urn:other" xsi:type="Max140Text">Invoice 1</Ustrd>']],
+        unread('Ustrd', 'xsi:type'),
+      ],
+      [
+        [
+          [`<Document xmlns="${NS_PAIN001}">`, `<Document xmlns="${NS_PAIN001}" ${XSI}>`],
+          [ustrd, '<Ustrd xmlns:xsi="urn:other" xsi:type="Max140Text">Invoice 1</Ustrd>'],
+        ],
+        unread('Ustrd', 'xsi:type'),
+      ],
+      [[[ustrd, '<Ustrd type="Max140Text">Invoice 1</Ustrd>']], unread('Ustrd', 'type')],
+    ]
+    const template = writeCreditTransfer(XSI_CT)
+    for (const [edits, error] of cases) {
+      const xml = edited(template, edits)
+      expect((await validateXsd(xml)).valid, error).toBe(false)
+      expect(parseError(xml), error).toBe(error)
+    }
+    const directDebit = edited(writeDirectDebit(XSI_DD), [
+      ['<Ustrd>Invoice 8</Ustrd>', `<Ustrd ${XSI} xsi:nil="false">Invoice 8</Ustrd>`],
+    ])
+    expect((await validateXsd(directDebit)).valid).toBe(false)
+    expect(parseError(directDebit)).toBe(unread('Ustrd', 'xsi:nil'))
+  })
+
+  it('should find no type in the vendored schemas derived from the type of an element, and no nillable element', () => {
+    expect(VENDORED_SCHEMAS).toHaveLength(6)
+    for (const file of VENDORED_SCHEMAS) {
+      const doc = XmlDocument.fromString(readFileSync(file, 'utf-8'))
+      try {
+        const values = (xpath: string) => doc.find(xpath).map((node) => node.content)
+        const namedTypes = new Set(
+          values("//*[local-name()='complexType' or local-name()='simpleType']/@name")
+        )
+        const elementTypes = new Set(values("//*[local-name()='element']/@type"))
+        const bases = values("//*[local-name()='restriction' or local-name()='extension']/@base")
+        expect(elementTypes.size, file.pathname).toBeGreaterThan(0)
+        expect(
+          [...elementTypes].filter((type) => !namedTypes.has(type)),
+          `${file.pathname}: elements of a built-in type`
+        ).toEqual([])
+        expect(
+          bases.filter((base) => elementTypes.has(base)),
+          `${file.pathname}: types derived from the type of an element`
+        ).toEqual([])
+        expect(values("//*[local-name()='element']/@nillable"), file.pathname).toEqual([])
+      } finally {
+        doc[Symbol.dispose]()
+      }
+    }
   })
 })
 
