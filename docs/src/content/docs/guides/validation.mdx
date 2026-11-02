@@ -71,8 +71,7 @@ Both validate functions return a `ValidationResult`:
 
 ```typescript
 type ValidationResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; errors: ZodIssue[]; profileIssues?: ProfileIssue[] }
+  { ok: true; data: T } | { ok: false; errors: ZodIssue[]; profileIssues?: ProfileIssue[] }
 ```
 
 `profileIssues` is only present when a profile was supplied.

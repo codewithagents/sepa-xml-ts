@@ -13,18 +13,19 @@ jobs:
     name: Code Intelligence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # full history needed for audit base comparison
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: fallow-rs/fallow@71cefac7af05f17732482241c7671a401707cc9d # v2
+      - uses: fallow-rs/fallow@d052786ef2baf78fa5b196f06dbccd6f0d26798e # v3
         env:
-          # fallow-rs/fallow@v2 uses actions/github-script internally which pins Node.js 20.
+          # fallow-rs/fallow nests JavaScript actions (cache, codeql-action) that may pin Node.js 20.
           # GitHub is moving action runners to Node.js 24, so opt in early to catch breakage.
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:

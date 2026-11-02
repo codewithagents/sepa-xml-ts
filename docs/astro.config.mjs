@@ -10,12 +10,14 @@ export default defineConfig({
   site: 'https://sepa.codewithagents.de',
   base: '/',
   // Explicitly enable GFM so markdown tables render in .mdx files
-  // (Astro 6 + Starlight 0.39 do not apply it to MDX by default).
+  // (Astro 7 + Starlight 0.42 do not apply it to MDX by default).
   markdown: {
     remarkPlugins: [remarkGfm],
   },
   integrations: [
     starlight({
+      // The built-in 404 route warns when src/content/docs/404.md is absent; src/pages/404.astro renders the same page.
+      disable404Route: true,
       title: 'SEPA XML for TypeScript',
       description:
         'Type-safe SEPA payment files. Parse, write, and validate ISO 20022 pain.001 credit transfers and pain.008 direct debits, with every file validated against the official EPC XSD.',

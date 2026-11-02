@@ -22,8 +22,7 @@ export type DirectDebitValidationFailure = {
   ruleIssues?: ProfileIssue[]
 }
 export type DirectDebitValidationResult =
-  | DirectDebitValidationSuccess
-  | DirectDebitValidationFailure
+  DirectDebitValidationSuccess | DirectDebitValidationFailure
 
 /** Options accepted by validateCreditTransfer and validateDirectDebit. */
 export interface ValidateOptions {

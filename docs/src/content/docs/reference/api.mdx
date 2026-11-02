@@ -77,8 +77,7 @@ type ParseResult =
 
 ```typescript
 type ValidationResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; errors: ZodIssue[]; profileIssues?: ProfileIssue[] }
+  { ok: true; data: T } | { ok: false; errors: ZodIssue[]; profileIssues?: ProfileIssue[] }
 ```
 
 ### Bank profiles
